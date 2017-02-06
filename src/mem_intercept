@@ -1,6 +1,6 @@
 #!/bin/bash
 
-prefix=/home/trahay/Soft/opt/memory_manager/src
+prefix=/home/trahay/Soft/opt/numma/src
 NUMAP_PREFIX=/home/trahay/Soft/opt/numap
 
 usage()
