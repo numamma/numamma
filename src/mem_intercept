@@ -1,0 +1,51 @@
+#!/bin/bash
+
+prefix=/home/trahay/Soft/opt/memory_manager/src
+NUMAP_PREFIX=/home/trahay/Soft/opt/numap
+
+usage()
+{
+cat << EOF
+usage: $0 options
+
+OPTIONS:
+   -?                               Show this message
+   -d                               Run EZtrace with gdb
+EOF
+}
+
+debug=n
+while getopts 'dv' OPTION; do
+  case $OPTION in
+  d)
+	debug=y
+       	;;
+  ?)	usage
+	exit 2
+	;;
+  esac
+done
+
+# remove the options from the command line
+shift $(($OPTIND - 1))
+
+prog_name=$1
+shift
+
+ld_preload=$prefix/libmemory.so
+ld_library_path=$ld_library_path:$NUMAP_PREFIX
+
+if [ x$debug = xy ]; then
+
+#  generate a gdbinit file that will preload all the modules
+   gdbinit_file=`mktemp`
+   echo "set env LD_PRELOAD=$ld_preload" > $gdbinit_file
+   echo "set env LD_LIBRARY_PATH=$ld_library_path" > $gdbinit_file
+   echo "echo \n" >> $gdbinit_file
+   echo "echo EZTrace: hook loaded\n" >> $gdbinit_file
+
+   gdb -x $gdbinit_file  --args $prog_name $*
+   rm  $gdbinit_file
+else
+  LD_PRELOAD=$ld_preload LD_LIBRARY_PATH=$ld_library_path $prog_name $*
+fi
