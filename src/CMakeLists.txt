@@ -1,5 +1,5 @@
 add_library(numma SHARED
-  memory.c
+  mem_intercept.c
   mem_analyzer.c
   )
 target_link_libraries(numma -ldl)

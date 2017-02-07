@@ -2,7 +2,7 @@
 #define MEM_ANALYZER_H
 
 #include <stdint.h>
-#include "memory.h"
+#include "mem_intercept.h"
 
 typedef uint64_t date_t;
 
