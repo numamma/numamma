@@ -196,6 +196,7 @@ void* calloc(size_t nmemb, size_t size) {
       fprintf(stderr, "warning: canary = %x instead of %x\n", *canary, CANARY_PATTERN);
     }
 #endif
+    printf("\n");
     ma_record_malloc(p_block);
     return p_block->u_ptr;
   }

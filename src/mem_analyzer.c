@@ -6,6 +6,11 @@
 struct memory_info_list*mem_list = NULL;
 struct numap_sampling_measure sm;
 
+extern void* (*libcalloc)(size_t nmemb, size_t size);
+extern void* (*libmalloc)(size_t size);
+extern void (*libfree)(void *ptr);
+extern void* (*librealloc)(void *ptr, size_t size);
+
 void ma_init() {
 #if 0
   int sampling_rate = 1000;
@@ -52,7 +57,7 @@ static uint64_t new_date() {
 
 
 void ma_record_malloc(struct mem_block_info* info) {
-  struct memory_info_list * p_node = malloc(sizeof(struct memory_info_list));
+  struct memory_info_list * p_node = libmalloc(sizeof(struct memory_info_list));
 
   /* todo: make this thread-safe */
   p_node->next = mem_list;
@@ -63,7 +68,6 @@ void ma_record_malloc(struct mem_block_info* info) {
   p_node->mem_info.initial_buffer_size = info->size;
   p_node->mem_info.buffer_size = info->size;
   p_node->mem_info.buffer_addr = info->u_ptr;
-  printf("New malloc(b_info= %p\n", info);
 }
 
 void ma_update_buffer_address(void *old_addr, void *new_addr) {
@@ -109,12 +113,13 @@ void ma_finalize() {
 #endif
   struct memory_info_list * p_node = mem_list;
   while(p_node) {
-    printf("buffer %p (%lu - %lu bytes) allocated at %x, freed at %x\n",
+    printf("buffer %p (%lu - %lu bytes) allocated at %x, freed at %x (duration =%lu ticks)\n",
 	   p_node->mem_info.buffer_addr,
 	   p_node->mem_info.initial_buffer_size,
 	   p_node->mem_info.buffer_size,
 	   p_node->mem_info.alloc_date,
-	   p_node->mem_info.free_date);
+	   p_node->mem_info.free_date,
+	   p_node->mem_info.free_date-p_node->mem_info.alloc_date);
     p_node = p_node->next;
   }
 }

@@ -123,8 +123,6 @@ void test_calloc() {
       buffer[i][j] = 'a';
     }
 
-    /* compute for 1ms */
-    compute(50000);
     free(buffer[i]);
     compute(10000);
   }
@@ -133,12 +131,12 @@ void test_calloc() {
 int main(int argc, char**argv) {
   char* buffer[ITER];
   int i, j;
-  fprintf(stderr, "PLOP\n");
+
   debug("Testing malloc\n");
   test_malloc();
   debug("1/2 done\n");
-  compute(100000);
 
+  compute(100000);
   test_malloc();
   debug("2/2 done\n");
 
