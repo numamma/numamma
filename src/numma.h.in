@@ -1,0 +1,5 @@
+#ifndef NUMMA_H
+#define NUMMA_H
+
+#define INSTALL_PREFIX @PREFIX@
+#endif	/* NUMMA_H */
