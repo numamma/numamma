@@ -3,6 +3,8 @@
 #include "mem_analyzer.h"
 #include "numap.h"
 
+//#define USE_NUMAP 1
+
 struct memory_info_list*mem_list = NULL;
 struct numap_sampling_measure sm;
 
@@ -12,7 +14,7 @@ extern void (*libfree)(void *ptr);
 extern void* (*librealloc)(void *ptr, size_t size);
 
 void ma_init() {
-#if 0
+#if USE_NUMAP
   int sampling_rate = 1000;
   int res = numap_sampling_init_measure(&sm, 2, sampling_rate, 64);
   if(res < 0) {
@@ -99,7 +101,11 @@ void ma_record_free(struct mem_block_info* info) {
 
 
 void ma_finalize() {
-#if 0
+  printf("---------------------------------\n");
+  printf("         MEM ANALYZER\n");
+  printf("---------------------------------\n");
+
+#if USE_NUMAP
   // Stop memory read access sampling
   int res = numap_sampling_read_stop(&sm);
   if(res < 0) {

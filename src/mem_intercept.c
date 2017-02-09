@@ -8,12 +8,20 @@
 #include <inttypes.h>
 #include <dlfcn.h>
 #include <string.h>
+#include <execinfo.h>
 
 #include "memory.h"
 #include "mem_analyzer.h"
 
 #define EZTRACE_PROTECT if(malloc_protect_on == 0)
+
+//#define DEBUG 1
+
+#if DEBUG
 #define FUNCTION_ENTRY printf("%s\n", __FUNCTION__)
+#else
+#define FUNCTION_ENTRY //printf("%s\n", __FUNCTION__)
+#endif
 
 /* set to 1 when all the hooks are set.
  * This is useful in order to avoid recursive calls
@@ -28,6 +36,31 @@ void (*libfree)(void *ptr) = NULL;
 void* (*librealloc)(void *ptr, size_t size) = NULL;
 
 static int malloc_protect_on = 0;
+
+void print_backtrace() {
+#define BT_BUF_SIZE 100
+  int j, nptrs;
+  void *buffer[BT_BUF_SIZE];
+  char **strings;
+
+  nptrs = backtrace(buffer, BT_BUF_SIZE);
+  printf("backtrace() returned %d addresses\n", nptrs);
+  printf("-------------------\n");
+  /* The call backtrace_symbols_fd(buffer, nptrs, STDOUT_FILENO)
+     would produce similar output to the following: */
+
+  strings = backtrace_symbols(buffer, nptrs);
+  if (strings == NULL) {
+    perror("backtrace_symbols");
+    exit(EXIT_FAILURE);
+  }
+
+  for (j = 0; j < nptrs; j++)
+    printf("%s\n", strings[j]);
+  printf("-------------------\n");
+
+  free(strings);
+}
 
 /* Custom malloc function. It is used when libmalloc=NULL (e.g. during startup)
  * This function is not thread-safe and is very likely to be bogus, so use with
@@ -87,8 +120,11 @@ void* malloc(size_t size) {
 
   EZTRACE_PROTECT {
     malloc_protect_on = 1;
-    FUNCTION_ENTRY;
-    void* pptr = libmalloc(size + HEADER_SIZE);
+    //    FUNCTION_ENTRY;
+#if DEBUG
+    printf("malloc(%d) ", size);
+#endif
+    void* pptr = libmalloc(size + HEADER_SIZE + TAIL_SIZE);
     struct mem_block_info *p_block = NULL;
     INIT_MEM_INFO(p_block, pptr, size, 1);
     p_block->mem_type = MEM_TYPE_MALLOC;
@@ -102,6 +138,12 @@ void* malloc(size_t size) {
 #endif
 
     ma_record_malloc(p_block);
+#if DEBUG
+    printf("-> %p\n", p_block->u_ptr);
+#endif
+#if 0
+    print_backtrace();
+#endif
     malloc_protect_on = 0;
     return p_block->u_ptr;
   }
@@ -178,8 +220,8 @@ void* calloc(size_t nmemb, size_t size) {
 
   EZTRACE_PROTECT {
     /* compute the number of blocks for header */
-    int nb_memb_header = HEADER_SIZE / size;
-    if (size * nb_memb_header < HEADER_SIZE)
+    int nb_memb_header = (HEADER_SIZE  + TAIL_SIZE)/ size;
+    if (size * nb_memb_header < HEADER_SIZE + TAIL_SIZE)
       nb_memb_header++;
 
     /* allocate buffer + header */
@@ -196,7 +238,6 @@ void* calloc(size_t nmemb, size_t size) {
       fprintf(stderr, "warning: canary = %x instead of %x\n", *canary, CANARY_PATTERN);
     }
 #endif
-    printf("\n");
     ma_record_malloc(p_block);
     return p_block->u_ptr;
   }
@@ -213,8 +254,10 @@ void free(void* ptr) {
       exit(1);
     }
   }
-
-  FUNCTION_ENTRY;
+#if DEBUG
+  printf("free(%p)\n", ptr);
+#endif
+  //  FUNCTION_ENTRY;
 
   if (!ptr) {
     libfree(ptr);
@@ -250,10 +293,8 @@ void free(void* ptr) {
 
 static void __memory_init(void) __attribute__ ((constructor));
 static void __memory_init(void) {
-
   malloc_protect_on = 1;
 
-  //libmalloc = dlsym(RTLD_NEXT, "malloc");
   libmalloc = dlsym(RTLD_NEXT, "malloc");
   libcalloc = dlsym(RTLD_NEXT, "calloc");
   librealloc = dlsym(RTLD_NEXT, "realloc");

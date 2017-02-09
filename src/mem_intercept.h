@@ -50,7 +50,8 @@ struct mem_block_info {
 }__attribute__((__packed__));
 
 /* size of the padding + mem_info structure */
-#define HEADER_SIZE     (sizeof(struct mem_block_info) + sizeof(struct mem_tail_block))
+#define HEADER_SIZE     (sizeof(struct mem_block_info))
+#define TAIL_SIZE       (sizeof(struct mem_tail_block))
 
 #define CANARY_OK(u_ptr) ((*(canary_t*)((u_ptr) - sizeof(canary_t))) == CANARY_PATTERN)
 #define TAIL_CANARY_OK(b_info) ((b_info)->tail_block->canary == CANARY_PATTERN)
