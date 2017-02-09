@@ -32,15 +32,15 @@ shift $(($OPTIND - 1))
 prog_name=$1
 shift
 
-ld_preload=$prefix/lib/libnumma.so
-ld_library_path=$ld_library_path:$NUMAP_LIBDIR
+ld_preload=$LD_PRELOAD:$prefix/lib/libnumma.so
+ld_library_path=$LD_LIBRARY_PATH:$NUMAP_LIBDIR
 
 if [ x$debug = xy ]; then
 
 #  generate a gdbinit file that will preload all the modules
    gdbinit_file=`mktemp`
    echo "set env LD_PRELOAD=$ld_preload" > $gdbinit_file
-   echo "set env LD_LIBRARY_PATH=$ld_library_path" > $gdbinit_file
+   echo "set env LD_LIBRARY_PATH=$ld_library_path" >> $gdbinit_file
    echo "echo \n" >> $gdbinit_file
    echo "echo EZTrace: hook loaded\n" >> $gdbinit_file
 
