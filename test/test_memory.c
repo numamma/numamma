@@ -64,6 +64,21 @@ void compute(int usec) {
   } while (TIME_DIFF(tv1, tv2) < usec);
 }
 
+/* Fake computation of usec microseconds */
+char use_buffer(char* buffer, int buffer_size, int usec) {
+  char res = 0;
+  struct timeval tv1, tv2;
+  gettimeofday(&tv1, NULL);
+  do {
+    int i;
+    for(i=0; i<buffer_size; i++) {
+      res = (res + buffer[i])%128;
+    }
+    gettimeofday(&tv2, NULL);
+  } while (TIME_DIFF(tv1, tv2) < usec);
+  return res;
+}
+
 void test_malloc() {
   int i, j;
   char*buffer[ITER];
@@ -79,7 +94,9 @@ void test_malloc() {
 
     printf("buffer[%d][%d] = %p\n", i, alloc_size-1, &buffer[i][alloc_size-1]);
     /* compute for 1ms */
-    compute(50000);
+
+    buffer[i][0] = use_buffer(buffer[i], alloc_size,  50000);
+    //compute(50000);
     free(buffer[i]);
     compute(10000);
   }
@@ -97,13 +114,13 @@ void test_realloc() {
     }
 
     /* compute for 1ms */
-    compute(20000);
+    buffer[i][0] = use_buffer(buffer[i], alloc_size, 20000);
 
     alloc_size *= 2;
     debug("\t\tloop %d/%d: reallocating %d bytes\n", i, ITER, alloc_size);
     buffer[i] = realloc(buffer[i], alloc_size);
 
-    compute(20000);
+    buffer[i][0] = use_buffer(buffer[i], alloc_size, 20000);
 
     free(buffer[i]);
     compute(10000);
@@ -122,6 +139,7 @@ void test_calloc() {
     for (j = 0; j < (1 + i) * 1024; j++) {
       buffer[i][j] = 'a';
     }
+    buffer[i][0] = use_buffer(buffer[i], alloc_size, 20000);
 
     free(buffer[i]);
     compute(10000);
