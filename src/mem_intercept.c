@@ -15,7 +15,7 @@
 
 #define EZTRACE_PROTECT if(malloc_protect_on == 0)
 
-//#define DEBUG 1
+#define DEBUG 1
 
 #if DEBUG
 #define FUNCTION_ENTRY printf("%s\n", __FUNCTION__)
@@ -34,6 +34,9 @@ void* (*libcalloc)(size_t nmemb, size_t size) = NULL;
 void* (*libmalloc)(size_t size) = NULL;
 void (*libfree)(void *ptr) = NULL;
 void* (*librealloc)(void *ptr, size_t size) = NULL;
+int  (*libpthread_create) (pthread_t * thread, const pthread_attr_t * attr,
+			   void *(*start_routine) (void *), void *arg);
+void (*libpthread_exit) (void *thread_return);
 
 static int malloc_protect_on = 0;
 
@@ -291,6 +294,59 @@ void free(void* ptr) {
   }
 }
 
+/* Internal structure used for transmitting the function and argument
+ * during pthread_create.
+ */
+struct __pthread_create_info_t {
+  void *(*func)(void *);
+  void *arg;
+};
+
+
+/* Invoked by pthread_create on the new thread */
+static void *
+__pthread_new_thread(void *arg) {
+  struct __pthread_create_info_t *p_arg = (struct __pthread_create_info_t*) arg;
+  void *(*f)(void *) = p_arg->func;
+  void *__arg = p_arg->arg;
+  free(p_arg);
+  ma_thread_init();
+  void *res = (*f)(__arg);
+  ma_thread_finalize();
+  return res;
+}
+
+int
+pthread_create (pthread_t *__restrict thread,
+		const pthread_attr_t *__restrict attr,
+		void *(*start_routine) (void *),
+		void *__restrict arg)
+{
+  FUNCTION_ENTRY;
+  struct __pthread_create_info_t * __args =
+    (struct __pthread_create_info_t*) malloc(
+	sizeof(struct __pthread_create_info_t));
+  __args->func = start_routine;
+  __args->arg = arg;
+
+  if (!libpthread_create) {
+    libpthread_create = dlsym(RTLD_NEXT, "pthread_create");
+  }
+
+  /* We do not call directly start_routine since we could not get the actual creation timestamp of
+   * the thread. Let's invoke __pthread_new_thread that will PROF_EVENT the thread and call
+   * start_routine.
+   */
+  int retval = libpthread_create(thread, attr, __pthread_new_thread, __args);
+  return retval;
+}
+
+void pthread_exit(void *thread_return) {
+  FUNCTION_ENTRY;
+  libpthread_exit(thread_return);
+  __builtin_unreachable();
+}
+
 static void __memory_init(void) __attribute__ ((constructor));
 static void __memory_init(void) {
   malloc_protect_on = 1;
@@ -299,6 +355,8 @@ static void __memory_init(void) {
   libcalloc = dlsym(RTLD_NEXT, "calloc");
   librealloc = dlsym(RTLD_NEXT, "realloc");
   libfree = dlsym(RTLD_NEXT, "free");
+  libpthread_create = dlsym(RTLD_NEXT, "pthread_create");
+  libpthread_exit = dlsym(RTLD_NEXT, "pthread_exit");
 
   malloc_protect_on = 0;
   ma_init();

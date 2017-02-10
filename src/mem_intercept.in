@@ -48,4 +48,5 @@ if [ x$debug = xy ]; then
    rm  $gdbinit_file
 else
   LD_PRELOAD=$ld_preload LD_LIBRARY_PATH=$ld_library_path $prog_name $*
+  exit 0
 fi

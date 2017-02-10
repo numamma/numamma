@@ -15,6 +15,7 @@ struct memory_info {
 
   void* buffer_addr;
   /* TODO: numa node ? thread that allocates */
+  uint32_t read_access;
 };
 
 struct memory_info_list {
@@ -27,5 +28,7 @@ void ma_record_malloc(struct mem_block_info* info);
 void ma_update_buffer_address(void *old_addr, void*new_addr);
 void ma_record_free(struct mem_block_info* info);
 
+void ma_thread_init();
+void ma_thread_finalize();
 void ma_finalize();
 #endif	/* MEM_ANALYZER */
