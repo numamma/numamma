@@ -11,14 +11,19 @@ usage: $0 options
 OPTIONS:
    -?                               Show this message
    -d                               Run mem_intercept with gdb
+   -v                               Verbose mode
 EOF
 }
 
 debug=n
+verbose=n
 while getopts 'dv' OPTION; do
   case $OPTION in
   d)
 	debug=y
+       	;;
+  v)
+	verbose=y
        	;;
   ?)	usage
 	exit 2
@@ -37,16 +42,23 @@ ld_library_path=$LD_LIBRARY_PATH:$NUMAP_LIBDIR
 
 if [ x$debug = xy ]; then
 
-#  generate a gdbinit file that will preload all the modules
-   gdbinit_file=`mktemp`
-   echo "set env LD_PRELOAD=$ld_preload" > $gdbinit_file
-   echo "set env LD_LIBRARY_PATH=$ld_library_path" >> $gdbinit_file
-   echo "echo \n" >> $gdbinit_file
-   echo "echo EZTrace: hook loaded\n" >> $gdbinit_file
+    #  generate a gdbinit file that will preload all the modules
+    gdbinit_file=`mktemp`
+    echo "set env LD_PRELOAD=$ld_preload" > $gdbinit_file
 
-   gdb -x $gdbinit_file  --args $prog_name $*
-   rm  $gdbinit_file
+    if [ x$verbose = xy ]; then
+	echo "set env NUMMA_VERBOSE=1" >> $gdbinit_file
+    fi
+    echo "set env LD_LIBRARY_PATH=$ld_library_path" >> $gdbinit_file
+    echo "echo \n" >> $gdbinit_file
+    echo "echo EZTrace: hook loaded\n" >> $gdbinit_file
+
+    gdb -x $gdbinit_file  --args $prog_name $*
+    rm  $gdbinit_file
 else
-  LD_PRELOAD=$ld_preload LD_LIBRARY_PATH=$ld_library_path $prog_name $*
-  exit 0
+    if [ x$verbose = xy ]; then
+	export NUMMA_VERBOSE=1
+    fi
+    LD_PRELOAD=$ld_preload LD_LIBRARY_PATH=$ld_library_path $prog_name $*
+    exit 0
 fi

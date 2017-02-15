@@ -15,7 +15,7 @@
 
 #define EZTRACE_PROTECT if(malloc_protect_on == 0)
 
-#define DEBUG 1
+//#define DEBUG 1
 
 #if DEBUG
 #define FUNCTION_ENTRY printf("%s\n", __FUNCTION__)
@@ -182,6 +182,7 @@ void* realloc(void *ptr, size_t size) {
   }
 
   EZTRACE_PROTECT {
+    malloc_protect_on = 1;
     struct mem_block_info *p_block;
     USER_PTR_TO_BLOCK_INFO(ptr, p_block);
     size_t old_size = p_block->size;
@@ -205,6 +206,8 @@ void* realloc(void *ptr, size_t size) {
     p_block->mem_type = MEM_TYPE_MALLOC;
     void *new_addr= p_block->u_ptr;
     ma_update_buffer_address(old_addr, new_addr);
+
+    malloc_protect_on = 0;
     return p_block->u_ptr;
   }
 
@@ -222,6 +225,7 @@ void* calloc(size_t nmemb, size_t size) {
   FUNCTION_ENTRY;
 
   EZTRACE_PROTECT {
+    malloc_protect_on = 1;
     /* compute the number of blocks for header */
     int nb_memb_header = (HEADER_SIZE  + TAIL_SIZE)/ size;
     if (size * nb_memb_header < HEADER_SIZE + TAIL_SIZE)
@@ -242,6 +246,7 @@ void* calloc(size_t nmemb, size_t size) {
     }
 #endif
     ma_record_malloc(p_block);
+    malloc_protect_on = 0;
     return p_block->u_ptr;
   }
   return libcalloc(nmemb, size);
@@ -257,11 +262,6 @@ void free(void* ptr) {
       exit(1);
     }
   }
-#if DEBUG
-  printf("free(%p)\n", ptr);
-#endif
-  //  FUNCTION_ENTRY;
-
   if (!ptr) {
     libfree(ptr);
     return;
@@ -276,8 +276,14 @@ void free(void* ptr) {
 
   /* retrieve the block information and free it */
   EZTRACE_PROTECT {
+    malloc_protect_on = 1;
     struct mem_block_info *p_block;
     USER_PTR_TO_BLOCK_INFO(ptr, p_block);
+
+#if DEBUG
+    printf("free(%p)\n", ptr);
+#endif
+  //  FUNCTION_ENTRY;
 
 #if 1
     if(!TAIL_CANARY_OK(p_block)) {
@@ -291,7 +297,10 @@ void free(void* ptr) {
     } else {
       /* the buffer was allocated by hand_made_malloc, there's nothing to free */
     }
+    malloc_protect_on = 0;
+    return;
   }
+  libfree(ptr);
 }
 
 /* Internal structure used for transmitting the function and argument

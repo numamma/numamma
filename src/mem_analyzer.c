@@ -8,6 +8,7 @@
 static int  __record_infos = 0;
 struct memory_info_list*mem_list = NULL;
 struct numap_sampling_measure sm;
+struct numap_sampling_measure sm_wr;
 
 extern void* (*libcalloc)(size_t nmemb, size_t size);
 extern void* (*libmalloc)(size_t size);
@@ -16,7 +17,10 @@ extern void* (*librealloc)(void *ptr, size_t size);
 
 void collect_samples();
 void start_sampling();
+void __analyze_sampling(struct numap_sampling_measure *sm,
+			enum access_type access_type);
 
+static int _verbose = 0;
 /* todo:
  * - intercept thread creation and run numap_sampling_init_measure for each thread
  * - set an alarm every 1ms to collect the sampling info
@@ -30,8 +34,23 @@ void ma_init() {
   if(sampling_rate_str)
     sampling_rate=atoi(sampling_rate_str);
   printf("Sampling rate: %d\n", sampling_rate);
+
+  char* verbose_str = getenv("NUMMA_VERBOSE");
+  if(verbose_str) {
+    if(strcmp(verbose_str, "0")!=0) {
+      _verbose = 1;
+      printf("Verbose mode enabled\n");
+    }
+  }
+
   numap_init();
   int res = numap_sampling_init_measure(&sm, 1, sampling_rate, 64);
+  if(res < 0) {
+    fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
+    abort();
+  }
+
+  res = numap_sampling_init_measure(&sm_wr, 1, sampling_rate, 64);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
     abort();
@@ -50,7 +69,8 @@ void start_sampling() {
 #if USE_NUMAP
   int previous_state = __record_infos;
   __record_infos = 0;
-  printf("-------------- Start sampling %d\n", is_sampling);
+  if(_verbose)
+    printf("-------------- Start sampling %d\n", is_sampling);
 
   if(is_sampling) {
     printf("is_sampling = %d !\n", is_sampling);
@@ -63,7 +83,15 @@ void start_sampling() {
     fprintf(stderr, "numap_sampling_start error : %s\n", numap_error_message(res));
     abort();
   }
-  __record_infos = previous_state;
+
+#if 0
+  res = numap_sampling_write_start(&sm_wr);
+  if(res < 0) {
+    fprintf(stderr, "numap_sampling_start error : %s\n", numap_error_message(res));
+    abort();
+  }
+#endif
+__record_infos = previous_state;
 #endif
 }
 
@@ -72,7 +100,8 @@ void collect_samples() {
   int previous_state = __record_infos;
   __record_infos = 0;
 
-  printf("-------------- Collect samples %d\n", is_sampling);
+  if(_verbose)
+    printf("-------------- Collect samples %d\n", is_sampling);
 
   if(!is_sampling) {
     printf("is_sampling = %d !\n", is_sampling);
@@ -89,7 +118,21 @@ void collect_samples() {
 
   // Print memory read sampling results
   //  numap_sampling_read_print(&sm, 1);
-  __analyze_sampling(&sm);
+  __analyze_sampling(&sm, ACCESS_READ);
+
+
+#if 0
+  res = numap_sampling_write_stop(&sm_wr);
+  if(res < 0) {
+    printf("numap_sampling_stop error : %s\n", numap_error_message(res));
+    abort();
+  }
+
+  // Print memory read sampling results
+  //  numap_sampling_read_print(&sm, 1);
+  __analyze_sampling(&sm_wr, ACCESS_WRITE);
+#endif
+
   __record_infos = previous_state;
 #endif
 }
@@ -157,7 +200,20 @@ void ma_record_malloc(struct mem_block_info* info) {
   p_node->mem_info.initial_buffer_size = info->size;
   p_node->mem_info.buffer_size = info->size;
   p_node->mem_info.buffer_addr = info->u_ptr;
-  p_node->mem_info.read_access = 0;
+  int i;
+  for(i=0; i<ACCESS_MAX; i++) {
+    p_node->mem_info.count[i].total_count = 0;
+
+    p_node->mem_info.count[i].na_miss_count = 0;
+    p_node->mem_info.count[i].cache1_count = 0;
+    p_node->mem_info.count[i].cache2_count = 0;
+    p_node->mem_info.count[i].cache3_count = 0;
+    p_node->mem_info.count[i].lfb_count = 0;
+    p_node->mem_info.count[i].memory_count = 0;
+    p_node->mem_info.count[i].remote_memory_count = 0;
+    p_node->mem_info.count[i].remote_cache_count = 0;
+  }
+
 }
 
 void ma_update_buffer_address(void *old_addr, void *new_addr) {
@@ -198,77 +254,69 @@ void ma_thread_finalize() {
   printf("End of thread: %d\n", tid);
 }
 
-void __analyze_sampling(struct numap_sampling_measure *sm) {
+void __analyze_sampling(struct numap_sampling_measure *sm,
+			enum access_type access_type) {
   int thread;
-  struct numap_sampling_read_stat p_stat[sm->nb_threads];
 
   for (thread = 0; thread < sm->nb_threads; thread++) {
+
+    struct mem_sampling_stat p_stat;
     struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
-    p_stat[thread].head = metadata_page -> data_head;
+    p_stat.head = metadata_page -> data_head;
     rmb();
-    p_stat[thread].header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
+    p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
 
-    p_stat[thread].consumed = 0;
-    p_stat[thread].na_miss_count = 0;
-    p_stat[thread].cache1_count = 0;
-    p_stat[thread].cache2_count = 0;
-    p_stat[thread].cache3_count = 0;
-    p_stat[thread].lfb_count = 0;
-    p_stat[thread].memory_count = 0;
-    p_stat[thread].remote_memory_count = 0;
-    p_stat[thread].remote_cache_count = 0;
-    p_stat[thread].total_count = 0;
-
-    while (p_stat[thread].consumed < p_stat[thread].head) {
-      if (p_stat[thread].header->size == 0) {
+    while (p_stat.consumed < p_stat.head) {
+      if (p_stat.header->size == 0) {
   	fprintf(stderr, "Error: invalid header size = 0\n");
   	abort();
       }
-      if (p_stat[thread].header -> type == PERF_RECORD_SAMPLE) {
-  	struct read_sample *sample = (struct read_sample *)((char *)(p_stat[thread].header) + 8);
-	if (is_served_by_local_NA_miss(sample->data_src)) {
-  	  p_stat[thread].na_miss_count++;
-  	}
-	if (is_served_by_local_cache1(sample->data_src)) {
-  	  p_stat[thread].cache1_count++;
-	}
-	if (is_served_by_local_cache2(sample->data_src)) {
-  	  p_stat[thread].cache2_count++;
-	}
-	if (is_served_by_local_cache3(sample->data_src)) {
-  	  p_stat[thread].cache3_count++;
-	}
-	if (is_served_by_local_lfb(sample->data_src)) {
-  	  p_stat[thread].lfb_count++;
-	}
-  	if (is_served_by_local_memory(sample->data_src)) {
-  	  p_stat[thread].memory_count++;
-  	}
-  	if (is_served_by_remote_memory(sample->data_src)) {
-  	  p_stat[thread].remote_memory_count++;
-  	}
-  	if (is_served_by_remote_cache_or_local_memory(sample->data_src)) {
-  	  p_stat[thread].remote_cache_count++;
-  	}
-  	p_stat[thread].total_count++;
+      if (p_stat.header -> type == PERF_RECORD_SAMPLE) {
+  	struct read_sample *sample = (struct read_sample *)((char *)(p_stat.header) + 8);
 
-
-#if 0
-	printf("pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n", sample->ip, sample->addr, get_data_src_level(sample->data_src), sample->weight);
-#endif
 	struct memory_info_list* p_node = find_mem_info_from_addr(sample->addr);
 	if(p_node) {
-	  p_node->mem_info.read_access++;
-#if 0
-	  printf("\tin buffer %p (read hits=%d)\n", p_node, p_node->mem_info.read_access);
-#endif
+	  p_node->mem_info.count[access_type].total_count++;
+
+	  if (is_served_by_local_NA_miss(sample->data_src)) {
+	    p_node->mem_info.count[access_type].na_miss_count++;
+	  }
+	  if (is_served_by_local_cache1(sample->data_src)) {
+	    p_node->mem_info.count[access_type].cache1_count++;
+	  }
+	  if (is_served_by_local_cache2(sample->data_src)) {
+	    p_node->mem_info.count[access_type].cache2_count++;
+	  }
+	  if (is_served_by_local_cache3(sample->data_src)) {
+	    p_node->mem_info.count[access_type].cache3_count++;
+	  }
+	  if (is_served_by_local_lfb(sample->data_src)) {
+	    p_node->mem_info.count[access_type].lfb_count++;
+	  }
+	  if (is_served_by_local_memory(sample->data_src)) {
+	    p_node->mem_info.count[access_type].memory_count++;
+	  }
+	  if (is_served_by_remote_memory(sample->data_src)) {
+	    p_node->mem_info.count[access_type].remote_memory_count++;
+	  }
+	  if (is_served_by_remote_cache_or_local_memory(sample->data_src)) {
+	    p_node->mem_info.count[access_type].remote_cache_count++;
+	  }
 	}
+
+#if 1
+	if(_verbose) {
+	  printf("pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n", sample->ip, sample->addr, get_data_src_level(sample->data_src), sample->weight);
+	}
+#endif
       }
-      p_stat[thread].consumed += p_stat[thread].header->size;
-      p_stat[thread].header = (struct perf_event_header *)((char *)p_stat[thread].header + p_stat[thread].header -> size);
+
+      p_stat.consumed += p_stat.header->size;
+      p_stat.header = (struct perf_event_header *)((char *)p_stat.header + p_stat.header->size);
     }
   }
 
+#if 0
   for (thread = 0; thread < sm->nb_threads; thread++) {
 
     printf("\n");
@@ -291,6 +339,8 @@ void __analyze_sampling(struct numap_sampling_measure *sm) {
     if(p_stat[thread].na_miss_count > 0)
       printf("Thread %d: %-8d %-30s %0.3f%%\n", thread, p_stat[thread].na_miss_count, "unknown l3 miss", (100.0 * p_stat[thread].na_miss_count / p_stat[thread].total_count));
   }
+#endif
+
 }
 
 
@@ -308,14 +358,15 @@ void ma_finalize() {
     uint64_t duration = p_node->mem_info.free_date?
       p_node->mem_info.free_date-p_node->mem_info.alloc_date:
       0;
-    printf("buffer %p (%lu - %lu bytes) allocated at %x, freed at %x (duration =%lu ticks). %d read accesses\n",
+    printf("buffer %p (%lu - %lu bytes) allocated at %x, freed at %x (duration =%lu ticks). %d write accesses, %d read accesses\n",
 	   p_node->mem_info.buffer_addr,
 	   p_node->mem_info.initial_buffer_size,
 	   p_node->mem_info.buffer_size,
 	   p_node->mem_info.alloc_date,
 	   p_node->mem_info.free_date,
 	   duration,
-	   p_node->mem_info.read_access);
+	   p_node->mem_info.count[ACCESS_WRITE].total_count,
+	   p_node->mem_info.count[ACCESS_READ].total_count);
     p_node = p_node->next;
   }
 }

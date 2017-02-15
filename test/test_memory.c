@@ -73,6 +73,7 @@ char use_buffer(char* buffer, int buffer_size, int usec) {
     int i;
     for(i=0; i<buffer_size; i++) {
       res = (res + buffer[i])%128;
+      buffer[i] = res;
     }
     gettimeofday(&tv2, NULL);
   } while (TIME_DIFF(tv1, tv2) < usec);
