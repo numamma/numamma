@@ -1,14 +1,19 @@
 #include <stdio.h>
+#include <time.h>
 #include <assert.h>
+#include <string.h>
 #include "mem_analyzer.h"
 #include "numap.h"
 
 #define USE_NUMAP 1
 
 static int  __record_infos = 0;
+static int sampling_rate = 10000;
+static int _verbose = 0;
+
 struct memory_info_list*mem_list = NULL;
-struct numap_sampling_measure sm;
-struct numap_sampling_measure sm_wr;
+__thread struct numap_sampling_measure sm;
+__thread struct numap_sampling_measure sm_wr;
 
 extern void* (*libcalloc)(size_t nmemb, size_t size);
 extern void* (*libmalloc)(size_t size);
@@ -20,7 +25,13 @@ void start_sampling();
 void __analyze_sampling(struct numap_sampling_measure *sm,
 			enum access_type access_type);
 
-static int _verbose = 0;
+struct timespec t_init;
+double get_cur_date() {
+  struct timespec t1;
+  clock_gettime(CLOCK_REALTIME, &t1);
+  double duration = ((t1.tv_sec-t_init.tv_sec)*1e9+(t1.tv_nsec-t_init.tv_nsec))/1e9;
+}
+
 /* todo:
  * - intercept thread creation and run numap_sampling_init_measure for each thread
  * - set an alarm every 1ms to collect the sampling info
@@ -29,7 +40,8 @@ static int _verbose = 0;
  */
 void ma_init() {
 #if USE_NUMAP
-  int sampling_rate = 10000;
+  clock_gettime(CLOCK_REALTIME, &t_init);
+
   char* sampling_rate_str = getenv("SAMPLING_RATE");
   if(sampling_rate_str)
     sampling_rate=atoi(sampling_rate_str);
@@ -44,24 +56,9 @@ void ma_init() {
   }
 
   numap_init();
-  int res = numap_sampling_init_measure(&sm, 1, sampling_rate, 64);
-  if(res < 0) {
-    fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
-    abort();
-  }
-
-  res = numap_sampling_init_measure(&sm_wr, 1, sampling_rate, 64);
-  if(res < 0) {
-    fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
-    abort();
-  }
-
-  /* for now, only collect info on the current thread */
-  sm.tids[0] = syscall(SYS_gettid);
-  start_sampling();
 #endif
-  __record_infos = 1;
   ma_thread_init();
+  __record_infos = 1;
 }
 
 static int is_sampling=0;
@@ -70,7 +67,7 @@ void start_sampling() {
   int previous_state = __record_infos;
   __record_infos = 0;
   if(_verbose)
-    printf("-------------- Start sampling %d\n", is_sampling);
+    printf("[%d][%lf] -------------- Start sampling %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
 
   if(is_sampling) {
     printf("is_sampling = %d !\n", is_sampling);
@@ -100,9 +97,9 @@ void collect_samples() {
   int previous_state = __record_infos;
   __record_infos = 0;
 
-  if(_verbose)
-    printf("-------------- Collect samples %d\n", is_sampling);
-
+  if(_verbose) {
+    printf("[%d][%lf] -------------- Collect samples %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
+  }
   if(!is_sampling) {
     printf("is_sampling = %d !\n", is_sampling);
     abort();
@@ -140,6 +137,22 @@ void collect_samples() {
 void ma_thread_init() {
   pid_t tid = syscall(SYS_gettid);
   printf("New thread: %d\n", tid);
+  int res = numap_sampling_init_measure(&sm, 1, sampling_rate, 64);
+  if(res < 0) {
+    fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
+    abort();
+  }
+
+  res = numap_sampling_init_measure(&sm_wr, 1, sampling_rate, 64);
+  if(res < 0) {
+    fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
+    abort();
+  }
+
+  /* for now, only collect info on the current thread */
+  sm.tids[0] = tid;
+  start_sampling();
+
 }
 
 static uint64_t new_date() {
@@ -257,7 +270,7 @@ void ma_thread_finalize() {
 void __analyze_sampling(struct numap_sampling_measure *sm,
 			enum access_type access_type) {
   int thread;
-
+  int nb_samples = 0;
   for (thread = 0; thread < sm->nb_threads; thread++) {
 
     struct mem_sampling_stat p_stat;
@@ -273,7 +286,7 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
       }
       if (p_stat.header -> type == PERF_RECORD_SAMPLE) {
   	struct read_sample *sample = (struct read_sample *)((char *)(p_stat.header) + 8);
-
+	nb_samples++;
 	struct memory_info_list* p_node = find_mem_info_from_addr(sample->addr);
 	if(p_node) {
 	  p_node->mem_info.count[access_type].total_count++;
@@ -306,7 +319,9 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
 
 #if 1
 	if(_verbose) {
-	  printf("pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n", sample->ip, sample->addr, get_data_src_level(sample->data_src), sample->weight);
+	  printf("[%d]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n",
+		 syscall(SYS_gettid), sample->ip, sample->addr, get_data_src_level(sample->data_src),
+		 sample->weight);
 	}
 #endif
       }
@@ -341,6 +356,7 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
   }
 #endif
 
+  printf("[%lf] \tnb_samples = %d\n", get_cur_date(), nb_samples);
 }
 
 

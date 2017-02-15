@@ -49,7 +49,8 @@ void debug(char *fmt, ...) {
   if (_debug >= 2) { // debug verbose mode
     va_list va;
     va_start(va, fmt);
-    vfprintf(stderr, fmt, va);
+    //    vfprintf(stderr, fmt, va);
+    vfprintf(stdout, fmt, va);
     va_end(va);
   }
 }
@@ -96,7 +97,7 @@ void test_malloc() {
     printf("buffer[%d][%d] = %p\n", i, alloc_size-1, &buffer[i][alloc_size-1]);
     /* compute for 1ms */
 
-    buffer[i][0] = use_buffer(buffer[i], alloc_size,  50000);
+    buffer[i][0] = use_buffer(buffer[i], alloc_size,  500000);
     //compute(50000);
     free(buffer[i]);
     compute(10000);
@@ -115,13 +116,13 @@ void test_realloc() {
     }
 
     /* compute for 1ms */
-    buffer[i][0] = use_buffer(buffer[i], alloc_size, 20000);
+    buffer[i][0] = use_buffer(buffer[i], alloc_size, 200000);
 
     alloc_size *= 2;
     debug("\t\tloop %d/%d: reallocating %d bytes\n", i, ITER, alloc_size);
     buffer[i] = realloc(buffer[i], alloc_size);
 
-    buffer[i][0] = use_buffer(buffer[i], alloc_size, 20000);
+    buffer[i][0] = use_buffer(buffer[i], alloc_size, 200000);
 
     free(buffer[i]);
     compute(10000);
@@ -140,7 +141,7 @@ void test_calloc() {
     for (j = 0; j < (1 + i) * 1024; j++) {
       buffer[i][j] = 'a';
     }
-    buffer[i][0] = use_buffer(buffer[i], alloc_size, 20000);
+    buffer[i][0] = use_buffer(buffer[i], alloc_size, 200000);
 
     free(buffer[i]);
     compute(10000);
