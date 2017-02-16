@@ -8,62 +8,30 @@
 #include <inttypes.h>
 #include <dlfcn.h>
 #include <string.h>
-#include <execinfo.h>
 
-#include "memory.h"
+#include "numma.h"
+#include "mem_intercept.h"
 #include "mem_analyzer.h"
+#include "mem_tools.h"
 
-#define EZTRACE_PROTECT if(malloc_protect_on == 0)
-
-//#define DEBUG 1
-
-#if DEBUG
-#define FUNCTION_ENTRY printf("%s\n", __FUNCTION__)
-#else
-#define FUNCTION_ENTRY //printf("%s\n", __FUNCTION__)
-#endif
+int _verbose = 0;
+int _dump = 0;
+FILE* dump_file = NULL;
+__thread int is_recurse_unsafe = 0;
 
 /* set to 1 when all the hooks are set.
  * This is useful in order to avoid recursive calls
  */
 static int __memory_initialized = 0;
 
-/* todo: also implement mmap and munmap ?
- */
 void* (*libcalloc)(size_t nmemb, size_t size) = NULL;
 void* (*libmalloc)(size_t size) = NULL;
 void (*libfree)(void *ptr) = NULL;
 void* (*librealloc)(void *ptr, size_t size) = NULL;
 int  (*libpthread_create) (pthread_t * thread, const pthread_attr_t * attr,
-			   void *(*start_routine) (void *), void *arg);
-void (*libpthread_exit) (void *thread_return);
+			   void *(*start_routine) (void *), void *arg) = NULL;
+void (*libpthread_exit) (void *thread_return) = NULL;
 
-static __thread int malloc_protect_on = 0;
-
-void print_backtrace() {
-#define BT_BUF_SIZE 100
-  int j, nptrs;
-  void *buffer[BT_BUF_SIZE];
-  char **strings;
-
-  nptrs = backtrace(buffer, BT_BUF_SIZE);
-  printf("backtrace() returned %d addresses\n", nptrs);
-  printf("-------------------\n");
-  /* The call backtrace_symbols_fd(buffer, nptrs, STDOUT_FILENO)
-     would produce similar output to the following: */
-
-  strings = backtrace_symbols(buffer, nptrs);
-  if (strings == NULL) {
-    perror("backtrace_symbols");
-    exit(EXIT_FAILURE);
-  }
-
-  for (j = 0; j < nptrs; j++)
-    printf("%s\n", strings[j]);
-  printf("-------------------\n");
-
-  free(strings);
-}
 
 /* Custom malloc function. It is used when libmalloc=NULL (e.g. during startup)
  * This function is not thread-safe and is very likely to be bogus, so use with
@@ -99,57 +67,53 @@ void* malloc(size_t size) {
    * address
    */
   if (!libmalloc) {
-    if (malloc_protect_on)
+    if( !IS_RECURSE_SAFE) {
       /* protection flag says that malloc is already trying to retrieve the
        * address of malloc.
        * If we call dlsym now, there will be an infinite recursion, so let's
        * allocate memory 'by hand'
        */
       return hand_made_malloc(size);
+    }
 
     /* set the protection flag and retrieve the address of malloc.
      * If dlsym calls malloc, memory will be allocated 'by hand'
      */
-    malloc_protect_on = 1;
-    libmalloc = dlsym(RTLD_NEXT, "malloc");
-    char* error;
-    if ((error = dlerror()) != NULL) {
-      fputs(error, stderr);
-      exit(1);
+    PROTECT_FROM_RECURSION;
+    {
+      libmalloc = dlsym(RTLD_NEXT, "malloc");
+      char* error;
+      if ((error = dlerror()) != NULL) {
+	fputs(error, stderr);
+	exit(1);
+      }
     }
     /* it is now safe to call libmalloc */
-    malloc_protect_on = 0;
+    UNPROTECT_FROM_RECURSION;
   }
 
-  EZTRACE_PROTECT {
-    malloc_protect_on = 1;
-    //    FUNCTION_ENTRY;
-#if DEBUG
-    printf("malloc(%d) ", size);
-#endif
+  if(__memory_initialized && IS_RECURSE_SAFE) {
+    PROTECT_FROM_RECURSION;
+    debug_printf("malloc(%d) ", size);
+
+    /* allocate a buffer */
     void* pptr = libmalloc(size + HEADER_SIZE + TAIL_SIZE);
+
+    /* fill the information on the malloc'd buffer */
     struct mem_block_info *p_block = NULL;
     INIT_MEM_INFO(p_block, pptr, size, 1);
     p_block->mem_type = MEM_TYPE_MALLOC;
 
-#if 0
-    /* for debugging purpose only */
-    uint32_t* canary = p_block->u_ptr-sizeof(uint32_t);
-    if(*canary != CANARY_PATTERN) {
-      fprintf(stderr, "warning: canary = %x instead of %x\n", *canary, CANARY_PATTERN);
-    }
-#endif
-
+    /* let the analysis module record information on the malloc */
     ma_record_malloc(p_block);
-#if DEBUG
-    printf("-> %p (p_block=%p)\n", p_block->u_ptr, p_block);
-#endif
-#if 0
-    print_backtrace();
-#endif
-    malloc_protect_on = 0;
+    debug_printf("-> %p (p_block=%p)\n", p_block->u_ptr, p_block);
+
+    UNPROTECT_FROM_RECURSION;
     return p_block->u_ptr;
   }
+  /* we are already processing a malloc/free function, so don't try to record information,
+   * just call the function
+   */
   return libmalloc(size);
 }
 
@@ -166,7 +130,6 @@ void* realloc(void *ptr, size_t size) {
   }
 
   FUNCTION_ENTRY;
-
   if (!librealloc) {
     librealloc = dlsym(RTLD_NEXT, "realloc");
     char* error;
@@ -181,37 +144,37 @@ void* realloc(void *ptr, size_t size) {
     return librealloc(ptr, size);
   }
 
-  EZTRACE_PROTECT {
-    malloc_protect_on = 1;
+  if(__memory_initialized && IS_RECURSE_SAFE) {
+    PROTECT_FROM_RECURSION;
+    /* retrieve the malloc information from the pointer */
     struct mem_block_info *p_block;
     USER_PTR_TO_BLOCK_INFO(ptr, p_block);
     size_t old_size = p_block->size;
     size_t header_size = p_block->total_size - p_block->size;
 
     if (p_block->mem_type != MEM_TYPE_MALLOC) {
-      fprintf(
-	  stderr,
-	  "Warning: realloc a ptr that was allocated by hand_made_malloc\n");
+      fprintf(stderr, "Warning: realloc a ptr that was allocated by hand_made_malloc\n");
     }
 
     void *old_addr= p_block->u_ptr;
     void *pptr = librealloc(p_block->p_ptr, size + header_size);
 
-    if (!p_block) {
+    if (!pptr) {
+      /* realloc failed */
+      UNPROTECT_FROM_RECURSION;
       return NULL;
     }
 
-    //    INIT_MEM_INFO(p_block, pptr, size + header_size, 1);
     INIT_MEM_INFO(p_block, pptr, size, 1);
 
     p_block->mem_type = MEM_TYPE_MALLOC;
     void *new_addr= p_block->u_ptr;
     ma_update_buffer_address(old_addr, new_addr);
+    UNPROTECT_FROM_RECURSION;
 
-    malloc_protect_on = 0;
     return p_block->u_ptr;
   }
-
+  /* it is not safe to record information */
   return librealloc(ptr, size);
 }
 
@@ -223,10 +186,11 @@ void* calloc(size_t nmemb, size_t size) {
     }
     return ret;
   }
+
   FUNCTION_ENTRY;
 
-  EZTRACE_PROTECT {
-    malloc_protect_on = 1;
+  if(__memory_initialized && IS_RECURSE_SAFE) {
+    PROTECT_FROM_RECURSION;
     /* compute the number of blocks for header */
     int nb_memb_header = (HEADER_SIZE  + TAIL_SIZE)/ size;
     if (size * nb_memb_header < HEADER_SIZE + TAIL_SIZE)
@@ -239,15 +203,8 @@ void* calloc(size_t nmemb, size_t size) {
     INIT_MEM_INFO(p_block, p_ptr, nmemb, size);
     p_block->mem_type = MEM_TYPE_MALLOC;
 
-#if 0
-    /* for debugging purpose only */
-    uint32_t* canary = p_block->u_ptr-sizeof(uint32_t);
-    if(*canary != CANARY_PATTERN) {
-      fprintf(stderr, "warning: canary = %x instead of %x\n", *canary, CANARY_PATTERN);
-    }
-#endif
     ma_record_malloc(p_block);
-    malloc_protect_on = 0;
+    UNPROTECT_FROM_RECURSION;
     return p_block->u_ptr;
   }
   return libcalloc(nmemb, size);
@@ -276,29 +233,27 @@ void free(void* ptr) {
   }
 
   /* retrieve the block information and free it */
-  EZTRACE_PROTECT {
-    malloc_protect_on = 1;
-    struct mem_block_info *p_block;
-    USER_PTR_TO_BLOCK_INFO(ptr, p_block);
+  if(__memory_initialized && IS_RECURSE_SAFE) {
+    PROTECT_FROM_RECURSION;
+    {
+      struct mem_block_info *p_block;
+      USER_PTR_TO_BLOCK_INFO(ptr, p_block);
 
-#if DEBUG
-    printf("free(%p)\n", ptr);
-#endif
-  //  FUNCTION_ENTRY;
+      debug_printf("free(%p)\n", ptr);
 
-#if 1
-    if(!TAIL_CANARY_OK(p_block)) {
-      fprintf(stderr, "Warning: tail canary erased :'( (%x instead of %x)\n", p_block->tail_block->canary, CANARY_PATTERN);
-      abort();
+      if(!TAIL_CANARY_OK(p_block)) {
+	fprintf(stderr, "Warning: tail canary erased :'( (%x instead of %x)\n", p_block->tail_block->canary, CANARY_PATTERN);
+	abort();
+      }
+
+      if (p_block->mem_type == MEM_TYPE_MALLOC) {
+	ma_record_free(p_block);
+	libfree(p_block->p_ptr);
+      } else {
+	/* the buffer was allocated by hand_made_malloc, there's nothing to free */
+      }
     }
-#endif
-    if (p_block->mem_type == MEM_TYPE_MALLOC) {
-      ma_record_free(p_block);
-      libfree(p_block->p_ptr);
-    } else {
-      /* the buffer was allocated by hand_made_malloc, there's nothing to free */
-    }
-    malloc_protect_on = 0;
+    UNPROTECT_FROM_RECURSION;
     return;
   }
   libfree(ptr);
@@ -316,17 +271,19 @@ struct __pthread_create_info_t {
 /* Invoked by pthread_create on the new thread */
 static void *
 __pthread_new_thread(void *arg) {
-  malloc_protect_on = 1;
+  PROTECT_FROM_RECURSION;
   struct __pthread_create_info_t *p_arg = (struct __pthread_create_info_t*) arg;
   void *(*f)(void *) = p_arg->func;
   void *__arg = p_arg->arg;
   libfree(p_arg);
   ma_thread_init();
-  malloc_protect_on = 0;
+  UNPROTECT_FROM_RECURSION;
+
   void *res = (*f)(__arg);
-  malloc_protect_on = 1;
+
+  PROTECT_FROM_RECURSION;
   ma_thread_finalize();
-  malloc_protect_on = 0;
+  UNPROTECT_FROM_RECURSION;
   return res;
 }
 
@@ -347,8 +304,8 @@ pthread_create (pthread_t *__restrict thread,
     libpthread_create = dlsym(RTLD_NEXT, "pthread_create");
   }
 
-  /* We do not call directly start_routine since we could not get the actual creation timestamp of
-   * the thread. Let's invoke __pthread_new_thread that will PROF_EVENT the thread and call
+  /* We do not call directly start_routine since we want to initialize stuff at the thread startup.
+   * Instead, let's invoke __pthread_new_thread that initialize the thread-specific things and call
    * start_routine.
    */
   int retval = libpthread_create(thread, attr, __pthread_new_thread, __args);
@@ -357,13 +314,39 @@ pthread_create (pthread_t *__restrict thread,
 
 void pthread_exit(void *thread_return) {
   FUNCTION_ENTRY;
+  PROTECT_FROM_RECURSION;
+  {
+    ma_thread_finalize();
+  }
+  UNPROTECT_FROM_RECURSION;
   libpthread_exit(thread_return);
   __builtin_unreachable();
 }
 
+static void read_options() {
+  char* verbose_str = getenv("NUMMA_VERBOSE");
+  if(verbose_str) {
+    if(strcmp(verbose_str, "0")!=0) {
+      _verbose = 1;
+      printf("Verbose mode enabled\n");
+    }
+  }
+
+  char* dump_str = getenv("NUMMA_DUMP");
+  if(dump_str) {
+    if(strcmp(dump_str, "0")!=0) {
+      _dump = 1;
+      char* dump_filename="/tmp/memory_dump.log";
+      dump_file = fopen(dump_filename, "w");
+      printf("Dump mode enabled. Data will be dumped to %s\n", dump_filename);
+    }
+  }
+
+}
+
 static void __memory_init(void) __attribute__ ((constructor));
 static void __memory_init(void) {
-  malloc_protect_on = 1;
+  PROTECT_FROM_RECURSION;
 
   libmalloc = dlsym(RTLD_NEXT, "malloc");
   libcalloc = dlsym(RTLD_NEXT, "calloc");
@@ -372,10 +355,11 @@ static void __memory_init(void) {
   libpthread_create = dlsym(RTLD_NEXT, "pthread_create");
   libpthread_exit = dlsym(RTLD_NEXT, "pthread_exit");
 
-  malloc_protect_on = 0;
+  read_options();
   ma_init();
 
   __memory_initialized = 1;
+  UNPROTECT_FROM_RECURSION;
 }
 
 static void __memory_conclude(void) __attribute__ ((destructor));

@@ -61,4 +61,6 @@ void ma_record_free(struct mem_block_info* info);
 void ma_thread_init();
 void ma_thread_finalize();
 void ma_finalize();
+
+struct memory_info_list* ma_find_mem_info_from_addr(uint64_t ptr);
 #endif	/* MEM_ANALYZER */

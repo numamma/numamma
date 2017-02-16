@@ -1,5 +1,46 @@
 #ifndef NUMMA_H
 #define NUMMA_H
 
-#define INSTALL_PREFIX @PREFIX@
+#include <assert.h>
+
+#define INSTALL_PREFIX @INSTALL_PREFIX@
+
+extern int _verbose;
+extern int _dump;
+extern FILE* dump_file;
+
+/* This variable is used to avoiding recursive calls to memory functions.
+ *
+ * if != 0, don't try to record information, just call libmalloc()/libfree()
+ *
+ */
+extern __thread int is_recurse_unsafe;
+
+/* test whether is to safe to record memory information
+ */
+#define IS_RECURSE_SAFE (is_recurse_unsafe == 0)
+
+#define PROTECT_FROM_RECURSION do {		\
+    assert(is_recurse_unsafe == 0);		\
+    is_recurse_unsafe = 1;			\
+  } while(0)
+
+#define UNPROTECT_FROM_RECURSION do {		\
+    assert(is_recurse_unsafe > 0);		\
+    is_recurse_unsafe = 0;			\
+  } while(0)
+
+#define FUNCTION_ENTRY do {			\
+    if(_verbose) printf("%s\n", __FUNCTION__);	\
+  } while(0)
+
+#define debug_printf(format, ...) do {		\
+    if(_verbose) {							\
+      printf(format, ##__VA_ARGS__);					\
+    }									\
+    if(_dump) {								\
+      fprintf(dump_file, format, ##__VA_ARGS__);				\
+    }									\
+  }while(0)
+
 #endif	/* NUMMA_H */
