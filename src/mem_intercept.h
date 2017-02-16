@@ -9,7 +9,7 @@
 
 typedef uint64_t canary_t;
 
-/* when a buffer is allocated with eztrace, it has the following pattern:
+/* when a buffer is allocated, it has the following pattern:
  * PADDING BLOCK_INFO USER_BLOCK CANARY
  * block_info has to be right-aligned because of calloc.
  * the address should be a multiple of 8 bytes in order to avoid bugs
@@ -47,13 +47,14 @@ struct mem_block_info {
    */
   /* WARNING: this must be the last field of the structure */
   canary_t canary; /* this is used for checking that we malloc'ed the buffer */
-}__attribute__((__packed__));
+} __attribute__ ((aligned (16)));
 
 /* size of the padding + mem_info structure */
 #define HEADER_SIZE     (sizeof(struct mem_block_info))
 #define TAIL_SIZE       (sizeof(struct mem_tail_block))
 
-#define CANARY_OK(u_ptr) ((*(canary_t*)((u_ptr) - sizeof(canary_t))) == CANARY_PATTERN)
+//#define CANARY_OK(u_ptr) ((*(canary_t*)((u_ptr) - sizeof(canary_t))) == CANARY_PATTERN)
+#define CANARY_OK(u_ptr) (((struct mem_block_info*)((u_ptr) - (void*)sizeof(struct mem_block_info)))->canary == CANARY_PATTERN)
 #define TAIL_CANARY_OK(b_info) ((b_info)->tail_block->canary == CANARY_PATTERN)
 
 
@@ -90,7 +91,7 @@ struct mem_block_info {
 #define INIT_MEM_INFO(p_mem, ptr, nmemb, block_size)		\
   do {								\
     unsigned int nb_memb_header = HEADER_SIZE / block_size;	\
-    if(block_size*nb_memb_header < HEADER_SIZE)		\
+    if(block_size*nb_memb_header < HEADER_SIZE)			\
       nb_memb_header++;						\
     void* u_ptr = ptr + (block_size*nb_memb_header);		\
     p_mem = u_ptr - sizeof(struct mem_block_info);		\

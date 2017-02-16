@@ -142,7 +142,7 @@ void* malloc(size_t size) {
 
     ma_record_malloc(p_block);
 #if DEBUG
-    printf("-> %p\n", p_block->u_ptr);
+    printf("-> %p (p_block=%p)\n", p_block->u_ptr, p_block);
 #endif
 #if 0
     print_backtrace();
@@ -201,7 +201,8 @@ void* realloc(void *ptr, size_t size) {
       return NULL;
     }
 
-    INIT_MEM_INFO(p_block, pptr, size + header_size, 1);
+    //    INIT_MEM_INFO(p_block, pptr, size + header_size, 1);
+    INIT_MEM_INFO(p_block, pptr, size, 1);
 
     p_block->mem_type = MEM_TYPE_MALLOC;
     void *new_addr= p_block->u_ptr;
@@ -318,7 +319,7 @@ __pthread_new_thread(void *arg) {
   struct __pthread_create_info_t *p_arg = (struct __pthread_create_info_t*) arg;
   void *(*f)(void *) = p_arg->func;
   void *__arg = p_arg->arg;
-  free(p_arg);
+  libfree(p_arg);
   ma_thread_init();
   void *res = (*f)(__arg);
   ma_thread_finalize();
@@ -333,7 +334,7 @@ pthread_create (pthread_t *__restrict thread,
 {
   FUNCTION_ENTRY;
   struct __pthread_create_info_t * __args =
-    (struct __pthread_create_info_t*) malloc(
+    (struct __pthread_create_info_t*) libmalloc(
 	sizeof(struct __pthread_create_info_t));
   __args->func = start_routine;
   __args->arg = arg;

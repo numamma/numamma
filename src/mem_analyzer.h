@@ -32,6 +32,7 @@ struct memory_info {
   size_t buffer_size;		/* size of the buffer when it was freed */
 
   void* buffer_addr;
+  char* caller;
   /* TODO: numa node ? thread that allocates */
   struct mem_counters count[ACCESS_MAX];
   //  struct mem_counters write_count;

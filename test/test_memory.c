@@ -138,13 +138,14 @@ void test_calloc() {
     debug("\tloop %d/%d: allocating %d bytes\n", i, ITER, alloc_size);
 
     buffer[i] = calloc(alloc_size, sizeof(uint8_t));
-    for (j = 0; j < (1 + i) * 1024; j++) {
+    for (j = 0; j < alloc_size; j++) {
       buffer[i][j] = 'a';
     }
-    buffer[i][0] = use_buffer(buffer[i], alloc_size, 200000);
+    printf("buffer[%d][%d] = %p\n", i, 0, &buffer[i][0]);
+    buffer[i][0] = use_buffer(buffer[i], alloc_size, 1000000);
 
     free(buffer[i]);
-    compute(10000);
+    //    compute(500000);
   }
 }
 
@@ -152,6 +153,7 @@ int main(int argc, char**argv) {
   char* buffer[ITER];
   int i, j;
 
+#if 1
   debug("Testing malloc\n");
   test_malloc();
   debug("1/2 done\n");
@@ -164,6 +166,7 @@ int main(int argc, char**argv) {
   debug("Testing realloc\n");
   test_realloc();
   debug("realloc done\n");
+#endif
 
   compute(100000);
   debug("Testing calloc\n");

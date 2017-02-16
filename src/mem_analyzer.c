@@ -1,9 +1,18 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <time.h>
 #include <assert.h>
 #include <string.h>
+#include <execinfo.h>
+#include <errno.h>
 #include "mem_analyzer.h"
 #include "numap.h"
+
+#define HAVE_LIBBACKTRACE 1
+#if HAVE_LIBBACKTRACE
+#include <libbacktrace/backtrace.h>
+#include <libbacktrace/backtrace-supported.h>
+#endif
 
 #define USE_NUMAP 1
 
@@ -61,7 +70,7 @@ void ma_init() {
   __record_infos = 1;
 }
 
-static int is_sampling=0;
+static __thread int is_sampling=0;
 void start_sampling() {
 #if USE_NUMAP
   int previous_state = __record_infos;
@@ -78,6 +87,9 @@ void start_sampling() {
   int res = numap_sampling_read_start(&sm);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_start error : %s\n", numap_error_message(res));
+    if(res ==  ERROR_PERF_EVENT_OPEN && errno == EACCES) {
+      fprintf(stderr, "try running 'echo 1 > /proc/sys/kernel/perf_event_paranoid' to fix the problem\n");
+    }
     abort();
   }
 
@@ -199,9 +211,100 @@ struct memory_info_list* find_mem_info_from_addr(uint64_t ptr) {
   return NULL;
 }
 
+#if HAVE_LIBBACKTRACE
+__thread char current_frame[4096];
+
+static void error_callback(void *data, const char *msg, int errnum)
+{
+  fprintf(stderr, "ERROR: %s (%d)", msg, errnum);
+}
+
+int backtrace_callback (void *data, uintptr_t pc,
+			const char *filename, int lineno,
+			const char *function) {
+  //  printf("[%p] in %s:%d %s\n", pc, filename, lineno, function);
+  char buffer[4096];
+  snprintf(current_frame, 4096, "%s:%d %s", filename, lineno, function);
+  return 0;
+}
+#endif /* HAVE_LIBBACKTRACE */
+
+
+char* get_caller_function() {
+  int backtrace_depth=15;
+  void* buffer[backtrace_depth];
+  /* get pointers to functions */
+
+  int nb_calls = backtrace(buffer, backtrace_depth);
+  //  assert(nb_calls>=backtrace_depth);
+
+#if HAVE_LIBBACKTRACE
+  struct backtrace_state *state = backtrace_create_state (NULL, BACKTRACE_SUPPORTS_THREADS,
+							  error_callback, NULL);
+#else
+  char **functions;
+  functions = backtrace_symbols(buffer, nb_calls);
+#endif
+
+  /* the current backtrace looks like this:
+   * 0 - get_caller_function()
+   * 1 - ma_record_malloc()
+   * 2 - malloc()
+   * 3 - caller_function()
+   *
+   * So, we need to get the name of the function in frame 2.
+   */
+  int frame_number = 3;
+  char* retval = NULL;
+  if(nb_calls < frame_number) {
+    retval = libmalloc(sizeof(char)*16);
+    sprintf(retval, "???");
+  }
+#if HAVE_LIBBACKTRACE
+    backtrace_pcinfo (state, (uintptr_t) buffer[frame_number],
+		      backtrace_callback,
+		      error_callback,
+		      NULL);
+    retval = libmalloc(sizeof(char)*4096);
+    sprintf(retval, "%s", current_frame);
+#else
+    //    printf("func name is ... %s and nb_calls = %d\n", functions[frame_number], nb_calls);
+    retval = libmalloc(sizeof(char)*4096);
+    sprintf(retval, "%s", functions[frame_number]);
+#endif
+
+#if ! HAVE_LIBBACKTRACE
+  free(functions);
+#endif
+
+  return retval;
+#if 0
+  char nb_frames[15];
+  sprintf(nb_frames, "%d", nb_calls);
+  int i;
+  for (i = 0; i < nb_calls; i++) {
+#if HAVE_LIBBACKTRACE
+    backtrace_pcinfo (state, (uintptr_t) buffer[i],
+		      backtrace_callback,
+		      error_callback,
+		      NULL);
+#else
+    printf("func name is ... %s and nb_calls = %d\n", functions[i], nb_calls);
+#endif
+  }
+  printf("\n");
+#endif
+#if ! HAVE_LIBBACKTRACE
+  free(functions);
+#endif
+  //  eztrace_record_backtrace(15);
+  return NULL;
+}
+
 void ma_record_malloc(struct mem_block_info* info) {
   if(! __record_infos)
     return;
+  collect_samples();
   struct memory_info_list * p_node = libmalloc(sizeof(struct memory_info_list));
 
   /* todo: make this thread-safe */
@@ -213,6 +316,7 @@ void ma_record_malloc(struct mem_block_info* info) {
   p_node->mem_info.initial_buffer_size = info->size;
   p_node->mem_info.buffer_size = info->size;
   p_node->mem_info.buffer_addr = info->u_ptr;
+  p_node->mem_info.caller = get_caller_function();
   int i;
   for(i=0; i<ACCESS_MAX; i++) {
     p_node->mem_info.count[i].total_count = 0;
@@ -226,12 +330,14 @@ void ma_record_malloc(struct mem_block_info* info) {
     p_node->mem_info.count[i].remote_memory_count = 0;
     p_node->mem_info.count[i].remote_cache_count = 0;
   }
-
+  start_sampling();
 }
 
 void ma_update_buffer_address(void *old_addr, void *new_addr) {
   if(! __record_infos)
     return;
+
+  collect_samples();
   struct memory_info_list * p_node = mem_list;
   while(p_node) {
     if(p_node->mem_info.buffer_addr == old_addr  &&
@@ -242,6 +348,7 @@ void ma_update_buffer_address(void *old_addr, void *new_addr) {
   }
   assert(p_node);
   p_node->mem_info.buffer_addr = new_addr;
+  start_sampling();
 }
 
 void ma_record_free(struct mem_block_info* info) {
@@ -271,6 +378,7 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
 			enum access_type access_type) {
   int thread;
   int nb_samples = 0;
+  int found_samples = 0;
   for (thread = 0; thread < sm->nb_threads; thread++) {
 
     struct mem_sampling_stat p_stat;
@@ -278,7 +386,7 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
     p_stat.head = metadata_page -> data_head;
     rmb();
     p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
-
+    p_stat.consumed = 0;
     while (p_stat.consumed < p_stat.head) {
       if (p_stat.header->size == 0) {
   	fprintf(stderr, "Error: invalid header size = 0\n");
@@ -289,6 +397,8 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
 	nb_samples++;
 	struct memory_info_list* p_node = find_mem_info_from_addr(sample->addr);
 	if(p_node) {
+	  found_samples++;
+
 	  p_node->mem_info.count[access_type].total_count++;
 
 	  if (is_served_by_local_NA_miss(sample->data_src)) {
@@ -316,9 +426,9 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
 	    p_node->mem_info.count[access_type].remote_cache_count++;
 	  }
 	}
-
 #if 1
-	if(_verbose) {
+	//	if(_verbose) {
+	if(1) {
 	  printf("[%d]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n",
 		 syscall(SYS_gettid), sample->ip, sample->addr, get_data_src_level(sample->data_src),
 		 sample->weight);
@@ -355,8 +465,8 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
       printf("Thread %d: %-8d %-30s %0.3f%%\n", thread, p_stat[thread].na_miss_count, "unknown l3 miss", (100.0 * p_stat[thread].na_miss_count / p_stat[thread].total_count));
   }
 #endif
-
-  printf("[%lf] \tnb_samples = %d\n", get_cur_date(), nb_samples);
+  if(nb_samples>0)
+    printf("[%lf] \tnb_samples = %d (including %d mem blocks)\n", get_cur_date(), nb_samples, found_samples);
 }
 
 
@@ -374,15 +484,29 @@ void ma_finalize() {
     uint64_t duration = p_node->mem_info.free_date?
       p_node->mem_info.free_date-p_node->mem_info.alloc_date:
       0;
-    printf("buffer %p (%lu - %lu bytes) allocated at %x, freed at %x (duration =%lu ticks). %d write accesses, %d read accesses\n",
-	   p_node->mem_info.buffer_addr,
-	   p_node->mem_info.initial_buffer_size,
-	   p_node->mem_info.buffer_size,
-	   p_node->mem_info.alloc_date,
-	   p_node->mem_info.free_date,
-	   duration,
-	   p_node->mem_info.count[ACCESS_WRITE].total_count,
-	   p_node->mem_info.count[ACCESS_READ].total_count);
+    if(p_node->mem_info.count[ACCESS_WRITE].total_count > 0 ||
+       p_node->mem_info.count[ACCESS_READ].total_count > 0) {
+
+      double r_access_frequency;
+      if(p_node->mem_info.count[ACCESS_READ].total_count)
+	r_access_frequency = (duration/sampling_rate)/p_node->mem_info.count[ACCESS_READ].total_count;
+      else
+	r_access_frequency = 0;
+      double w_access_frequency;
+      if(p_node->mem_info.count[ACCESS_WRITE].total_count)
+	w_access_frequency = (duration/sampling_rate)/p_node->mem_info.count[ACCESS_WRITE].total_count;
+      else
+	w_access_frequency = 0;
+
+      printf("buffer %p (%lu bytes) duration =%lu ticks. %d write accesses, %d read accesses. allocated : %s. read operation every %lf ticks\n",
+	     p_node->mem_info.buffer_addr,
+	     p_node->mem_info.initial_buffer_size,
+	     duration,
+	     p_node->mem_info.count[ACCESS_WRITE].total_count,
+	     p_node->mem_info.count[ACCESS_READ].total_count,
+	     p_node->mem_info.caller,
+	     r_access_frequency);
+    }
     p_node = p_node->next;
   }
 }
