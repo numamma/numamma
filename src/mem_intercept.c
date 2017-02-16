@@ -38,7 +38,7 @@ int  (*libpthread_create) (pthread_t * thread, const pthread_attr_t * attr,
 			   void *(*start_routine) (void *), void *arg);
 void (*libpthread_exit) (void *thread_return);
 
-static int malloc_protect_on = 0;
+static __thread int malloc_protect_on = 0;
 
 void print_backtrace() {
 #define BT_BUF_SIZE 100
@@ -316,13 +316,17 @@ struct __pthread_create_info_t {
 /* Invoked by pthread_create on the new thread */
 static void *
 __pthread_new_thread(void *arg) {
+  malloc_protect_on = 1;
   struct __pthread_create_info_t *p_arg = (struct __pthread_create_info_t*) arg;
   void *(*f)(void *) = p_arg->func;
   void *__arg = p_arg->arg;
   libfree(p_arg);
   ma_thread_init();
+  malloc_protect_on = 0;
   void *res = (*f)(__arg);
+  malloc_protect_on = 1;
   ma_thread_finalize();
+  malloc_protect_on = 0;
   return res;
 }
 

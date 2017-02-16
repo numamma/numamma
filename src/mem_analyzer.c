@@ -5,6 +5,7 @@
 #include <string.h>
 #include <execinfo.h>
 #include <errno.h>
+#include <pthread.h>
 #include "mem_analyzer.h"
 #include "numap.h"
 
@@ -19,8 +20,10 @@
 static int  __record_infos = 0;
 static int sampling_rate = 10000;
 static int _verbose = 0;
+static __thread int is_sampling=0;
 
 struct memory_info_list*mem_list = NULL;
+pthread_mutex_t mem_list_lock;
 __thread struct numap_sampling_measure sm;
 __thread struct numap_sampling_measure sm_wr;
 
@@ -48,6 +51,7 @@ double get_cur_date() {
  * - collect read/write accesses
  */
 void ma_init() {
+  pthread_mutex_init(&mem_list_lock, NULL);
 #if USE_NUMAP
   clock_gettime(CLOCK_REALTIME, &t_init);
 
@@ -70,7 +74,6 @@ void ma_init() {
   __record_infos = 1;
 }
 
-static __thread int is_sampling=0;
 void start_sampling() {
 #if USE_NUMAP
   int previous_state = __record_infos;
@@ -201,14 +204,21 @@ int is_address_in_buffer(uint64_t addr, struct memory_info *buffer){
 }
 
 struct memory_info_list* find_mem_info_from_addr(uint64_t ptr) {
+  struct memory_info_list* retval = NULL;
 
+  pthread_mutex_lock(&mem_list_lock);
   struct memory_info_list * p_node = mem_list;
   while(p_node) {
-    if(is_address_in_buffer(ptr, &p_node->mem_info))
-      return p_node;
+    if(is_address_in_buffer(ptr, &p_node->mem_info)) {
+      retval = p_node;
+      goto out;
+    }
     p_node = p_node->next;
   }
-  return NULL;
+
+ out:
+  pthread_mutex_unlock(&mem_list_lock);
+  return retval;
 }
 
 #if HAVE_LIBBACKTRACE
@@ -307,10 +317,6 @@ void ma_record_malloc(struct mem_block_info* info) {
   collect_samples();
   struct memory_info_list * p_node = libmalloc(sizeof(struct memory_info_list));
 
-  /* todo: make this thread-safe */
-  p_node->next = mem_list;
-  mem_list = p_node;
-
   p_node->mem_info.alloc_date = new_date();
   p_node->mem_info.free_date = 0;
   p_node->mem_info.initial_buffer_size = info->size;
@@ -330,6 +336,12 @@ void ma_record_malloc(struct mem_block_info* info) {
     p_node->mem_info.count[i].remote_memory_count = 0;
     p_node->mem_info.count[i].remote_cache_count = 0;
   }
+
+  pthread_mutex_lock(&mem_list_lock);
+  p_node->next = mem_list;
+  mem_list = p_node;
+  pthread_mutex_unlock(&mem_list_lock);
+
   start_sampling();
 }
 
@@ -338,6 +350,11 @@ void ma_update_buffer_address(void *old_addr, void *new_addr) {
     return;
 
   collect_samples();
+  /* todo: do we really need the lock here ?
+   * when this list is modified, it is only for inserting new nodes, so browsing the list could
+   * be done without holding the lock ?
+   */
+  pthread_mutex_lock(&mem_list_lock);
   struct memory_info_list * p_node = mem_list;
   while(p_node) {
     if(p_node->mem_info.buffer_addr == old_addr  &&
@@ -346,8 +363,10 @@ void ma_update_buffer_address(void *old_addr, void *new_addr) {
     }
     p_node = p_node->next;
   }
+
   assert(p_node);
   p_node->mem_info.buffer_addr = new_addr;
+  pthread_mutex_unlock(&mem_list_lock);
   start_sampling();
 }
 
@@ -355,6 +374,8 @@ void ma_record_free(struct mem_block_info* info) {
   if(! __record_infos)
     return;
   collect_samples();
+
+  pthread_mutex_lock(&mem_list_lock);
   struct memory_info_list * p_node = mem_list;
   while(p_node) {
     if(p_node->mem_info.buffer_addr == info->u_ptr  &&
@@ -363,13 +384,17 @@ void ma_record_free(struct mem_block_info* info) {
     }
     p_node = p_node->next;
   }
+
   assert(p_node);
   p_node->mem_info.buffer_size = info->size;
   p_node->mem_info.free_date = new_date();
+  pthread_mutex_unlock(&mem_list_lock);
+
   start_sampling();
 }
 
 void ma_thread_finalize() {
+  collect_samples();
   pid_t tid = syscall(SYS_gettid);
   printf("End of thread: %d\n", tid);
 }
@@ -477,7 +502,9 @@ void ma_finalize() {
   printf("---------------------------------\n");
   printf("         MEM ANALYZER\n");
   printf("---------------------------------\n");
-  collect_samples();
+  //  collect_samples();
+
+  pthread_mutex_lock(&mem_list_lock);
 
   struct memory_info_list * p_node = mem_list;
   while(p_node) {
@@ -509,4 +536,5 @@ void ma_finalize() {
     }
     p_node = p_node->next;
   }
+  pthread_mutex_unlock(&mem_list_lock);
 }

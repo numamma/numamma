@@ -2,7 +2,7 @@ add_library(numma SHARED
   mem_intercept.c
   mem_analyzer.c
   )
-target_link_libraries(numma -ldl -lnumap)
+target_link_libraries(numma -ldl -lnumap -lpthread)
 
 configure_file (
   "${PROJECT_SOURCE_DIR}/src/mem_intercept.in"
