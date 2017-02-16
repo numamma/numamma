@@ -20,6 +20,8 @@
 static int  __record_infos = 0;
 static int sampling_rate = 10000;
 static int _verbose = 0;
+static int _dump = 0;
+static FILE* dump_file = NULL;
 static __thread int is_sampling=0;
 
 struct memory_info_list*mem_list = NULL;
@@ -42,6 +44,7 @@ double get_cur_date() {
   struct timespec t1;
   clock_gettime(CLOCK_REALTIME, &t1);
   double duration = ((t1.tv_sec-t_init.tv_sec)*1e9+(t1.tv_nsec-t_init.tv_nsec))/1e9;
+  return duration;
 }
 
 /* todo:
@@ -68,6 +71,16 @@ void ma_init() {
     }
   }
 
+  char* dump_str = getenv("NUMMA_DUMP");
+  if(dump_str) {
+    if(strcmp(dump_str, "0")!=0) {
+      _dump = 1;
+      char* dump_filename="/tmp/memory_dump.log";
+      dump_file = fopen(dump_filename, "w");
+      printf("Dump mode enabled. Data will be dumped to %s\n", dump_filename);
+    }
+  }
+
   numap_init();
 #endif
   ma_thread_init();
@@ -79,7 +92,7 @@ void start_sampling() {
   int previous_state = __record_infos;
   __record_infos = 0;
   if(_verbose)
-    printf("[%d][%lf] -------------- Start sampling %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
+    printf("[%lx][%lf] -------------- Start sampling %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
 
   if(is_sampling) {
     printf("is_sampling = %d !\n", is_sampling);
@@ -113,7 +126,7 @@ void collect_samples() {
   __record_infos = 0;
 
   if(_verbose) {
-    printf("[%d][%lf] -------------- Collect samples %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
+    printf("[%lx][%lf] -------------- Collect samples %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
   }
   if(!is_sampling) {
     printf("is_sampling = %d !\n", is_sampling);
@@ -233,7 +246,6 @@ int backtrace_callback (void *data, uintptr_t pc,
 			const char *filename, int lineno,
 			const char *function) {
   //  printf("[%p] in %s:%d %s\n", pc, filename, lineno, function);
-  char buffer[4096];
   snprintf(current_frame, 4096, "%s:%d %s", filename, lineno, function);
   return 0;
 }
@@ -311,6 +323,21 @@ char* get_caller_function() {
   return NULL;
 }
 
+void _dump_malloc(struct memory_info_list * p_node) {
+  fprintf(dump_file, "[%lu] [%lx] malloc(%lu bytes) -> u_ptr=%p\n",
+	  p_node->mem_info.alloc_date,
+	  pthread_self(),
+	  p_node->mem_info.initial_buffer_size,
+	  p_node->mem_info.buffer_addr);
+}
+
+void _dump_free(struct memory_info_list * p_node) {
+  fprintf(dump_file, "[%lu] [%lx] free(%p)\n",
+	  p_node->mem_info.free_date,
+	  pthread_self(),
+	  p_node->mem_info.buffer_addr);
+}
+
 void ma_record_malloc(struct mem_block_info* info) {
   if(! __record_infos)
     return;
@@ -337,6 +364,9 @@ void ma_record_malloc(struct mem_block_info* info) {
     p_node->mem_info.count[i].remote_cache_count = 0;
   }
 
+  if(_dump) {
+    _dump_malloc(p_node);
+  }
   pthread_mutex_lock(&mem_list_lock);
   p_node->next = mem_list;
   mem_list = p_node;
@@ -388,6 +418,8 @@ void ma_record_free(struct mem_block_info* info) {
   assert(p_node);
   p_node->mem_info.buffer_size = info->size;
   p_node->mem_info.free_date = new_date();
+  _dump_free(p_node);
+
   pthread_mutex_unlock(&mem_list_lock);
 
   start_sampling();
@@ -451,14 +483,19 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
 	    p_node->mem_info.count[access_type].remote_cache_count++;
 	  }
 	}
-#if 1
-	//	if(_verbose) {
-	if(1) {
+
+	if(_verbose) {
+#if 0
 	  printf("[%d]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n",
 		 syscall(SYS_gettid), sample->ip, sample->addr, get_data_src_level(sample->data_src),
 		 sample->weight);
-	}
 #endif
+	}
+	if(_dump) {
+	  fprintf(dump_file, "[%lx]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n",
+		  syscall(SYS_gettid), sample->ip, sample->addr, get_data_src_level(sample->data_src),
+		  sample->weight);
+	}
       }
 
       p_stat.consumed += p_stat.header->size;
@@ -466,30 +503,6 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
     }
   }
 
-#if 0
-  for (thread = 0; thread < sm->nb_threads; thread++) {
-
-    printf("\n");
-    printf("head = %" PRIu64 " compared to max = %zu\n", p_stat[thread].head, sm->mmap_len);
-    printf("Thread %d: %-8d samples\n", thread, p_stat[thread].total_count);
-    if(p_stat[thread].cache1_count > 0)
-      printf("Thread %d: %-8d %-30s %0.3f%%\n", thread, p_stat[thread].cache1_count, "local cache 1", (100.0 * p_stat[thread].cache1_count / p_stat[thread].total_count));
-    if(p_stat[thread].cache2_count > 0)
-      printf("Thread %d: %-8d %-30s %0.3f%%\n", thread, p_stat[thread].cache2_count, "local cache 2", (100.0 * p_stat[thread].cache2_count / p_stat[thread].total_count));
-    if(p_stat[thread].cache3_count > 0)
-      printf("Thread %d: %-8d %-30s %0.3f%%\n", thread, p_stat[thread].cache3_count, "local cache 3", (100.0 * p_stat[thread].cache3_count / p_stat[thread].total_count));
-    if(p_stat[thread].lfb_count > 0)
-      printf("Thread %d: %-8d %-30s %0.3f%%\n", thread, p_stat[thread].lfb_count, "local cache LFB", (100.0 * p_stat[thread].lfb_count / p_stat[thread].total_count));
-    if(p_stat[thread].memory_count > 0)
-      printf("Thread %d: %-8d %-30s %0.3f%%\n", thread, p_stat[thread].memory_count, "local memory", (100.0 * p_stat[thread].memory_count / p_stat[thread].total_count));
-    if(p_stat[thread].remote_cache_count > 0)
-      printf("Thread %d: %-8d %-30s %0.3f%%\n", thread, p_stat[thread].remote_cache_count, "remote cache or local memory", (100.0 * p_stat[thread].remote_cache_count / p_stat[thread].total_count));
-    if(p_stat[thread].remote_memory_count > 0)
-      printf("Thread %d: %-8d %-30s %0.3f%%\n", thread, p_stat[thread].remote_memory_count, "remote memory", (100.0 * p_stat[thread].remote_memory_count / p_stat[thread].total_count));
-    if(p_stat[thread].na_miss_count > 0)
-      printf("Thread %d: %-8d %-30s %0.3f%%\n", thread, p_stat[thread].na_miss_count, "unknown l3 miss", (100.0 * p_stat[thread].na_miss_count / p_stat[thread].total_count));
-  }
-#endif
   if(nb_samples>0)
     printf("[%lf] \tnb_samples = %d (including %d mem blocks)\n", get_cur_date(), nb_samples, found_samples);
 }
@@ -533,8 +546,22 @@ void ma_finalize() {
 	     p_node->mem_info.count[ACCESS_READ].total_count,
 	     p_node->mem_info.caller,
 	     r_access_frequency);
+
+      if(_dump) {
+	fprintf(dump_file, "buffer %p (%lu bytes) duration =%lu ticks. %d write accesses, %d read accesses. allocated : %s. read operation every %lf ticks\n",
+		p_node->mem_info.buffer_addr,
+		p_node->mem_info.initial_buffer_size,
+		duration,
+		p_node->mem_info.count[ACCESS_WRITE].total_count,
+		p_node->mem_info.count[ACCESS_READ].total_count,
+		p_node->mem_info.caller,
+		r_access_frequency);
+      }
     }
     p_node = p_node->next;
+  }
+  if(_dump) {
+    fclose(dump_file);
   }
   pthread_mutex_unlock(&mem_list_lock);
 }

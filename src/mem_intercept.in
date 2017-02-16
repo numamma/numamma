@@ -11,16 +11,21 @@ usage: $0 options
 OPTIONS:
    -?                               Show this message
    -d                               Run mem_intercept with gdb
+   -o                               Dump all the collected memory information to a file
    -v                               Verbose mode
 EOF
 }
 
 debug=n
+dump=n
 verbose=n
-while getopts 'dv' OPTION; do
+while getopts 'dvo' OPTION; do
   case $OPTION in
   d)
 	debug=y
+       	;;
+  o)
+	dump=y
        	;;
   v)
 	verbose=y
@@ -49,6 +54,9 @@ if [ x$debug = xy ]; then
     if [ x$verbose = xy ]; then
 	echo "set env NUMMA_VERBOSE=1" >> $gdbinit_file
     fi
+    if [ x$dump = xy ]; then
+	echo "set env NUMMA_DUMP=1" >> $gdbinit_file
+    fi
     echo "set env LD_LIBRARY_PATH=$ld_library_path" >> $gdbinit_file
     echo "echo \n" >> $gdbinit_file
     echo "echo EZTrace: hook loaded\n" >> $gdbinit_file
@@ -58,6 +66,9 @@ if [ x$debug = xy ]; then
 else
     if [ x$verbose = xy ]; then
 	export NUMMA_VERBOSE=1
+    fi
+    if [ x$dump = xy ]; then
+	export NUMMA_DUMP=1
     fi
     LD_PRELOAD=$ld_preload LD_LIBRARY_PATH=$ld_library_path $prog_name $*
     exit 0
