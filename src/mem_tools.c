@@ -6,6 +6,12 @@
 #include "mem_tools.h"
 #include "mem_intercept.h"
 
+#define HAVE_LIBBACKTRACE 1
+#if HAVE_LIBBACKTRACE
+#include <libbacktrace/backtrace.h>
+#include <libbacktrace/backtrace-supported.h>
+#endif
+
 void print_backtrace(int backtrace_max_depth) {
   int j, nptrs;
   void *buffer[backtrace_max_depth];
@@ -42,7 +48,12 @@ static void error_callback(void *data, const char *msg, int errnum)
 static int backtrace_callback (void *data, uintptr_t pc,
 			       const char *filename, int lineno,
 			       const char *function) {
-  snprintf(current_frame, 4096, "%s:%d %s", filename, lineno, function);
+  if(!function) {
+    /* symbol can't be resolved */
+    current_frame[0]='\0';
+  } else {
+    snprintf(current_frame, 4096, "%s:%d %s", filename, lineno, function);
+  }
   return 0;
 }
 #endif /* HAVE_LIBBACKTRACE */
@@ -58,28 +69,32 @@ char* get_caller_function(int depth) {
 #if HAVE_LIBBACKTRACE
   struct backtrace_state *state = backtrace_create_state (NULL, BACKTRACE_SUPPORTS_THREADS,
 							  error_callback, NULL);
-#else
-  char **functions;
-  functions = backtrace_symbols(buffer, nb_calls);
 #endif
 
   char* retval = NULL;
   if(nb_calls < depth) {
     retval = libmalloc(sizeof(char)*16);
     sprintf(retval, "???");
+    return retval;
   }
+
 #if HAVE_LIBBACKTRACE
-    backtrace_pcinfo (state, (uintptr_t) buffer[depth],
-		      backtrace_callback,
-		      error_callback,
-		      NULL);
+  backtrace_pcinfo (state, (uintptr_t) buffer[depth],
+		    backtrace_callback,
+		    error_callback,
+		    NULL);
+  if(current_frame[0] != '\0') {
     retval = libmalloc(sizeof(char)*4096);
     sprintf(retval, "%s", current_frame);
-#else
-    retval = libmalloc(sizeof(char)*4096);
-    sprintf(retval, "%s", functions[depth]);
-    free(functions);
+    return retval;
+  }
 #endif
+  /* symbol can't be resolved by libbacktrace, use the symbol name */
+  char **functions;
+  functions = backtrace_symbols(buffer, nb_calls);
+  retval = libmalloc(sizeof(char)*4096);
+  sprintf(retval, "%s", functions[depth]);
+  free(functions);
 
-  return retval;
+    return retval;
 }
