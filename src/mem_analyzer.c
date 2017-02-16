@@ -247,25 +247,14 @@ void ma_finalize() {
       else
 	w_access_frequency = 0;
 
-      printf("buffer %p (%lu bytes) duration =%lu ticks. %d write accesses, %d read accesses. allocated : %s. read operation every %lf ticks\n",
-	     p_node->mem_info.buffer_addr,
-	     p_node->mem_info.initial_buffer_size,
-	     duration,
-	     p_node->mem_info.count[ACCESS_WRITE].total_count,
-	     p_node->mem_info.count[ACCESS_READ].total_count,
-	     p_node->mem_info.caller,
-	     r_access_frequency);
-
-      if(_dump) {
-	fprintf(dump_file, "buffer %p (%lu bytes) duration =%lu ticks. %d write accesses, %d read accesses. allocated : %s. read operation every %lf ticks\n",
-		p_node->mem_info.buffer_addr,
-		p_node->mem_info.initial_buffer_size,
-		duration,
-		p_node->mem_info.count[ACCESS_WRITE].total_count,
-		p_node->mem_info.count[ACCESS_READ].total_count,
-		p_node->mem_info.caller,
-		r_access_frequency);
-      }
+      debug_printf("buffer %p (%lu bytes) duration =%lu ticks. %d write accesses, %d read accesses. allocated : %s. read operation every %lf ticks\n",
+		   p_node->mem_info.buffer_addr,
+		   p_node->mem_info.initial_buffer_size,
+		   duration,
+		   p_node->mem_info.count[ACCESS_WRITE].total_count,
+		   p_node->mem_info.count[ACCESS_READ].total_count,
+		   p_node->mem_info.caller,
+		   r_access_frequency);
     }
     p_node = p_node->next;
   }
