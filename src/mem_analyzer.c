@@ -216,6 +216,89 @@ void ma_record_free(struct mem_block_info* info) {
   UNPROTECT_RECORD;
 }
 
+struct call_site {
+  char* caller;
+  size_t buffer_size;
+  unsigned nb_mallocs;
+  struct memory_info mem_info;
+  struct call_site *next;
+};
+struct call_site* call_sites = NULL;
+
+struct call_site *find_call_site(struct memory_info_list* p_node) {
+  struct call_site * cur_site = call_sites;
+  while(cur_site) {
+    if(cur_site->buffer_size == p_node->mem_info.initial_buffer_size &&
+       strcmp(cur_site->caller, p_node->mem_info.caller) == 0) {
+      return cur_site;
+    }
+    cur_site = cur_site->next;
+  }
+  return NULL;
+}
+
+struct call_site * new_call_site(struct memory_info_list* p_node) {
+  struct call_site * site = malloc(sizeof(struct call_site));
+  site->caller = malloc(sizeof(char)*strlen(p_node->mem_info.caller));
+  strcpy(site->caller, p_node->mem_info.caller);
+  site->buffer_size =  p_node->mem_info.initial_buffer_size;
+  site->nb_mallocs = 0;
+
+  site->mem_info.alloc_date = 0;
+  site->mem_info.free_date = 0;
+  site->mem_info.initial_buffer_size = p_node->mem_info.initial_buffer_size;
+  site->mem_info.buffer_size = p_node->mem_info.buffer_size;
+  site->mem_info.buffer_addr = p_node->mem_info.buffer_addr;
+  site->mem_info.caller = site->caller;
+  int i;
+  for(i = 0; i<ACCESS_MAX; i++) {
+    memset(&site->mem_info.count[i], 0, sizeof(struct mem_counters));
+  }
+
+  site->next = call_sites;
+  call_sites = site;
+  return site;
+}
+
+void update_call_sites(struct memory_info_list* p_node) {
+  struct call_site* site = find_call_site(p_node);
+  if(!site) {
+    site = new_call_site(p_node);
+  }
+
+  site->nb_mallocs++;
+  int i;
+  for(i=0; i<ACCESS_MAX; i++) {
+    site->mem_info.count[i].total_count         += p_node->mem_info.count[i].total_count;
+    site->mem_info.count[i].na_miss_count       += p_node->mem_info.count[i].na_miss_count;
+    site->mem_info.count[i].cache1_count        += p_node->mem_info.count[i].cache1_count;
+    site->mem_info.count[i].cache2_count        += p_node->mem_info.count[i].cache2_count;
+    site->mem_info.count[i].cache3_count        += p_node->mem_info.count[i].cache3_count;
+    site->mem_info.count[i].lfb_count           += p_node->mem_info.count[i].lfb_count;
+    site->mem_info.count[i].memory_count        += p_node->mem_info.count[i].memory_count;
+    site->mem_info.count[i].remote_memory_count += p_node->mem_info.count[i].remote_memory_count;
+    site->mem_info.count[i].remote_cache_count  += p_node->mem_info.count[i].remote_cache_count;
+  }
+}
+
+void print_call_site_summary() {
+  printf("Summary of the call sites:\n");
+  printf("--------------------------\n");
+  struct call_site* site = call_sites;
+  while(site) {
+    printf("%s (size=%d) - %d buffers. %d read access\n", site->caller, site->buffer_size, site->nb_mallocs, site->mem_info.count[ACCESS_READ].total_count);
+    printf("\tna_miss_count:	   %d\n", site->mem_info.count[ACCESS_READ].na_miss_count);
+    printf("\tcache1_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache1_count);
+    printf("\tcache2_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache2_count);
+    printf("\tcache3_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache3_count);
+    printf("\tlfb_count:	   %d\n", site->mem_info.count[ACCESS_READ].lfb_count);
+    printf("\tmemory_count:	   %d\n", site->mem_info.count[ACCESS_READ].memory_count);
+    printf("\tremote_memory_count: %d\n", site->mem_info.count[ACCESS_READ].remote_memory_count);
+    printf("\tremote_cache_count:  %d\n", site->mem_info.count[ACCESS_READ].remote_cache_count);
+
+    site = site->next;
+  }
+}
 
 void ma_finalize() {
   ma_thread_finalize();
@@ -230,6 +313,8 @@ void ma_finalize() {
 
   struct memory_info_list * p_node = mem_list;
   while(p_node) {
+    update_call_sites(p_node);
+
     uint64_t duration = p_node->mem_info.free_date?
       p_node->mem_info.free_date-p_node->mem_info.alloc_date:
       0;
@@ -258,6 +343,9 @@ void ma_finalize() {
     }
     p_node = p_node->next;
   }
+
+  print_call_site_summary();
+
   if(_dump) {
     fclose(dump_file);
   }
