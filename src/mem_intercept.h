@@ -49,6 +49,7 @@ struct mem_block_info {
   size_t size; /* size of the buffer (not including this structure) */
 
   struct mem_tail_block* tail_block;
+  void* record_info;
 
   /* todo: add the possibility to change the size of the canary
    *   (eg. array of canaries)
@@ -108,6 +109,7 @@ struct mem_block_info {
     p_mem->size = nmemb * block_size;				\
     p_mem->tail_block = u_ptr + p_mem->size;			\
     p_mem->tail_block->canary = CANARY_PATTERN;			\
+    p_mem->record_info = NULL;					\
     p_mem->u_ptr = u_ptr;					\
     p_mem->canary = CANARY_PATTERN;				\
   } while(0)

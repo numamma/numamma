@@ -121,6 +121,7 @@ void ma_record_malloc(struct mem_block_info* info) {
   p_node->mem_info.initial_buffer_size = info->size;
   p_node->mem_info.buffer_size = info->size;
   p_node->mem_info.buffer_addr = info->u_ptr;
+  info->record_info = &p_node->mem_info;
 
   /* the current backtrace looks like this:
    * 0 - get_caller_function()
@@ -159,9 +160,12 @@ void ma_record_malloc(struct mem_block_info* info) {
   UNPROTECT_RECORD;
 }
 
-void ma_update_buffer_address(void *old_addr, void *new_addr) {
+void ma_update_buffer_address(struct mem_block_info* info, void *old_addr, void *new_addr) {
   if(!IS_RECORD_SAFE)
     return;
+  if(!info->record_info)
+    return;
+
   PROTECT_RECORD;
 
   mem_sampling_collect_samples();
@@ -169,19 +173,10 @@ void ma_update_buffer_address(void *old_addr, void *new_addr) {
    * when this list is modified, it is only for inserting new nodes, so browsing the list could
    * be done without holding the lock ?
    */
-  pthread_mutex_lock(&mem_list_lock);
-  struct memory_info_list * p_node = mem_list;
-  while(p_node) {
-    if(p_node->mem_info.buffer_addr == old_addr  &&
-       p_node->mem_info.free_date == 0) {
-      break;
-    }
-    p_node = p_node->next;
-  }
+  struct memory_info* mem_info = info->record_info;
+  assert(mem_info);
+  mem_info->buffer_addr = new_addr;
 
-  assert(p_node);
-  p_node->mem_info.buffer_addr = new_addr;
-  pthread_mutex_unlock(&mem_list_lock);
   mem_sampling_start();
   UNPROTECT_RECORD;
 }
@@ -189,28 +184,20 @@ void ma_update_buffer_address(void *old_addr, void *new_addr) {
 void ma_record_free(struct mem_block_info* info) {
   if(!IS_RECORD_SAFE)
     return;
+  if(!info->record_info)
+    return;
+
   PROTECT_RECORD;
   mem_sampling_collect_samples();
 
-  pthread_mutex_lock(&mem_list_lock);
-  struct memory_info_list * p_node = mem_list;
-  while(p_node) {
-    if(p_node->mem_info.buffer_addr == info->u_ptr  &&
-       p_node->mem_info.free_date == 0) {
-      break;
-    }
-    p_node = p_node->next;
-  }
-
-  assert(p_node);
-  p_node->mem_info.buffer_size = info->size;
-  p_node->mem_info.free_date = new_date();
+  struct memory_info* mem_info = info->record_info;
+  assert(mem_info);
+  mem_info->buffer_size = info->size;
+  mem_info->free_date = new_date();
   debug_printf("[%lu] [%lx] free(%p)\n",
-	       p_node->mem_info.free_date,
+	       mem_info->free_date,
 	       pthread_self(),
-	       p_node->mem_info.buffer_addr);
-
-  pthread_mutex_unlock(&mem_list_lock);
+	       mem_info->buffer_addr);
 
   mem_sampling_start();
   UNPROTECT_RECORD;
@@ -286,16 +273,28 @@ void print_call_site_summary() {
   printf("--------------------------\n");
   struct call_site* site = call_sites;
   while(site) {
-    printf("%s (size=%d) - %d buffers. %d read access\n", site->caller, site->buffer_size, site->nb_mallocs, site->mem_info.count[ACCESS_READ].total_count);
-    printf("\tna_miss_count:	   %d\n", site->mem_info.count[ACCESS_READ].na_miss_count);
-    printf("\tcache1_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache1_count);
-    printf("\tcache2_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache2_count);
-    printf("\tcache3_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache3_count);
-    printf("\tlfb_count:	   %d\n", site->mem_info.count[ACCESS_READ].lfb_count);
-    printf("\tmemory_count:	   %d\n", site->mem_info.count[ACCESS_READ].memory_count);
-    printf("\tremote_memory_count: %d\n", site->mem_info.count[ACCESS_READ].remote_memory_count);
-    printf("\tremote_cache_count:  %d\n", site->mem_info.count[ACCESS_READ].remote_cache_count);
-
+    if(site->mem_info.count[ACCESS_READ].total_count || site->mem_info.count[ACCESS_WRITE].total_count) {
+      printf("%s (size=%d) - %d buffers. %d read access. %d wr_access\n", site->caller, site->buffer_size, site->nb_mallocs, site->mem_info.count[ACCESS_READ].total_count, site->mem_info.count[ACCESS_WRITE].total_count);
+      printf("\tREAD accesses:\n");
+      printf("\tna_miss_count:	   %d\n", site->mem_info.count[ACCESS_READ].na_miss_count);
+      printf("\tcache1_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache1_count);
+      printf("\tcache2_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache2_count);
+      printf("\tcache3_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache3_count);
+      printf("\tlfb_count:	   %d\n", site->mem_info.count[ACCESS_READ].lfb_count);
+      printf("\tmemory_count:	   %d\n", site->mem_info.count[ACCESS_READ].memory_count);
+      printf("\tremote_memory_count: %d\n", site->mem_info.count[ACCESS_READ].remote_memory_count);
+      printf("\tremote_cache_count:  %d\n", site->mem_info.count[ACCESS_READ].remote_cache_count);
+      printf("\n");
+      printf("\tWRITE accesses:\n");
+      printf("\tna_miss_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].na_miss_count);
+      printf("\tcache1_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache1_count);
+      printf("\tcache2_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache2_count);
+      printf("\tcache3_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache3_count);
+      printf("\tlfb_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].lfb_count);
+      printf("\tmemory_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].memory_count);
+      printf("\tremote_memory_count: %d\n", site->mem_info.count[ACCESS_WRITE].remote_memory_count);
+      printf("\tremote_cache_count:  %d\n", site->mem_info.count[ACCESS_WRITE].remote_cache_count);
+    }
     site = site->next;
   }
 }

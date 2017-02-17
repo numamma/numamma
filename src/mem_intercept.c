@@ -8,6 +8,8 @@
 #include <inttypes.h>
 #include <dlfcn.h>
 #include <string.h>
+#include <sys/time.h>
+#include <pthread.h>
 
 #include "numma.h"
 #include "mem_intercept.h"
@@ -114,7 +116,9 @@ void* malloc(size_t size) {
   /* we are already processing a malloc/free function, so don't try to record information,
    * just call the function
    */
-  return libmalloc(size);
+  void *pptr = libmalloc(size);
+
+  return pptr;
 }
 
 void* realloc(void *ptr, size_t size) {
@@ -155,7 +159,6 @@ void* realloc(void *ptr, size_t size) {
     if (p_block->mem_type != MEM_TYPE_MALLOC) {
       fprintf(stderr, "Warning: realloc a ptr that was allocated by hand_made_malloc\n");
     }
-
     void *old_addr= p_block->u_ptr;
     void *pptr = librealloc(p_block->p_ptr, size + header_size);
 
@@ -169,7 +172,7 @@ void* realloc(void *ptr, size_t size) {
 
     p_block->mem_type = MEM_TYPE_MALLOC;
     void *new_addr= p_block->u_ptr;
-    ma_update_buffer_address(old_addr, new_addr);
+    ma_update_buffer_address(p_block, old_addr, new_addr);
     UNPROTECT_FROM_RECURSION;
 
     return p_block->u_ptr;
@@ -295,8 +298,8 @@ pthread_create (pthread_t *__restrict thread,
 {
   FUNCTION_ENTRY;
   struct __pthread_create_info_t * __args =
-    (struct __pthread_create_info_t*) libmalloc(
-	sizeof(struct __pthread_create_info_t));
+    (struct __pthread_create_info_t*) libmalloc(sizeof(struct __pthread_create_info_t));
+
   __args->func = start_routine;
   __args->arg = arg;
 

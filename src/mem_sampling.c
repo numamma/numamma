@@ -80,14 +80,11 @@ void mem_sampling_start() {
     abort();
   }
 
-#if 0
   res = numap_sampling_write_start(&sm_wr);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_start error : %s\n", numap_error_message(res));
     abort();
   }
-#endif
-
 #endif	/* USE_NUMAP */
 }
 
@@ -107,11 +104,10 @@ void mem_sampling_collect_samples() {
     printf("numap_sampling_stop error : %s\n", numap_error_message(res));
     abort();
   }
-
+  debug_printf("read_stop done\n");
   // Print memory read sampling results
   __analyze_sampling(&sm, ACCESS_READ);
-
-#if 0
+  debug_printf("analyze done\n");
   res = numap_sampling_write_stop(&sm_wr);
   if(res < 0) {
     printf("numap_sampling_stop error : %s\n", numap_error_message(res));
@@ -120,7 +116,6 @@ void mem_sampling_collect_samples() {
 
   // Print memory read sampling results
   __analyze_sampling(&sm_wr, ACCESS_WRITE);
-#endif
 
 #endif	/* USE_NUMAP */
 }
@@ -144,7 +139,7 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
   	abort();
       }
       if (p_stat.header -> type == PERF_RECORD_SAMPLE) {
-  	struct read_sample *sample = (struct read_sample *)((char *)(p_stat.header) + 8);
+	struct sample *sample = (struct sample *)((char *)(p_stat.header) + 8);
 	nb_samples++;
 	struct memory_info_list* p_node = ma_find_mem_info_from_addr(sample->addr);
 	if(p_node) {
@@ -178,13 +173,6 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
 	  }
 	}
 
-	if(_verbose) {
-#if 0
-	  printf("[%d]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n",
-		 syscall(SYS_gettid), sample->ip, sample->addr, get_data_src_level(sample->data_src),
-		 sample->weight);
-#endif
-	}
 	if(_dump) {
 	  fprintf(dump_file, "[%lx]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n",
 		  syscall(SYS_gettid), sample->ip, sample->addr, get_data_src_level(sample->data_src),
