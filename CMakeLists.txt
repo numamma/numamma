@@ -6,21 +6,22 @@ find_package(PkgConfig)
 project (NuMMa)
 set (NuMMa_VERSION_MAJOR 0)
 set (NuMMa_VERSION_MINOR 1)
+SET(PROJECT_VERSION "${NuMMa_VERSION_MAJOR}.${NuMMa_VERSION_MINOR}")
+SET(PROJECT_DESCRIPTION "NuMMa is a memory manager for NUMA architectures")
+
+SET(PKG_CONFIG_LIBDIR  "\${prefix}/lib"  )
+SET(PKG_CONFIG_INCLUDEDIR  "\${prefix}/include"  )
+SET(PKG_CONFIG_LIBS  "-L\${libdir} -lnumap"  )
+SET(PKG_CONFIG_CFLAGS  "-I\${includedir}"  )
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 find_package (numap)
 if (NUMAP_FOUND)
 
-  foreach(numap_cflag ${NUMAP_CFLAGS})
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${numap_cflag}")
-  endforeach()
-
-  foreach(numap_ldflag ${NUMAP_LDFLAGS})
-    set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  ${numap_ldflag}")
-  endforeach()
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${NUMAP_CFLAGS_OTHER}")
-  set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  ${NUMAP_LDFLAGS_OTHER}")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${NUMAP_CFLAGS} ${NUMAP_CFLAGS_OTHER}")
+  set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS}   ${NUMAP_LDFLAGS} ${NUMAP_LDFLAGS_OTHER}")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  ${NUMAP_LDFLAGS} ${NUMAP_LDFLAGS_OTHER}")
 else (NUMAP_FOUND)
   message(FATAL_ERROR "numap not found")
 endif (NUMAP_FOUND)
@@ -45,7 +46,6 @@ configure_file (
   "${PROJECT_SOURCE_DIR}/src/numma.h.in"
   "${PROJECT_BINARY_DIR}/src/numma.h"
   )
-
 
 # add the binary tree to the search path for include files
 # so that we will find TutorialConfig.h
@@ -76,3 +76,10 @@ IF("${isSystemDir}" STREQUAL "-1")
 ENDIF("${isSystemDir}" STREQUAL "-1")
 
 install(TARGETS DESTINATION bin)
+
+CONFIGURE_FILE(
+  "${CMAKE_CURRENT_SOURCE_DIR}/pkg-config.pc.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.pc"
+  )
+install(FILES "${CMAKE_BINARY_DIR}/${PROJECT_NAME}.pc"
+          DESTINATION lib/pkgconfig)
