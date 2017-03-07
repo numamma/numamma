@@ -11,8 +11,16 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
 find_package (numap)
 if (NUMAP_FOUND)
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${NUMAP_INCLUDE_DIR}")
-  set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  -L${NUMAP_DIR} -lnumap")
+
+  foreach(numap_cflag ${NUMAP_CFLAGS})
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${numap_cflag}")
+  endforeach()
+
+  foreach(numap_ldflag ${NUMAP_LDFLAGS})
+    set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  ${numap_ldflag}")
+  endforeach()
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${NUMAP_CFLAGS_OTHER}")
+  set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  ${NUMAP_LDFLAGS_OTHER}")
 else (NUMAP_FOUND)
   message(FATAL_ERROR "numap not found")
 endif (NUMAP_FOUND)

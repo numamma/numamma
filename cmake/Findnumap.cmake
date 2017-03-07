@@ -12,6 +12,9 @@
 # compilation or because you installed it in an "unusual" directory).
 # Just set NUMAP_DIR it to your specific installation directory
 #
+
+pkg_search_module(NUMAP REQUIRED numap)
+
 FIND_LIBRARY(NUMAP_LIBRARY numap
   PATHS
   /usr/lib
