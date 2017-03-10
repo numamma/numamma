@@ -54,12 +54,16 @@ static void* hand_made_malloc(size_t size) {
     /* let's use the real malloc */
     return malloc(size);
 
+  debug_printf("%s(size=%lu) ", __FUNCTION__, size);
+
   struct mem_block_info *p_block = NULL;
   INIT_MEM_INFO(p_block, next_slot, size, 1);
 
-  p_block->mem_type = MEM_TYPE_CUSTOM_MALLOC;
+  p_block->mem_type = MEM_TYPE_HAND_MADE_MALLOC;
   total_alloc += size;
   next_slot = next_slot + p_block->total_size;
+
+  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
 
   return p_block->u_ptr;
 }
@@ -94,31 +98,35 @@ void* malloc(size_t size) {
     UNPROTECT_FROM_RECURSION;
   }
 
+  debug_printf("%s(size=%lu) ", __FUNCTION__, size);
+
+  /* allocate a buffer */
+  void* pptr = libmalloc(size + HEADER_SIZE + TAIL_SIZE);
+  /* fill the information on the malloc'd buffer */
+  struct mem_block_info *p_block = NULL;
+  INIT_MEM_INFO(p_block, pptr, size, 1);
+
   if(__memory_initialized && IS_RECURSE_SAFE) {
     PROTECT_FROM_RECURSION;
-    debug_printf("malloc(%d) ", size);
+    //    debug_printf("malloc(%d) ", size);
 
-    /* allocate a buffer */
-    void* pptr = libmalloc(size + HEADER_SIZE + TAIL_SIZE);
-
-    /* fill the information on the malloc'd buffer */
-    struct mem_block_info *p_block = NULL;
-    INIT_MEM_INFO(p_block, pptr, size, 1);
     p_block->mem_type = MEM_TYPE_MALLOC;
 
     /* let the analysis module record information on the malloc */
     ma_record_malloc(p_block);
-    debug_printf("-> %p (p_block=%p)\n", p_block->u_ptr, p_block);
+    //    debug_printf("-> %p (p_block=%p)\n", p_block->u_ptr, p_block);
 
     UNPROTECT_FROM_RECURSION;
-    return p_block->u_ptr;
-  }
+    //    return p_block->u_ptr;
+  } else {
   /* we are already processing a malloc/free function, so don't try to record information,
    * just call the function
    */
-  void *pptr = libmalloc(size);
+    p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
+  }
 
-  return pptr;
+  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
+  return p_block->u_ptr;//  return pptr;
 }
 
 void* realloc(void *ptr, size_t size) {
@@ -133,7 +141,7 @@ void* realloc(void *ptr, size_t size) {
     return NULL;
   }
 
-  FUNCTION_ENTRY;
+  //  FUNCTION_ENTRY;
   if (!librealloc) {
     librealloc = dlsym(RTLD_NEXT, "realloc");
     char* error;
@@ -143,42 +151,51 @@ void* realloc(void *ptr, size_t size) {
     }
   }
 
+  debug_printf("%s(ptr=%p, size=%lu) ", __FUNCTION__, ptr, size);
+
   if (!CANARY_OK(ptr)) {
     /* we didn't malloc'ed this buffer */
-    return librealloc(ptr, size);
+    fprintf(stderr,"%s(%p). I can't find this pointer !\n", __FUNCTION__, ptr);
+    abort();
+    void* retval = librealloc(ptr, size);
+    debug_printf("--> %p\n", retval);
+    return retval;
   }
+
+  struct mem_block_info *p_block;
+  USER_PTR_TO_BLOCK_INFO(ptr, p_block);
+  size_t old_size = p_block->size;
+  size_t header_size = p_block->total_size - p_block->size;
+
+  if (p_block->mem_type != MEM_TYPE_MALLOC) {
+    fprintf(stderr, "Warning: realloc a ptr that was allocated by hand_made_malloc\n");
+  }
+  void *old_addr= p_block->u_ptr;
+  void *pptr = librealloc(p_block->p_ptr, size + header_size);
+  INIT_MEM_INFO(p_block, pptr, size, 1);
 
   if(__memory_initialized && IS_RECURSE_SAFE) {
     PROTECT_FROM_RECURSION;
     /* retrieve the malloc information from the pointer */
-    struct mem_block_info *p_block;
-    USER_PTR_TO_BLOCK_INFO(ptr, p_block);
-    size_t old_size = p_block->size;
-    size_t header_size = p_block->total_size - p_block->size;
-
-    if (p_block->mem_type != MEM_TYPE_MALLOC) {
-      fprintf(stderr, "Warning: realloc a ptr that was allocated by hand_made_malloc\n");
-    }
-    void *old_addr= p_block->u_ptr;
-    void *pptr = librealloc(p_block->p_ptr, size + header_size);
 
     if (!pptr) {
       /* realloc failed */
       UNPROTECT_FROM_RECURSION;
+      debug_printf("--> %p\n", NULL);
       return NULL;
     }
-
-    INIT_MEM_INFO(p_block, pptr, size, 1);
 
     p_block->mem_type = MEM_TYPE_MALLOC;
     void *new_addr= p_block->u_ptr;
     ma_update_buffer_address(p_block, old_addr, new_addr);
     UNPROTECT_FROM_RECURSION;
-
-    return p_block->u_ptr;
-  }
+  } else {
   /* it is not safe to record information */
-  return librealloc(ptr, size);
+    p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
+  }
+
+  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
+  return p_block->u_ptr;
 }
 
 void* calloc(size_t nmemb, size_t size) {
@@ -190,27 +207,32 @@ void* calloc(size_t nmemb, size_t size) {
     return ret;
   }
 
-  FUNCTION_ENTRY;
+  debug_printf("calloc(nmemb=%d, size=%lu) ", nmemb, size);
+
+  /* compute the number of blocks for header */
+  int nb_memb_header = (HEADER_SIZE  + TAIL_SIZE)/ size;
+  if (size * nb_memb_header < HEADER_SIZE + TAIL_SIZE)
+    nb_memb_header++;
+
+  /* allocate buffer + header */
+  void* p_ptr = libcalloc(nmemb + nb_memb_header, size);
+
+  struct mem_block_info *p_block = NULL;
+  INIT_MEM_INFO(p_block, p_ptr, nmemb, size);
+
 
   if(__memory_initialized && IS_RECURSE_SAFE) {
     PROTECT_FROM_RECURSION;
-    /* compute the number of blocks for header */
-    int nb_memb_header = (HEADER_SIZE  + TAIL_SIZE)/ size;
-    if (size * nb_memb_header < HEADER_SIZE + TAIL_SIZE)
-      nb_memb_header++;
-
-    /* allocate buffer + header */
-    void* p_ptr = libcalloc(nmemb + nb_memb_header, size);
-
-    struct mem_block_info *p_block = NULL;
-    INIT_MEM_INFO(p_block, p_ptr, nmemb, size);
     p_block->mem_type = MEM_TYPE_MALLOC;
 
     ma_record_malloc(p_block);
     UNPROTECT_FROM_RECURSION;
-    return p_block->u_ptr;
+  } else {
+    p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
+    //  return libcalloc(nmemb, size);
   }
-  return libcalloc(nmemb, size);
+  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
+  return p_block->u_ptr;
 }
 
 void free(void* ptr) {
@@ -228,38 +250,41 @@ void free(void* ptr) {
     return;
   }
 
+  debug_printf("%s(ptr=%lu) ", __FUNCTION__, ptr);
+
   /* first, check wether we malloc'ed the buffer */
   if (!CANARY_OK(ptr)) {
     /* we didn't malloc this buffer */
+    fprintf(stderr, "%s(%p). I don't know this malloc !\n", __FUNCTION__, ptr);
+    abort();
     libfree(ptr);
     return;
   }
 
+  struct mem_block_info *p_block;
+  USER_PTR_TO_BLOCK_INFO(ptr, p_block);
+
   /* retrieve the block information and free it */
-  if(__memory_initialized && IS_RECURSE_SAFE) {
+  if(__memory_initialized && IS_RECURSE_SAFE &&p_block->mem_type == MEM_TYPE_MALLOC) {
     PROTECT_FROM_RECURSION;
-    {
-      struct mem_block_info *p_block;
-      USER_PTR_TO_BLOCK_INFO(ptr, p_block);
 
-      debug_printf("free(%p)\n", ptr);
+    //    debug_printf("free(%p)\n", ptr);
 
-      if(!TAIL_CANARY_OK(p_block)) {
-	fprintf(stderr, "Warning: tail canary erased :'( (%x instead of %x)\n", p_block->tail_block->canary, CANARY_PATTERN);
-	abort();
-      }
+    if(!TAIL_CANARY_OK(p_block)) {
+      fprintf(stderr, "Warning: tail canary erased :'( (%x instead of %x)\n", p_block->tail_block->canary, CANARY_PATTERN);
+      abort();
+    }
 
-      if (p_block->mem_type == MEM_TYPE_MALLOC) {
-	ma_record_free(p_block);
-	libfree(p_block->p_ptr);
-      } else {
-	/* the buffer was allocated by hand_made_malloc, there's nothing to free */
-      }
+    if (p_block->mem_type == MEM_TYPE_MALLOC) {
+      ma_record_free(p_block);
+    } else {
+      /* the buffer was allocated by hand_made_malloc, there's nothing to free */
     }
     UNPROTECT_FROM_RECURSION;
-    return;
+  } else {
+    /* internal malloc or hand made malloc, nothing to do */
   }
-  libfree(ptr);
+  libfree(p_block->p_ptr);
 }
 
 /* Internal structure used for transmitting the function and argument
