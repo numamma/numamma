@@ -39,13 +39,13 @@ void mem_sampling_init() {
 void mem_sampling_thread_init() {
   pid_t tid = syscall(SYS_gettid);
   printf("New thread: %d\n", tid);
-  int res = numap_sampling_init_measure(&sm, 1, sampling_rate, 64);
+  int res = numap_sampling_init_measure(&sm, 1, sampling_rate, 32);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
     abort();
   }
 
-  res = numap_sampling_init_measure(&sm_wr, 1, sampling_rate, 64);
+  res = numap_sampling_init_measure(&sm_wr, 1, sampling_rate, 32);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
     abort();
@@ -60,6 +60,10 @@ void mem_sampling_thread_finalize() {
   mem_sampling_collect_samples();
 }
 
+/* make sure this function is not called by collect_samples or start_sampling.
+ * This could be the case if one of these functions fail and calls exit
+ */
+static __thread int setting_sampling_stuff=0;
 
 void mem_sampling_start() {
 #if USE_NUMAP
@@ -70,6 +74,14 @@ void mem_sampling_start() {
     abort();
   }
   is_sampling=1;
+
+  /* make sure this function is not called by collect_samples or start_sampling.
+   * This could be the case if one of these functions fail and calls exit
+   */
+  if(setting_sampling_stuff)
+    return;
+  setting_sampling_stuff=1;
+
   // Start memory read access sampling
   int res = numap_sampling_read_start(&sm);
   if(res < 0) {
@@ -85,6 +97,7 @@ void mem_sampling_start() {
     fprintf(stderr, "numap_sampling_start error : %s\n", numap_error_message(res));
     abort();
   }
+  setting_sampling_stuff=0;
 #endif	/* USE_NUMAP */
 }
 
@@ -97,6 +110,13 @@ void mem_sampling_collect_samples() {
     abort();
   }
   is_sampling = 0;
+
+  /* make sure this function is not called by collect_samples or start_sampling.
+   * This could be the case if one of these functions fail and calls exit
+   */
+  if(setting_sampling_stuff)
+    return;
+  setting_sampling_stuff=1;
 
   // Stop memory read access sampling
   int res = numap_sampling_read_stop(&sm);
@@ -116,7 +136,7 @@ void mem_sampling_collect_samples() {
 
   // Print memory read sampling results
   __analyze_sampling(&sm_wr, ACCESS_WRITE);
-
+  setting_sampling_stuff=0;
 #endif	/* USE_NUMAP */
 }
 
