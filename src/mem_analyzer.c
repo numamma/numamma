@@ -128,15 +128,17 @@ char null_str[]="";
 
 /* get the list of global/static variables with their address and size */
 void ma_get_global_variables() {
+  debug_printf("Looking for global variables\n");
   /* get the filename of the program being run */
   char readlink_cmd[1024];
   sprintf(readlink_cmd, "readlink /proc/%d/exe", getpid());
-  FILE* f=popen(readlink_cmd, "r");
+  FILE* f = popen(readlink_cmd, "r");
   char program_file[4096];
   fgets(program_file, 4096, f);
   strtok(program_file, "\n"); // remove trailing newline
   fclose(f);
-  
+
+  debug_printf("  The program file is %s\n", program_file);
   /* get the address at which the program is mapped in memory */
   char cmd[4069];
   char line[4096];
@@ -155,13 +157,15 @@ void ma_get_global_variables() {
       fgets(line, 4096, f);
       fclose(f);
       sscanf(line, "%lx-%lx", &base_addr, &end_addr);
+      debug_printf("  This program was compiled with -fPIE. It is mapped at address %p\n", base_addr);
     } else {
     /* process is not compiled with -fPIE, thus, the addresses in the ELF are the addresses in the binary */
       base_addr= NULL;
       end_addr= NULL;
+      debug_printf("  This program was not compiled with -fPIE. It is mapped at address %p\n", base_addr);
     }
   }
-     
+
   /* get the list of global variables in the current binary */
   char nm_cmd[1024];
   sprintf(nm_cmd, "nm --defined-only -l -S %s", program_file);
