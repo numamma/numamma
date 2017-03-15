@@ -407,24 +407,41 @@ void print_call_site_summary() {
     if(site->mem_info.count[ACCESS_READ].total_count || site->mem_info.count[ACCESS_WRITE].total_count) {
       printf("%s (size=%d) - %d buffers. %d read access. %d wr_access\n", site->caller, site->buffer_size, site->nb_mallocs, site->mem_info.count[ACCESS_READ].total_count, site->mem_info.count[ACCESS_WRITE].total_count);
       printf("\tREAD accesses:\n");
-      printf("\tna_miss_count:	   %d\n", site->mem_info.count[ACCESS_READ].na_miss_count);
-      printf("\tcache1_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache1_count);
-      printf("\tcache2_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache2_count);
-      printf("\tcache3_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache3_count);
-      printf("\tlfb_count:	   %d\n", site->mem_info.count[ACCESS_READ].lfb_count);
-      printf("\tmemory_count:	   %d\n", site->mem_info.count[ACCESS_READ].memory_count);
-      printf("\tremote_memory_count: %d\n", site->mem_info.count[ACCESS_READ].remote_memory_count);
-      printf("\tremote_cache_count:  %d\n", site->mem_info.count[ACCESS_READ].remote_cache_count);
+      if(site->mem_info.count[ACCESS_READ].na_miss_count)
+	printf("\tna_miss_count:	   %d\n", site->mem_info.count[ACCESS_READ].na_miss_count);
+      if(site->mem_info.count[ACCESS_READ].cache1_count)
+	printf("\tcache1_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache1_count);
+      if(site->mem_info.count[ACCESS_READ].cache2_count)
+	printf("\tcache2_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache2_count);
+      if(site->mem_info.count[ACCESS_READ].cache3_count)
+	printf("\tcache3_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache3_count);
+      if(site->mem_info.count[ACCESS_READ].lfb_count)
+	printf("\tlfb_count:	   %d\n", site->mem_info.count[ACCESS_READ].lfb_count);
+      if(site->mem_info.count[ACCESS_READ].memory_count)
+	printf("\tmemory_count:	   %d\n", site->mem_info.count[ACCESS_READ].memory_count);
+      if(site->mem_info.count[ACCESS_READ].remote_memory_count)
+	printf("\tremote_memory_count: %d\n", site->mem_info.count[ACCESS_READ].remote_memory_count);
+      if(site->mem_info.count[ACCESS_READ].remote_cache_count)
+	printf("\tremote_cache_count:  %d\n", site->mem_info.count[ACCESS_READ].remote_cache_count);
       printf("\n");
+
       printf("\tWRITE accesses:\n");
-      printf("\tna_miss_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].na_miss_count);
-      printf("\tcache1_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache1_count);
-      printf("\tcache2_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache2_count);
-      printf("\tcache3_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache3_count);
-      printf("\tlfb_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].lfb_count);
-      printf("\tmemory_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].memory_count);
-      printf("\tremote_memory_count: %d\n", site->mem_info.count[ACCESS_WRITE].remote_memory_count);
-      printf("\tremote_cache_count:  %d\n", site->mem_info.count[ACCESS_WRITE].remote_cache_count);
+      if(  site->mem_info.count[ACCESS_WRITE].na_miss_count)
+	printf("\tna_miss_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].na_miss_count);
+      if(  site->mem_info.count[ACCESS_WRITE].cache1_count)
+	printf("\tcache1_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache1_count);
+      if(  site->mem_info.count[ACCESS_WRITE].cache2_count)
+	printf("\tcache2_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache2_count);
+      if(  site->mem_info.count[ACCESS_WRITE].cache3_count)
+	printf("\tcache3_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache3_count);
+      if(  site->mem_info.count[ACCESS_WRITE].lfb_count)
+	printf("\tlfb_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].lfb_count);
+      if(  site->mem_info.count[ACCESS_WRITE].memory_count)
+	printf("\tmemory_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].memory_count);
+      if(site->mem_info.count[ACCESS_WRITE].remote_memory_count)
+	printf("\tremote_memory_count: %d\n", site->mem_info.count[ACCESS_WRITE].remote_memory_count);
+      if(site->mem_info.count[ACCESS_WRITE].remote_cache_count)
+	printf("\tremote_cache_count:  %d\n", site->mem_info.count[ACCESS_WRITE].remote_cache_count);
     }
     site = site->next;
   }

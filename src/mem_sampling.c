@@ -38,7 +38,6 @@ void mem_sampling_init() {
 
 void mem_sampling_thread_init() {
   pid_t tid = syscall(SYS_gettid);
-  printf("New thread: %d\n", tid);
   int res = numap_sampling_init_measure(&sm, 1, sampling_rate, 32);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
