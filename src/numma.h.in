@@ -2,8 +2,9 @@
 #define NUMMA_H
 
 #include <assert.h>
+#include <string.h>
 
-#define INSTALL_PREFIX @INSTALL_PREFIX@
+#define INSTALL_PREFIX @CMAKE_INSTALL_PREFIX@
 
 extern int _verbose;
 extern int _dump;

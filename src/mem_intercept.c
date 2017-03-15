@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <pthread.h>
+#include <errno.h>
 
 #include "numma.h"
 #include "mem_intercept.h"
@@ -98,7 +99,7 @@ void* malloc(size_t size) {
     UNPROTECT_FROM_RECURSION;
   }
 
-  debug_printf("%s(size=%lu) ", __FUNCTION__, size);
+  //debug_printf("%s(size=%lu) ", __FUNCTION__, size);
 
   /* allocate a buffer */
   void* pptr = libmalloc(size + HEADER_SIZE + TAIL_SIZE);
@@ -125,7 +126,7 @@ void* malloc(size_t size) {
     p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
   }
 
-  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
+  //  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
   return p_block->u_ptr;//  return pptr;
 }
 
@@ -250,7 +251,7 @@ void free(void* ptr) {
     return;
   }
 
-  debug_printf("%s(ptr=%lu) ", __FUNCTION__, ptr);
+  //  debug_printf("%s(ptr=%lu) ", __FUNCTION__, ptr);
 
   /* first, check wether we malloc'ed the buffer */
   if (!CANARY_OK(ptr)) {
@@ -369,13 +370,40 @@ static void read_options() {
       printf("Dump mode enabled. Data will be dumped to %s\n", dump_filename);
     }
   }
+}
 
+extern char**environ;
+/* unset LD_PRELOAD
+ * this makes sure that forked processes will not be analyzed
+ */
+void unset_ld_preload() {
+  /* unset LD_PRELOAD */
+  int ret = unsetenv("LD_PRELOAD");
+  if(ret != 0 ){
+    fprintf(stderr, "unsetenv failed ! %s\n", strerror(errno));
+    abort();
+  }
+
+  /* also change the environ variable since exec* function
+   * rely on it.
+   */
+  for (int i=0; environ[i]; i++) {
+    if (strstr(environ[i],"LD_PRELOAD=")) {
+      printf("hacking out LD_PRELOAD from environ[%d]\n",i);
+      environ[i][0] = 'D';
+    }
+  }
+  char*plop=getenv("LD_PRELOAD");
+  if(plop) {
+    fprintf(stderr, "Warning: cannot unset LD_PRELOAD\n");
+    fprintf(stderr, "This is likely to cause problems later.\n");
+  }
 }
 
 static void __memory_init(void) __attribute__ ((constructor));
 static void __memory_init(void) {
   PROTECT_FROM_RECURSION;
-
+  unset_ld_preload();
   libmalloc = dlsym(RTLD_NEXT, "malloc");
   libcalloc = dlsym(RTLD_NEXT, "calloc");
   librealloc = dlsym(RTLD_NEXT, "realloc");
@@ -385,6 +413,8 @@ static void __memory_init(void) {
 
   read_options();
   ma_init();
+
+  ma_get_global_variables();
 
   __memory_initialized = 1;
   UNPROTECT_FROM_RECURSION;

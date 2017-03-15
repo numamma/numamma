@@ -54,6 +54,7 @@ struct mem_sampling_stat {
 
 
 void ma_init();
+void ma_get_global_variables();
 void ma_record_malloc(struct mem_block_info* info);
 void ma_update_buffer_address(struct mem_block_info* info, void *old_addr, void *new_addr);
 void ma_record_free(struct mem_block_info* info);

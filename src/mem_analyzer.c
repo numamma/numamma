@@ -108,6 +108,126 @@ ma_find_mem_info_from_addr(uint64_t ptr) {
   return retval;
 }
 
+static void __init_counters(struct memory_info_list* p_node) {
+  int i;
+  for(i=0; i<ACCESS_MAX; i++) {
+    p_node->mem_info.count[i].total_count = 0;
+
+    p_node->mem_info.count[i].na_miss_count = 0;
+    p_node->mem_info.count[i].cache1_count = 0;
+    p_node->mem_info.count[i].cache2_count = 0;
+    p_node->mem_info.count[i].cache3_count = 0;
+    p_node->mem_info.count[i].lfb_count = 0;
+    p_node->mem_info.count[i].memory_count = 0;
+    p_node->mem_info.count[i].remote_memory_count = 0;
+    p_node->mem_info.count[i].remote_cache_count = 0;
+  }
+}
+
+char null_str[]="";
+
+/* get the list of global/static variables with their address and size */
+void ma_get_global_variables() {
+  /* get the filename of the program being run */
+  char readlink_cmd[1024];
+  sprintf(readlink_cmd, "readlink /proc/%d/exe", getpid());
+  FILE* f=popen(readlink_cmd, "r");
+  char program_file[4096];
+  fgets(program_file, 4096, f);
+  fclose(f);
+
+  /* get the address at which the program is mapped in memory */
+  char cmd[4069];
+  sprintf(cmd, "cat /proc/%d/maps |grep \"%s\" | grep  \" rw-p \"", getpid(), program_file);
+  f=popen(cmd, "r");
+  char line[4096];
+  fgets(line, 4096, f);
+  fclose(f);
+  void *base_addr;
+  void *end_addr;
+  sscanf(line, "%lx-%lx", &base_addr, &end_addr);
+
+  /* get the list of global variables in the current binary */
+  char nm_cmd[1024];
+  sprintf(nm_cmd, "nm --defined-only -l -S %s", program_file);
+  f = popen(nm_cmd, "r");
+
+  while(!feof(f)) {
+    if( ! fgets(line, 4096, f) ) {
+      return;
+    }
+
+    /* each line is in the form:
+       offset [size] section symbol [file]
+     */
+    char *addr = null_str;
+    char *size_str = null_str;
+    char *section = null_str;
+    char *symbol = null_str;
+    char *file = null_str;
+
+    int nb_found;
+    addr = strtok(line, " \t\n");
+    assert(addr);
+    size_str = strtok(NULL, " \t\n");
+    assert(size_str);
+    section = strtok(NULL, " \t\n");
+    symbol = strtok(NULL, " \t\n");
+    if(!symbol) {
+      /* only 3 fields (addr section symbol) */
+      nb_found = 3;
+      symbol = section;
+      section = size_str;
+      size_str = null_str;
+      /* this is not enough (we need the size), skip this one */
+      continue;
+    } else {
+      nb_found = 4;
+      /*  fields */
+      file = strtok(NULL, " \t\n");
+      if(!file) {
+	file = null_str;
+      } else {
+	nb_found = 5;
+      }
+    }
+
+    if(section[0]== 'b' || section[0]=='B' || /* BSS (uninitialized global vars) section */
+       section[0]== 'd' || section[0]=='D' || /* initialized data section */
+       section[0]== 'g' || section[0]=='G') { /* initialized data section for small objects */
+
+      size_t size;
+      sscanf(size_str, "%lx", &size);
+      if(size) {
+	struct memory_info_list * p_node = libmalloc(sizeof(struct memory_info_list));
+
+	p_node->mem_info.alloc_date = 0;
+	p_node->mem_info.free_date = 0;
+	p_node->mem_info.initial_buffer_size = size;
+	p_node->mem_info.buffer_size = p_node->mem_info.initial_buffer_size;
+
+	/* addr is the offset within the binary. The actual address of the variable is located at
+	 *  addr+base_addr
+	 */
+	size_t offset;
+	sscanf(addr, "%lx", &offset);
+	p_node->mem_info.buffer_addr = offset + (uint8_t*)base_addr;
+	p_node->mem_info.caller = malloc(sizeof(char)*1024);
+	snprintf(p_node->mem_info.caller, 1024, "%s in %s", symbol, file);
+	__init_counters(p_node);
+	/* todo: insert large buffers at the beginning of the list since
+	 * their are more likely to be accessed often (this will speed
+	 * up searching at runtime)
+	 */
+	pthread_mutex_lock(&mem_list_lock);
+	p_node->next = mem_list;
+	mem_list = p_node;
+	pthread_mutex_unlock(&mem_list_lock);
+      }
+    }
+  }
+}
+
 void ma_record_malloc(struct mem_block_info* info) {
   if(!IS_RECORD_SAFE)
     return;
@@ -132,25 +252,14 @@ void ma_record_malloc(struct mem_block_info* info) {
    * So, we need to get the name of the function in frame 3.
    */
   p_node->mem_info.caller = get_caller_function(3);
-  int i;
-  for(i=0; i<ACCESS_MAX; i++) {
-    p_node->mem_info.count[i].total_count = 0;
-
-    p_node->mem_info.count[i].na_miss_count = 0;
-    p_node->mem_info.count[i].cache1_count = 0;
-    p_node->mem_info.count[i].cache2_count = 0;
-    p_node->mem_info.count[i].cache3_count = 0;
-    p_node->mem_info.count[i].lfb_count = 0;
-    p_node->mem_info.count[i].memory_count = 0;
-    p_node->mem_info.count[i].remote_memory_count = 0;
-    p_node->mem_info.count[i].remote_cache_count = 0;
-  }
+  __init_counters(p_node);
 
   debug_printf("[%lu] [%lx] malloc(%lu bytes) -> u_ptr=%p\n",
 	       p_node->mem_info.alloc_date,
 	       pthread_self(),
 	       p_node->mem_info.initial_buffer_size,
 	       p_node->mem_info.buffer_addr);
+
   pthread_mutex_lock(&mem_list_lock);
   p_node->next = mem_list;
   mem_list = p_node;
