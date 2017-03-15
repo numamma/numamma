@@ -153,7 +153,7 @@ int main(int argc, char**argv) {
   char* buffer[ITER];
   int i, j;
 
-#if 1
+#if 0
   debug("Testing malloc\n");
   test_malloc();
   debug("1/2 done\n");

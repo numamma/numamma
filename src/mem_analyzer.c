@@ -134,19 +134,34 @@ void ma_get_global_variables() {
   FILE* f=popen(readlink_cmd, "r");
   char program_file[4096];
   fgets(program_file, 4096, f);
+  strtok(program_file, "\n"); // remove trailing newline
   fclose(f);
-
+  
   /* get the address at which the program is mapped in memory */
   char cmd[4069];
-  sprintf(cmd, "cat /proc/%d/maps |grep \"%s\" | grep  \" rw-p \"", getpid(), program_file);
-  f=popen(cmd, "r");
   char line[4096];
-  fgets(line, 4096, f);
-  fclose(f);
-  void *base_addr;
-  void *end_addr;
-  sscanf(line, "%lx-%lx", &base_addr, &end_addr);
+  void *base_addr = NULL;
+  void *end_addr = NULL;
 
+  sprintf(cmd, "file \"%s\" |grep \"shared object\" > plop", program_file);
+  int ret = system(cmd);
+  if(WIFEXITED(ret)) {
+    int exit_status= WEXITSTATUS(ret);
+    if(exit_status == EXIT_SUCCESS) {
+      /* process is compiled with -fPIE, thus, the addresses in the ELF are to be relocated */
+      //      sprintf(cmd, "cat /proc/%d/maps |grep \"%s\" | grep  \" rw-p \"", getpid(), program_file);
+      sprintf(cmd, "cat /proc/%d/maps |grep \"[heap]\"", getpid(), program_file);
+      f = popen(cmd, "r");
+      fgets(line, 4096, f);
+      fclose(f);
+      sscanf(line, "%lx-%lx", &base_addr, &end_addr);
+    } else {
+    /* process is not compiled with -fPIE, thus, the addresses in the ELF are the addresses in the binary */
+      base_addr= NULL;
+      end_addr= NULL;
+    }
+  }
+     
   /* get the list of global variables in the current binary */
   char nm_cmd[1024];
   sprintf(nm_cmd, "nm --defined-only -l -S %s", program_file);
@@ -215,6 +230,9 @@ void ma_get_global_variables() {
 	p_node->mem_info.caller = malloc(sizeof(char)*1024);
 	snprintf(p_node->mem_info.caller, 1024, "%s in %s", symbol, file);
 	__init_counters(p_node);
+
+	debug_printf("Found a global variable: %s (defined at %s). base addr=%p, size=%d\n",
+		     symbol, file, p_node->mem_info.buffer_addr, p_node->mem_info.buffer_size);
 	/* todo: insert large buffers at the beginning of the list since
 	 * their are more likely to be accessed often (this will speed
 	 * up searching at runtime)
