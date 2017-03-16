@@ -28,6 +28,9 @@ static __thread int is_record_safe = 1;
     is_record_safe = 1;			\
   } while(0)
 
+struct mem_allocator* mem_info_allocator = NULL;
+struct mem_allocator* string_allocator = NULL;
+
 /* todo:
  * - intercept thread creation and run numap_sampling_init_measure for each thread
  * - set an alarm every 1ms to collect the sampling info
@@ -38,6 +41,12 @@ void ma_init() {
   PROTECT_RECORD;
   pthread_mutex_init(&mem_list_lock, NULL);
 
+  mem_allocator_init(&mem_info_allocator,
+		     sizeof(struct memory_info_list),
+		     1024);
+  mem_allocator_init(&string_allocator,
+		     sizeof(char)*1024,
+		     1024);
   mem_sampling_init();
   ma_thread_init();
   UNPROTECT_RECORD;
@@ -218,7 +227,7 @@ void ma_get_global_variables() {
       size_t size;
       sscanf(size_str, "%lx", &size);
       if(size) {
-	struct memory_info_list * p_node = libmalloc(sizeof(struct memory_info_list));
+	struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
 
 	p_node->mem_info.alloc_date = 0;
 	p_node->mem_info.free_date = 0;
@@ -231,7 +240,7 @@ void ma_get_global_variables() {
 	size_t offset;
 	sscanf(addr, "%lx", &offset);
 	p_node->mem_info.buffer_addr = offset + (uint8_t*)base_addr;
-	p_node->mem_info.caller = malloc(sizeof(char)*1024);
+	p_node->mem_info.caller = mem_allocator_alloc(string_allocator);
 	snprintf(p_node->mem_info.caller, 1024, "%s in %s", symbol, file);
 	__init_counters(p_node);
 
@@ -256,7 +265,7 @@ void ma_record_malloc(struct mem_block_info* info) {
   PROTECT_RECORD;
 
   mem_sampling_collect_samples();
-  struct memory_info_list * p_node = libmalloc(sizeof(struct memory_info_list));
+  struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
 
   p_node->mem_info.alloc_date = new_date();
   p_node->mem_info.free_date = 0;
@@ -356,8 +365,8 @@ struct call_site *find_call_site(struct memory_info_list* p_node) {
 }
 
 struct call_site * new_call_site(struct memory_info_list* p_node) {
-  struct call_site * site = malloc(sizeof(struct call_site));
-  site->caller = malloc(sizeof(char)*strlen(p_node->mem_info.caller));
+  struct call_site * site = libmalloc(sizeof(struct call_site));
+  site->caller = mem_allocator_alloc(string_allocator);
   strcpy(site->caller, p_node->mem_info.caller);
   site->buffer_size =  p_node->mem_info.initial_buffer_size;
   site->nb_mallocs = 0;
