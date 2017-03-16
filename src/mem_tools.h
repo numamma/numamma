@@ -28,7 +28,7 @@ static void mem_allocator_init(struct mem_allocator **mem,
   void**ptr = (*mem)->first_block;
   /* create a linked list of blocks */
   for(i=0; i<nb_blocks-1; i++) {
-    *ptr = ptr + block_size;
+    *ptr = ((uint8_t*)ptr) + block_size;
     ptr = *ptr;
   }
   *ptr = NULL;
