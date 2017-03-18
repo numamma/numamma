@@ -12,7 +12,8 @@
 #include "mem_sampling.h"
 
 //static __thread  int  __record_infos = 0;
-static struct memory_info_list*mem_list = NULL;
+static struct memory_info_list *mem_list = NULL; // malloc'd buffers currently in use
+static struct memory_info_list *past_mem_list = NULL; // malloc'd buffers that were freed
 static pthread_mutex_t mem_list_lock;
 
 static __thread int is_record_safe = 1;
@@ -98,24 +99,41 @@ int is_address_in_buffer(uint64_t addr, struct memory_info *buffer){
   return 0;
 }
 
-struct memory_info_list*
-ma_find_mem_info_from_addr(uint64_t ptr) {
+static struct memory_info_list*
+__ma_find_mem_info_from_addr_generic(struct memory_info_list *list,
+				      uint64_t ptr) {
   struct memory_info_list* retval = NULL;
-
+  int n=0;
   pthread_mutex_lock(&mem_list_lock);
-  struct memory_info_list * p_node = mem_list;
+  struct memory_info_list * p_node = list;
   while(p_node) {
     if(is_address_in_buffer(ptr, &p_node->mem_info)) {
       retval = p_node;
       goto out;
     }
+    n++;
     p_node = p_node->next;
   }
 
  out:
+  if(n > 100) {
+    printf("%s: %d buffers\n", __FUNCTION__, n);
+  }
   pthread_mutex_unlock(&mem_list_lock);
   return retval;
 }
+
+
+struct memory_info_list*
+ma_find_mem_info_from_addr(uint64_t ptr) {
+  return __ma_find_mem_info_from_addr_generic(mem_list, ptr);
+}
+
+struct memory_info_list*
+ma_find_past_mem_info_from_addr(uint64_t ptr) {
+  return __ma_find_mem_info_from_addr_generic(past_mem_list, ptr);
+}
+
 
 static void __init_counters(struct memory_info_list* p_node) {
   int i;
@@ -321,6 +339,41 @@ void ma_update_buffer_address(struct mem_block_info* info, void *old_addr, void 
   UNPROTECT_RECORD;
 }
 
+/* TODO:
+ * remove mem_info from the list so that we only search through active buffers
+ */
+void set_buffer_free(struct mem_block_info* p_block) {
+  pthread_mutex_lock(&mem_list_lock);
+
+  struct memory_info_list * p_node = mem_list;
+  if(p_block->record_info == &p_node->mem_info) {
+    /* the first record is the one we're looking for */
+    mem_list = p_node->next;
+    p_node->next = past_mem_list;
+    past_mem_list = p_node;
+    goto out;
+  }
+
+  /* browse the list of malloc'd buffers */
+  while(p_node->next) {
+    if(&p_node->next->mem_info == p_block->record_info) {
+      struct memory_info_list *to_move = p_node->next;
+      /* remove to_move from the list of malloc'd buffers */
+      p_node->next = to_move->next;
+      /* add it to the list of freed buffers */
+      to_move->next = past_mem_list;
+      past_mem_list = to_move;
+      goto out;
+    }
+    p_node = p_node->next;
+  }
+  /* couldn't find p_block in the list of malloc'd buffers */
+  fprintf(stderr, "Error: I tried to free block %p, but I could'nt find it in the list of malloc'd buffers\n", p_block);
+  abort();
+ out:
+  pthread_mutex_unlock(&mem_list_lock);
+}
+
 void ma_record_free(struct mem_block_info* info) {
   if(!IS_RECORD_SAFE)
     return;
@@ -339,6 +392,7 @@ void ma_record_free(struct mem_block_info* info) {
 	       pthread_self(),
 	       mem_info->buffer_addr);
 
+  set_buffer_free(info);
   mem_sampling_start();
   UNPROTECT_RECORD;
 }
@@ -456,18 +510,43 @@ void print_call_site_summary() {
   }
 }
 
-void ma_finalize() {
-  ma_thread_finalize();
-  PROTECT_RECORD;
-  
-  printf("---------------------------------\n");
-  printf("         MEM ANALYZER\n");
-  printf("---------------------------------\n");
-  //  collect_samples();
+/* browse the list of malloc'd buffers that were not freed */
+void warn_non_freed_buffers() {
 
   pthread_mutex_lock(&mem_list_lock);
 
-  struct memory_info_list * p_node = mem_list;
+  while(mem_list) {
+    struct memory_info_list * p_node = mem_list;
+#if WARN_NON_FREED
+    printf("Warning: buffer %p (size=%lu bytes) was not freed\n",
+	   p_node->mem_info.buffer_addr, p_node->mem_info.buffer_size);
+#endif
+
+    p_node->mem_info.free_date = new_date();
+
+    /* remove the record from the list of malloc'd buffers */
+    mem_list = p_node->next;
+
+    /* add to the list of freed buffers */
+    p_node->next = past_mem_list;
+    past_mem_list = p_node;
+  }
+  pthread_mutex_unlock(&mem_list_lock);
+}
+
+void ma_finalize() {
+  ma_thread_finalize();
+  PROTECT_RECORD;
+
+  warn_non_freed_buffers();
+
+  printf("---------------------------------\n");
+  printf("         MEM ANALYZER\n");
+  printf("---------------------------------\n");
+
+  pthread_mutex_lock(&mem_list_lock);
+
+  struct memory_info_list * p_node = past_mem_list;
   while(p_node) {
     update_call_sites(p_node);
 
