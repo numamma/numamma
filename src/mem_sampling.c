@@ -193,9 +193,9 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
 	}
 
 	if(_dump) {
-	  fprintf(dump_file, "[%lx]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 "\n",
+	  fprintf(dump_file, "[%lx]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 " -- node=%p\n",
 		  syscall(SYS_gettid), sample->ip, sample->addr, get_data_src_level(sample->data_src),
-		  sample->weight);
+		  sample->weight, p_node);
 	}
       }
 

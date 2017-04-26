@@ -352,6 +352,8 @@ void pthread_exit(void *thread_return) {
   __builtin_unreachable();
 }
 
+static char* dump_filename = NULL;
+
 static void read_options() {
   char* verbose_str = getenv("NUMMA_VERBOSE");
   if(verbose_str) {
@@ -365,7 +367,7 @@ static void read_options() {
   if(dump_str) {
     if(strcmp(dump_str, "0")!=0) {
       _dump = 1;
-      char* dump_filename="/tmp/memory_dump.log";
+      dump_filename="/tmp/memory_dump.log";
       dump_file = fopen(dump_filename, "w");
       printf("Dump mode enabled. Data will be dumped to %s\n", dump_filename);
     }
@@ -425,4 +427,7 @@ static void __memory_conclude(void) {
   __memory_initialized = 0;
 
   ma_finalize();
+  if(dump_filename) {
+    printf("Samples were written to %s\n", dump_filename);
+  }
 }
