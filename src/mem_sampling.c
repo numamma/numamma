@@ -7,6 +7,9 @@
 
 int sampling_rate = 10000;
 
+unsigned nb_samples_total = 0;
+unsigned nb_found_samples_total = 0;
+
 /* set to 1 if we are currently sampling memory accesses */
 static __thread int is_sampling = 0;
 
@@ -57,6 +60,11 @@ void mem_sampling_thread_init() {
 
 void mem_sampling_thread_finalize() {
   mem_sampling_collect_samples();
+}
+
+void mem_sampling_statistics() {
+  printf("%d samples (including %d samples that match a known memory buffer)\n",
+	 nb_samples_total, nb_found_samples_total);
 }
 
 /* make sure this function is not called by collect_samples or start_sampling.
@@ -204,6 +212,9 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
     }
   }
 
-  if(nb_samples>0)
+  if(nb_samples>0) {
     debug_printf("[%lf] \tnb_samples = %d (including %d mem blocks)\n", get_cur_date(), nb_samples, found_samples);
+    nb_samples_total += nb_samples;
+    nb_found_samples_total += found_samples;
+  }
 }

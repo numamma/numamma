@@ -581,6 +581,7 @@ void ma_finalize() {
 
   print_call_site_summary();
 
+  mem_sampling_statistics();
   if(_dump) {
     fclose(dump_file);
   }
