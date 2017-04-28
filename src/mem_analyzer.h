@@ -38,11 +38,6 @@ struct memory_info {
   //  struct mem_counters write_count;
 };
 
-struct memory_info_list {
-  struct memory_info_list* next;
-  struct memory_info mem_info;
-};
-
 /**
  * Structure collecting statistics on samples
  */
@@ -63,5 +58,5 @@ void ma_thread_init();
 void ma_thread_finalize();
 void ma_finalize();
 
-struct memory_info_list* ma_find_mem_info_from_addr(uint64_t ptr);
+struct memory_info* ma_find_mem_info_from_addr(uint64_t ptr);
 #endif	/* MEM_ANALYZER */

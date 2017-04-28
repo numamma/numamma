@@ -168,42 +168,42 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
       if (p_stat.header -> type == PERF_RECORD_SAMPLE) {
 	struct sample *sample = (struct sample *)((char *)(p_stat.header) + 8);
 	nb_samples++;
-	struct memory_info_list* p_node = ma_find_mem_info_from_addr(sample->addr);
-	if(p_node) {
+	struct memory_info* mem_info = ma_find_mem_info_from_addr(sample->addr);
+	if(mem_info) {
 	  found_samples++;
 
-	  p_node->mem_info.count[access_type].total_count++;
+	  mem_info->count[access_type].total_count++;
 
 	  if (is_served_by_local_NA_miss(sample->data_src)) {
-	    p_node->mem_info.count[access_type].na_miss_count++;
+	    mem_info->count[access_type].na_miss_count++;
 	  }
 	  if (is_served_by_local_cache1(sample->data_src)) {
-	    p_node->mem_info.count[access_type].cache1_count++;
+	    mem_info->count[access_type].cache1_count++;
 	  }
 	  if (is_served_by_local_cache2(sample->data_src)) {
-	    p_node->mem_info.count[access_type].cache2_count++;
+	    mem_info->count[access_type].cache2_count++;
 	  }
 	  if (is_served_by_local_cache3(sample->data_src)) {
-	    p_node->mem_info.count[access_type].cache3_count++;
+	    mem_info->count[access_type].cache3_count++;
 	  }
 	  if (is_served_by_local_lfb(sample->data_src)) {
-	    p_node->mem_info.count[access_type].lfb_count++;
+	    mem_info->count[access_type].lfb_count++;
 	  }
 	  if (is_served_by_local_memory(sample->data_src)) {
-	    p_node->mem_info.count[access_type].memory_count++;
+	    mem_info->count[access_type].memory_count++;
 	  }
 	  if (is_served_by_remote_memory(sample->data_src)) {
-	    p_node->mem_info.count[access_type].remote_memory_count++;
+	    mem_info->count[access_type].remote_memory_count++;
 	  }
 	  if (is_served_by_remote_cache_or_local_memory(sample->data_src)) {
-	    p_node->mem_info.count[access_type].remote_cache_count++;
+	    mem_info->count[access_type].remote_cache_count++;
 	  }
 	}
 
 	if(_dump) {
 	  fprintf(dump_file, "[%lx]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 " -- node=%p\n",
 		  syscall(SYS_gettid), sample->ip, sample->addr, get_data_src_level(sample->data_src),
-		  sample->weight, p_node);
+		  sample->weight, mem_info);
 	}
       }
 

@@ -53,17 +53,16 @@ static struct ht_node *__ht_get_node(struct ht_node *node, uint64_t key) {
   return node;
 }
 
-
-void* ht_lower_key(struct ht_node* node, uint64_t key) {
+struct ht_node* ht_lower_key(struct ht_node* node, uint64_t key) {
   if(!node)
     return NULL;
   if(node->key > key) {
     return ht_lower_key(node->left, key);
   } else if(node->key < key) {
-    void* retval = ht_lower_key(node->right, key);
+    struct ht_node* retval = ht_lower_key(node->right, key);
     if(!retval) {
       /* there's no greater node with node->key < key. return the current node */
-      return node->value;
+      return node;
     }
     return retval;
   }

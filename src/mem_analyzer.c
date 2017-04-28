@@ -11,9 +11,23 @@
 #include "mem_tools.h"
 #include "mem_sampling.h"
 
+#define USE_HASHTABLE
+
 //static __thread  int  __record_infos = 0;
-static struct memory_info_list *mem_list = NULL; // malloc'd buffers currently in use
-static struct memory_info_list *past_mem_list = NULL; // malloc'd buffers that were freed
+
+#ifdef USE_HASHTABLE
+#include "hash.h"
+typedef struct ht_node* mem_info_node_t;
+#else
+struct memory_info_list {
+  struct memory_info_list* next;
+  struct memory_info mem_info;
+};
+typedef struct memory_info_list* mem_info_node_t;
+#endif
+
+static mem_info_node_t mem_list = NULL; // malloc'd buffers currently in use
+static mem_info_node_t past_mem_list = NULL; // malloc'd buffers that were freed
 static pthread_mutex_t mem_list_lock;
 
 static __thread int is_record_safe = 1;
@@ -42,9 +56,16 @@ void ma_init() {
   PROTECT_RECORD;
   pthread_mutex_init(&mem_list_lock, NULL);
 
+#ifdef USE_HASHTABLE
+  mem_allocator_init(&mem_info_allocator,
+		     sizeof(struct memory_info),
+		     1024);
+#else
   mem_allocator_init(&mem_info_allocator,
 		     sizeof(struct memory_info_list),
 		     1024);
+#endif
+
   mem_allocator_init(&string_allocator,
 		     sizeof(char)*1024,
 		     1024);
@@ -99,12 +120,19 @@ int is_address_in_buffer(uint64_t addr, struct memory_info *buffer){
   return 0;
 }
 
-static struct memory_info_list*
-__ma_find_mem_info_from_addr_generic(struct memory_info_list *list,
+
+static mem_info_node_t
+__ma_find_mem_info_from_addr_generic(mem_info_node_t list,
 				      uint64_t ptr) {
-  struct memory_info_list* retval = NULL;
+  mem_info_node_t retval = NULL;
   int n=0;
   pthread_mutex_lock(&mem_list_lock);
+#ifdef USE_HASHTABLE
+  mem_info_node_t p_node =  ht_lower_key(list, ptr);
+  if(p_node && is_address_in_buffer(ptr, p_node->value)) {
+    retval = p_node;
+  }
+#else
   struct memory_info_list * p_node = list;
   while(p_node) {
     if(is_address_in_buffer(ptr, &p_node->mem_info)) {
@@ -114,6 +142,7 @@ __ma_find_mem_info_from_addr_generic(struct memory_info_list *list,
     n++;
     p_node = p_node->next;
   }
+#endif
 
  out:
   if(n > 100) {
@@ -124,30 +153,45 @@ __ma_find_mem_info_from_addr_generic(struct memory_info_list *list,
 }
 
 
-struct memory_info_list*
+struct memory_info*
 ma_find_mem_info_from_addr(uint64_t ptr) {
-  return __ma_find_mem_info_from_addr_generic(mem_list, ptr);
+  mem_info_node_t ret = __ma_find_mem_info_from_addr_generic(mem_list, ptr);
+  if(ret) {
+#ifdef USE_HASHTABLE
+    return ret->value;
+#else
+    return &ret->mem_info;
+#endif
+  }
+  return NULL;
 }
 
-struct memory_info_list*
+struct memory_info*
 ma_find_past_mem_info_from_addr(uint64_t ptr) {
-  return __ma_find_mem_info_from_addr_generic(past_mem_list, ptr);
+  mem_info_node_t ret = __ma_find_mem_info_from_addr_generic(past_mem_list, ptr);
+  if(ret) {
+#ifdef USE_HASHTABLE
+    return ret->value;
+#else
+    return &ret->mem_info;
+#endif
+  }
+  return NULL;
 }
 
 
-static void __init_counters(struct memory_info_list* p_node) {
+static void __init_counters(struct memory_info* mem_info) {
   int i;
   for(i=0; i<ACCESS_MAX; i++) {
-    p_node->mem_info.count[i].total_count = 0;
-
-    p_node->mem_info.count[i].na_miss_count = 0;
-    p_node->mem_info.count[i].cache1_count = 0;
-    p_node->mem_info.count[i].cache2_count = 0;
-    p_node->mem_info.count[i].cache3_count = 0;
-    p_node->mem_info.count[i].lfb_count = 0;
-    p_node->mem_info.count[i].memory_count = 0;
-    p_node->mem_info.count[i].remote_memory_count = 0;
-    p_node->mem_info.count[i].remote_cache_count = 0;
+    mem_info->count[i].total_count = 0;
+    mem_info->count[i].na_miss_count = 0;
+    mem_info->count[i].cache1_count = 0;
+    mem_info->count[i].cache2_count = 0;
+    mem_info->count[i].cache3_count = 0;
+    mem_info->count[i].lfb_count = 0;
+    mem_info->count[i].memory_count = 0;
+    mem_info->count[i].remote_memory_count = 0;
+    mem_info->count[i].remote_cache_count = 0;
   }
 }
 
@@ -245,32 +289,42 @@ void ma_get_global_variables() {
       size_t size;
       sscanf(size_str, "%lx", &size);
       if(size) {
+	struct memory_info * mem_info = NULL;
+#ifdef USE_HASHTABLE
+	mem_info = mem_allocator_alloc(mem_info_allocator);
+#else
 	struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
+	mem_info = &p_node->mem_info;
+#endif
 
-	p_node->mem_info.alloc_date = 0;
-	p_node->mem_info.free_date = 0;
-	p_node->mem_info.initial_buffer_size = size;
-	p_node->mem_info.buffer_size = p_node->mem_info.initial_buffer_size;
+	mem_info->alloc_date = 0;
+	mem_info->free_date = 0;
+	mem_info->initial_buffer_size = size;
+	mem_info->buffer_size = mem_info->initial_buffer_size;
 
 	/* addr is the offset within the binary. The actual address of the variable is located at
 	 *  addr+base_addr
 	 */
 	size_t offset;
 	sscanf(addr, "%lx", &offset);
-	p_node->mem_info.buffer_addr = offset + (uint8_t*)base_addr;
-	p_node->mem_info.caller = mem_allocator_alloc(string_allocator);
-	snprintf(p_node->mem_info.caller, 1024, "%s in %s", symbol, file);
-	__init_counters(p_node);
+	mem_info->buffer_addr = offset + (uint8_t*)base_addr;
+	mem_info->caller = mem_allocator_alloc(string_allocator);
+	snprintf(mem_info->caller, 1024, "%s in %s", symbol, file);
+	__init_counters(mem_info);
 
 	debug_printf("Found a global variable: %s (defined at %s). base addr=%p, size=%d\n",
-		     symbol, file, p_node->mem_info.buffer_addr, p_node->mem_info.buffer_size);
+		     symbol, file, mem_info->buffer_addr, mem_info->buffer_size);
 	/* todo: insert large buffers at the beginning of the list since
 	 * their are more likely to be accessed often (this will speed
 	 * up searching at runtime)
 	 */
 	pthread_mutex_lock(&mem_list_lock);
+#ifdef USE_HASHTABLE
+	mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
+#else
 	p_node->next = mem_list;
 	mem_list = p_node;
+#endif
 	pthread_mutex_unlock(&mem_list_lock);
       }
     }
@@ -283,14 +337,21 @@ void ma_record_malloc(struct mem_block_info* info) {
   PROTECT_RECORD;
 
   mem_sampling_collect_samples();
-  struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
 
-  p_node->mem_info.alloc_date = new_date();
-  p_node->mem_info.free_date = 0;
-  p_node->mem_info.initial_buffer_size = info->size;
-  p_node->mem_info.buffer_size = info->size;
-  p_node->mem_info.buffer_addr = info->u_ptr;
-  info->record_info = &p_node->mem_info;
+  struct memory_info * mem_info = NULL;
+#ifdef USE_HASHTABLE
+  mem_info = mem_allocator_alloc(mem_info_allocator);
+#else
+  struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
+  mem_info = &p_node->mem_info;
+#endif
+
+  mem_info->alloc_date = new_date();
+  mem_info->free_date = 0;
+  mem_info->initial_buffer_size = info->size;
+  mem_info->buffer_size = info->size;
+  mem_info->buffer_addr = info->u_ptr;
+  info->record_info = mem_info;
 
   /* the current backtrace looks like this:
    * 0 - get_caller_function()
@@ -300,18 +361,22 @@ void ma_record_malloc(struct mem_block_info* info) {
    *
    * So, we need to get the name of the function in frame 3.
    */
-  p_node->mem_info.caller = get_caller_function(3);
-  __init_counters(p_node);
+  mem_info->caller = get_caller_function(3);
+  __init_counters(mem_info);
 
   debug_printf("[%lu] [%lx] malloc(%lu bytes) -> u_ptr=%p\n",
-	       p_node->mem_info.alloc_date,
+	       mem_info->alloc_date,
 	       pthread_self(),
-	       p_node->mem_info.initial_buffer_size,
-	       p_node->mem_info.buffer_addr);
+	       mem_info->initial_buffer_size,
+	       mem_info->buffer_addr);
 
   pthread_mutex_lock(&mem_list_lock);
+#ifdef USE_HASHTABLE
+  mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
+#else
   p_node->next = mem_list;
   mem_list = p_node;
+#endif
   pthread_mutex_unlock(&mem_list_lock);
 
   mem_sampling_start();
@@ -344,7 +409,12 @@ void ma_update_buffer_address(struct mem_block_info* info, void *old_addr, void 
  */
 void set_buffer_free(struct mem_block_info* p_block) {
   pthread_mutex_lock(&mem_list_lock);
+#ifdef USE_HASHTABLE
+  struct memory_info* mem_info = p_block->record_info;
+  mem_list = ht_remove_key(mem_list, (uint64_t)mem_info->buffer_addr);
+  past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
 
+#else
   struct memory_info_list * p_node = mem_list;
   if(p_block->record_info == &p_node->mem_info) {
     /* the first record is the one we're looking for */
@@ -370,6 +440,7 @@ void set_buffer_free(struct mem_block_info* p_block) {
   /* couldn't find p_block in the list of malloc'd buffers */
   fprintf(stderr, "Error: I tried to free block %p, but I could'nt find it in the list of malloc'd buffers\n", p_block);
   abort();
+#endif
  out:
   pthread_mutex_unlock(&mem_list_lock);
 }
@@ -406,11 +477,11 @@ struct call_site {
 };
 struct call_site* call_sites = NULL;
 
-struct call_site *find_call_site(struct memory_info_list* p_node) {
+struct call_site *find_call_site(struct memory_info* mem_info) {
   struct call_site * cur_site = call_sites;
   while(cur_site) {
-    if(cur_site->buffer_size == p_node->mem_info.initial_buffer_size &&
-       strcmp(cur_site->caller, p_node->mem_info.caller) == 0) {
+    if(cur_site->buffer_size == mem_info->initial_buffer_size &&
+       strcmp(cur_site->caller, mem_info->caller) == 0) {
       return cur_site;
     }
     cur_site = cur_site->next;
@@ -418,18 +489,18 @@ struct call_site *find_call_site(struct memory_info_list* p_node) {
   return NULL;
 }
 
-struct call_site * new_call_site(struct memory_info_list* p_node) {
+struct call_site * new_call_site(struct memory_info* mem_info) {
   struct call_site * site = libmalloc(sizeof(struct call_site));
   site->caller = mem_allocator_alloc(string_allocator);
-  strcpy(site->caller, p_node->mem_info.caller);
-  site->buffer_size =  p_node->mem_info.initial_buffer_size;
+  strcpy(site->caller, mem_info->caller);
+  site->buffer_size =  mem_info->initial_buffer_size;
   site->nb_mallocs = 0;
 
   site->mem_info.alloc_date = 0;
   site->mem_info.free_date = 0;
-  site->mem_info.initial_buffer_size = p_node->mem_info.initial_buffer_size;
-  site->mem_info.buffer_size = p_node->mem_info.buffer_size;
-  site->mem_info.buffer_addr = p_node->mem_info.buffer_addr;
+  site->mem_info.initial_buffer_size = mem_info->initial_buffer_size;
+  site->mem_info.buffer_size = mem_info->buffer_size;
+  site->mem_info.buffer_addr = mem_info->buffer_addr;
   site->mem_info.caller = site->caller;
   int i;
   for(i = 0; i<ACCESS_MAX; i++) {
@@ -441,24 +512,24 @@ struct call_site * new_call_site(struct memory_info_list* p_node) {
   return site;
 }
 
-void update_call_sites(struct memory_info_list* p_node) {
-  struct call_site* site = find_call_site(p_node);
+void update_call_sites(struct memory_info* mem_info) {
+  struct call_site* site = find_call_site(mem_info);
   if(!site) {
-    site = new_call_site(p_node);
+    site = new_call_site(mem_info);
   }
 
   site->nb_mallocs++;
   int i;
   for(i=0; i<ACCESS_MAX; i++) {
-    site->mem_info.count[i].total_count         += p_node->mem_info.count[i].total_count;
-    site->mem_info.count[i].na_miss_count       += p_node->mem_info.count[i].na_miss_count;
-    site->mem_info.count[i].cache1_count        += p_node->mem_info.count[i].cache1_count;
-    site->mem_info.count[i].cache2_count        += p_node->mem_info.count[i].cache2_count;
-    site->mem_info.count[i].cache3_count        += p_node->mem_info.count[i].cache3_count;
-    site->mem_info.count[i].lfb_count           += p_node->mem_info.count[i].lfb_count;
-    site->mem_info.count[i].memory_count        += p_node->mem_info.count[i].memory_count;
-    site->mem_info.count[i].remote_memory_count += p_node->mem_info.count[i].remote_memory_count;
-    site->mem_info.count[i].remote_cache_count  += p_node->mem_info.count[i].remote_cache_count;
+    site->mem_info.count[i].total_count         += mem_info->count[i].total_count;
+    site->mem_info.count[i].na_miss_count       += mem_info->count[i].na_miss_count;
+    site->mem_info.count[i].cache1_count        += mem_info->count[i].cache1_count;
+    site->mem_info.count[i].cache2_count        += mem_info->count[i].cache2_count;
+    site->mem_info.count[i].cache3_count        += mem_info->count[i].cache3_count;
+    site->mem_info.count[i].lfb_count           += mem_info->count[i].lfb_count;
+    site->mem_info.count[i].memory_count        += mem_info->count[i].memory_count;
+    site->mem_info.count[i].remote_memory_count += mem_info->count[i].remote_memory_count;
+    site->mem_info.count[i].remote_cache_count  += mem_info->count[i].remote_cache_count;
   }
 }
 
@@ -515,6 +586,9 @@ void warn_non_freed_buffers() {
 
   pthread_mutex_lock(&mem_list_lock);
 
+#ifdef USE_HASHTABLE
+  /* todo */
+#else
   while(mem_list) {
     struct memory_info_list * p_node = mem_list;
 #if WARN_NON_FREED
@@ -531,6 +605,7 @@ void warn_non_freed_buffers() {
     p_node->next = past_mem_list;
     past_mem_list = p_node;
   }
+#endif
   pthread_mutex_unlock(&mem_list_lock);
 }
 
@@ -546,37 +621,48 @@ void ma_finalize() {
 
   pthread_mutex_lock(&mem_list_lock);
 
-  struct memory_info_list * p_node = past_mem_list;
-  while(p_node) {
-    update_call_sites(p_node);
+  mem_info_node_t p_node = NULL;
+  struct memory_info* mem_info = NULL;
 
-    uint64_t duration = p_node->mem_info.free_date?
-      p_node->mem_info.free_date-p_node->mem_info.alloc_date:
+  /* browse the list of memory buffers  */
+#ifdef USE_HASHTABLE
+  FOREACH_HASH(past_mem_list, p_node) {
+    mem_info = p_node->value;
+#else
+    for(p_node = past_mem_list;
+	p_node;
+	p_node = p_node->next) {
+    mem_info = &p_node->mem_info;
+#endif
+    update_call_sites(mem_info);
+
+    uint64_t duration = mem_info->free_date?
+      mem_info->free_date-mem_info->alloc_date:
       0;
-    if(p_node->mem_info.count[ACCESS_WRITE].total_count > 0 ||
-       p_node->mem_info.count[ACCESS_READ].total_count > 0) {
+    if(mem_info->count[ACCESS_WRITE].total_count > 0 ||
+       mem_info->count[ACCESS_READ].total_count > 0) {
 
       double r_access_frequency;
-      if(p_node->mem_info.count[ACCESS_READ].total_count)
-	r_access_frequency = (duration/sampling_rate)/p_node->mem_info.count[ACCESS_READ].total_count;
+      if(mem_info->count[ACCESS_READ].total_count)
+	r_access_frequency = (duration/sampling_rate)/mem_info->count[ACCESS_READ].total_count;
       else
 	r_access_frequency = 0;
       double w_access_frequency;
-      if(p_node->mem_info.count[ACCESS_WRITE].total_count)
-	w_access_frequency = (duration/sampling_rate)/p_node->mem_info.count[ACCESS_WRITE].total_count;
+      if(mem_info->count[ACCESS_WRITE].total_count)
+	w_access_frequency = (duration/sampling_rate)/mem_info->count[ACCESS_WRITE].total_count;
       else
 	w_access_frequency = 0;
 
       debug_printf("buffer %p (%lu bytes) duration =%lu ticks. %d write accesses, %d read accesses. allocated : %s. read operation every %lf ticks\n",
-		   p_node->mem_info.buffer_addr,
-		   p_node->mem_info.initial_buffer_size,
+		   mem_info->buffer_addr,
+		   mem_info->initial_buffer_size,
 		   duration,
-		   p_node->mem_info.count[ACCESS_WRITE].total_count,
-		   p_node->mem_info.count[ACCESS_READ].total_count,
-		   p_node->mem_info.caller,
+		   mem_info->count[ACCESS_WRITE].total_count,
+		   mem_info->count[ACCESS_READ].total_count,
+		   mem_info->caller,
 		   r_access_frequency);
     }
-    p_node = p_node->next;
+
   }
 
   print_call_site_summary();

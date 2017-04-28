@@ -17,6 +17,36 @@ struct ht_node {
 };
 
 
+static struct ht_node* __ht_min_node(struct ht_node *node) {
+  if(!node)
+    return NULL;
+  if(node->left)
+    return  __ht_min_node(node->left);
+  return node;
+}
+
+static struct ht_node* __ht_next_node(struct ht_node *node) {
+  if(node) {
+    if(node->right) {
+      return __ht_min_node(node->right);
+    }
+
+    /* browse the tree from the bottom to the top */
+    while(node->parent && node->parent->right == node) {
+      node = node->parent;
+    }
+    /* after the loop, node points to a subtree that was completed processed */
+
+    return node->parent;
+  }
+  return NULL;
+}
+
+#define FOREACH_HASH(root, iter)			\
+  for(iter = __ht_min_node(root);	\
+      iter;						\
+      iter = __ht_next_node(iter))			\
+
 /* insert a (key, value) in the subtree node
  * return the new root of this tree
  */
@@ -41,8 +71,8 @@ int ht_contains_key(struct ht_node* node, uint64_t key);
 /* return 1 if the hash table contains at least one key that is mapped to value */
 int ht_contains_value(struct ht_node* node, void* value);
 
-/* return the value whose key is lower or equal to key */
-void* ht_lower_key(struct ht_node* node, uint64_t key);
+/* return the node whose key is lower or equal to key */
+struct ht_node* ht_lower_key(struct ht_node* node, uint64_t key);
 
 
 
