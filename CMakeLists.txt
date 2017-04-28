@@ -75,10 +75,12 @@ ENDIF("${isSystemDir}" STREQUAL "-1")
 # add the binary tree to the search path for include files
 # so that we will find TutorialConfig.h
 include_directories("${PROJECT_BINARY_DIR}/src")
-
-# add the sub directories
 include_directories("${PROJECT_SOURCE_DIR}/src")
 add_subdirectory ("src")
+
+include_directories("${PROJECT_BINARY_DIR}/tools")
+include_directories("${PROJECT_SOURCE_DIR}/tools")
+add_subdirectory ("tools")
 
 install(TARGETS DESTINATION bin)
 

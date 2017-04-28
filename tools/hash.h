@@ -18,11 +18,13 @@ struct ht_node {
 
 
 /* insert a (key, value) in the subtree node
- * returns the new root of this tree
+ * return the new root of this tree
  */
 struct ht_node* ht_insert(struct ht_node* node, uint64_t key, void* value);
 
-/* remove a key from the hashtable */
+/* remove a key from the hashtable
+ * return the new root of this tree
+ */
 struct ht_node* ht_remove_key(struct ht_node* node, uint64_t key);
 
 
@@ -39,6 +41,9 @@ int ht_contains_key(struct ht_node* node, uint64_t key);
 /* return 1 if the hash table contains at least one key that is mapped to value */
 int ht_contains_value(struct ht_node* node, void* value);
 
+/* return the value whose key is lower or equal to key */
+void* ht_lower_key(struct ht_node* node, uint64_t key);
+
 
 
 /* return the number of values stored in the hashtable */
@@ -47,7 +52,6 @@ int ht_size(struct ht_node* node);
 /* return the height of a node */
 int ht_height(struct ht_node *node);
 
-/* print the (key, value) stored in a hash table */
 void ht_print(struct ht_node *node);
 
 /* check if a hashtable is consistent */
