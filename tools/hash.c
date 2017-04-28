@@ -34,7 +34,7 @@ void ht_check(struct ht_node *node) {
 
 
 
-// return the height of a node
+/* return the height of a node */
 int ht_height(struct ht_node *node) {
   if (!node)
     return 0;
@@ -116,10 +116,10 @@ static struct ht_node* __ht_balance_tree(struct ht_node*node ) {
       /* case 1 or 3 */
       y = node->left;
       if(ht_height(y->left) > ht_height(y->right)) {
-	// case 1
+	/* case 1 */
 	z = __ht_right_rotate(z);
       } else {
-	// case 3
+	 /* case 3 */
 	z->left = __ht_left_rotate(y);
 	z = __ht_right_rotate(z);
       }
@@ -127,7 +127,7 @@ static struct ht_node* __ht_balance_tree(struct ht_node*node ) {
       /* case 2 or 4 */
       y = node->right;
       if(ht_height(y->left) < ht_height(y->right)) {
-	// case 2
+	/* case 2 */
 	z = __ht_left_rotate(z);
       } else {
 	/* case 4 */
@@ -167,13 +167,9 @@ struct ht_node* ht_insert(struct ht_node* node, uint64_t key, void* value) {
   return node;
 }
 
-void connect_nodes(struct ht_node* parent,
-		   struct ht_node* to_remove,
-		   struct ht_node* child) {
-#if 0
-  printf("While removing %llx: connecting %llx and %llx\n",
-	 to_remove->key, parent->key, child?child->key:NULL);
-#endif
+static void __ht_connect_nodes(struct ht_node* parent,
+			       struct ht_node* to_remove,
+			       struct ht_node* child) {
   if(parent->right == to_remove)
     parent->right = child;
   else
@@ -194,6 +190,8 @@ struct ht_node* ht_remove_key(struct ht_node* node, uint64_t key) {
   struct ht_node *to_remove = node;
   struct ht_node *parent = NULL;
   struct ht_node *n=NULL;
+
+  /* find the node to remove */
   while(to_remove) {
     if(to_remove->key < key) {
       parent = to_remove;
@@ -212,27 +210,23 @@ struct ht_node* ht_remove_key(struct ht_node* node, uint64_t key) {
     return node;
   }
 
+  /* remove the node from the tree */
   if(!to_remove->right  && !to_remove->left) {
     /* to_remove is a leaf */
-    //    printf("Removing a leaf\n");
     if(parent) {
-      connect_nodes(parent, to_remove, NULL);
+      __ht_connect_nodes(parent, to_remove, NULL);
     } else {
       /* removing the root */
       node = NULL;
     }
     free(to_remove);
-    /* todo: balance the tree */
   } else if (!to_remove->right || !to_remove->left) {
     /* to_remove has 1 child */
-
-    //    printf("Removing a node with 1 child\n");
-
     if(parent) {
       if(to_remove->right) {
-	connect_nodes(parent, to_remove, to_remove->right);
+	__ht_connect_nodes(parent, to_remove, to_remove->right);
       } else {
-	connect_nodes(parent, to_remove, to_remove->left);
+	__ht_connect_nodes(parent, to_remove, to_remove->left);
       }
     } else {
       /* removing the root -> right/left node becomes the new root */
@@ -241,7 +235,6 @@ struct ht_node* ht_remove_key(struct ht_node* node, uint64_t key) {
       else
 	node = to_remove->left;
     }
-    //    __ht_update_height(parent);
     free(to_remove);
   } else {
     /* to_remove has 2 children */
@@ -253,34 +246,26 @@ struct ht_node* ht_remove_key(struct ht_node* node, uint64_t key) {
     }
 
     n = succ_parent;
-
     /* copy succ to to_remove and connect succ child */
     to_remove->key = succ->key;
     to_remove->value = succ->value;
-    connect_nodes(succ_parent, succ, succ->right);
+    __ht_connect_nodes(succ_parent, succ, succ->right);
     /* free succ (that has being copied to to_remove */
     free(succ);
   }
 
+  /* the node has been removed */
+
   struct ht_node* new_root = node;
-#if 1
-#if 0
-  if(n)
-    printf("About to balance starting from %p (%llx)\n", n, n->key);
-#endif
+  /* update the height of the nodes */
   struct ht_node* nbis = n;
   while (nbis) {
     __ht_update_height(n);
     nbis = nbis->parent;
   }
-#if 0
-  printf("Before balancing: \n");
-  __ht_print(new_root, 0);
-  printf("\n\n");
-#endif
-  n = n;
+
+  /* balance the nodes */
   while (n) {
-    //    printf("\nBalancing %p (key %llx)\n", n, n->key);
     if(n->parent) {
       if(n->parent->left == n)
 	n->parent->left = __ht_balance_tree(n);
@@ -289,31 +274,30 @@ struct ht_node* ht_remove_key(struct ht_node* node, uint64_t key) {
     } else {
       break;
     }
-    //    __ht_print(new_root, 0);
     n = n->parent;
   }
   new_root = __ht_balance_tree(new_root);
 
-#endif
   return new_root;
 }
 
 
-static void print_tabs(int nb_tabs) {
+/* print nb_tabs tabulations */
+static void __ht_print_tabs(int nb_tabs) {
   for(int i = 0; i<nb_tabs; i++) printf("  ");
 }
 
 /* print the (key, value) stored in a hash table */
 static void __ht_print(struct ht_node *node, int depth) {
   if (node) {
-    print_tabs(depth);
+    __ht_print_tabs(depth);
     printf("Height %d : \"%llx\" value: %p. node=%p\n", node->height, node->key, node->value, node);
 
-    print_tabs(depth);
+    __ht_print_tabs(depth);
     printf("left of \"%llx\"\n", node->key);
     __ht_print(node->left, depth+1);
 
-    print_tabs(depth);
+    __ht_print_tabs(depth);
     printf("right of \"%llx\"\n", node->key);
     __ht_print(node->right, depth+1);
   }
@@ -344,20 +328,6 @@ static void __ht_check(struct ht_node*node) {
       }
       __ht_check(node->right);
     }
-
-#if 0
-    int balance = ht_height(node->left)-ht_height(node->right);
-    if(balance < -1 || balance > 1) {
-      printf("the tree is not balanced !\n");
-      abort();
-    }
-#endif
-#if 0
-    if(node->key > 10000) {
-      printf("Key %llx is way too big !\n", node->key);
-      abort();
-    }
-#endif
   }
 }
 
