@@ -25,7 +25,6 @@ struct ht_node* insert_random_value(struct ht_node* root) {
   value->key = key;
   values = value;
   nb_item++;
-  printf("Inserting %llx (nb_item = %d)\n", key, nb_item);
   root = ht_insert(root, key, value);
 
   int nval= ht_size(root);
@@ -36,7 +35,7 @@ struct ht_node* insert_random_value(struct ht_node* root) {
 
     abort();
   }
-  
+
   return root;
 }
 
@@ -61,8 +60,6 @@ struct ht_node* delete_random_value(struct ht_node* root) {
   } else {
     values = l->next;
   }
-
-  printf("Removing %llx (nb_item = %d)\n", l->key, nb_item);
 
   root = ht_remove_key(root, l->key);
 
@@ -90,26 +87,34 @@ int main(int argc, char**argv) {
   srand48(seed);
   int i;
 
+  struct timeval t1, t2;
+  gettimeofday(&t1, NULL);
+  int nb_op = 0;
+  int nb_insert=0;
+  int nb_delete=0;
   for(i=0; i<10000; i++) {
-    printf("\n\nLoop %d\n", i);
 
     if( lrand48() % 10 > 3) {
       /* insert a value */
-      printf("Inserting stuff\n");
+      nb_insert++;
       root = insert_random_value(root);
     } else {
       /* delete a value */
-      printf("Deleting stuff\n");
+      nb_delete++;
       root = delete_random_value(root);
    }
 
-    //    ht_print(root);
     ht_check(root);
     if(ht_size(root) != nb_item) {
       printf("Error: the hashtablme contains %d values. It should contain %d\n", ht_size(root), nb_item);
       abort();
     }
   }
+  gettimeofday(&t2, NULL);
+  nb_op = nb_insert + nb_delete;
+  double duration = ((t2.tv_sec-t1.tv_sec)*1e6 + (t2.tv_usec-t1.tv_usec))/1e6;
+  printf("%d insert + %d delete (total: %d) operation performed in %lf s (%lf us per operation)\n",
+	 nb_insert, nb_delete, nb_op, duration, (duration*1e6)/nb_op);
 
   /* Liberation */
   ht_release(root);
