@@ -1,36 +1,70 @@
 #include "hash.h"
 
+#define max(a, b) (((a) > (b))? (a) : (b))
+
+/* allocate and initialize a node */
+static struct ht_node* __ht_new_node(uint64_t key, void *value);
+
+/* return the node whose key is key */
+static struct ht_node *__ht_get_node(struct ht_node *node, uint64_t key);
+
+/* print the (key, value) stored in a hash table */
+static void __ht_print(struct ht_node *node, int depth);
+
+/* check if a hashtable is consistent */
+static void __ht_check(struct ht_node *node);
+
+
+/* update the height of a node based on its children height */
+static void __ht_update_height(struct ht_node *node);
+/* perform a right rotation and return the new root */
+static struct ht_node *__ht_right_rotate(struct ht_node *z);
+/* perform a left rotation and return the new root */
+static struct ht_node *__ht_left_rotate(struct ht_node *z);
+/* balance a subtree. Return the new root */
+static struct ht_node* __ht_balance_tree(struct ht_node *node);
+
+void ht_print(struct ht_node *node) {
+  __ht_print(node, 0);
+}
+
+void ht_check(struct ht_node *node) {
+  __ht_check(node);
+}
+
+
+
 // return the height of a node
-int height(struct Node *node) {
+int ht_height(struct ht_node *node) {
   if (!node)
     return 0;
   return node->height;
 }
 
 /* return the node whose key is key */
-struct Node *getNode(struct Node *node, uint64_t key) {
+static struct ht_node *__ht_get_node(struct ht_node *node, uint64_t key) {
   if(!node)
     return NULL;
   if(node->key > key) {
-    return getNode(node->left, key);
+    return __ht_get_node(node->left, key);
   } else if(node->key < key) {
-    return getNode(node->right, key);
+    return __ht_get_node(node->right, key);
   } else {
     return node;
   }
 }
 
 /* return the value associated with key */
-void *get(struct Node *node, uint64_t key) {
-  struct Node*n = getNode(node, key);
+void *ht_get_value(struct ht_node *node, uint64_t key) {
+  struct ht_node*n = __ht_get_node(node, key);
   if(n)
     return n->value;
   return NULL;
 }
 
 /* allocate and initialize a node */
-struct Node* newNode(uint64_t key, void *value) {
-  struct Node* n = malloc(sizeof(struct Node));
+struct ht_node* __ht_new_node(uint64_t key, void *value) {
+  struct ht_node* n = malloc(sizeof(struct ht_node));
   n->key = key;
   n->value = value;
   n->left = NULL;
@@ -41,64 +75,64 @@ struct Node* newNode(uint64_t key, void *value) {
 }
 
 /* update the height of a node based on its children height */
-static void update_height(struct Node *node) {
+static void __ht_update_height(struct ht_node *node) {
   if(node) {
-    node->height = max(height(node->left), height(node->right));
+    node->height = max(ht_height(node->left), ht_height(node->right));
     node->height++;
   }
 }
 
-static struct Node *right_rotate(struct Node *z) {
-  struct Node *y = z->left;
+static struct ht_node *__ht_right_rotate(struct ht_node *z) {
+  struct ht_node *y = z->left;
   y->parent = z->parent;
   z->parent = y;
   z->left = y->right;
   y->right = z;
-  update_height(z);
-  update_height(y);
+  __ht_update_height(z);
+  __ht_update_height(y);
   return y;
 }
 
-static struct Node *left_rotate(struct Node *z) {
-  struct Node *y = z->right;
+static struct ht_node *__ht_left_rotate(struct ht_node *z) {
+  struct ht_node *y = z->right;
   z->right = y->left;
   y->left = z;
   y->parent = z->parent;
   z->parent = y;
-  update_height(z);
-  update_height(y);
+  __ht_update_height(z);
+  __ht_update_height(y);
   return y;
 }
 
-struct Node* balance_tree(struct Node*node ) {
+static struct ht_node* __ht_balance_tree(struct ht_node*node ) {
   if(!node)
     return node;
-  int balance = height(node->left)-height(node->right);
-  struct Node *y, *z;
+  int balance = ht_height(node->left)-ht_height(node->right);
+  struct ht_node *y, *z;
   if(balance < -1 || balance > 1) {
     z = node;
 
-    if(height(node->left) > height(node->right)) {
+    if(ht_height(node->left) > ht_height(node->right)) {
       /* case 1 or 3 */
       y = node->left;
-      if(height(y->left) > height(y->right)) {
+      if(ht_height(y->left) > ht_height(y->right)) {
 	// case 1
-	z = right_rotate(z);
+	z = __ht_right_rotate(z);
       } else {
 	// case 3
-	z->left = left_rotate(y);
-	z = right_rotate(z);
+	z->left = __ht_left_rotate(y);
+	z = __ht_right_rotate(z);
       }
     } else {
       /* case 2 or 4 */
       y = node->right;
-      if(height(y->left) < height(y->right)) {
+      if(ht_height(y->left) < ht_height(y->right)) {
 	// case 2
-	z = left_rotate(z);
+	z = __ht_left_rotate(z);
       } else {
 	/* case 4 */
-	z->right = right_rotate(y);
-	z = left_rotate(z);
+	z->right = __ht_right_rotate(y);
+	z = __ht_left_rotate(z);
       }
     }
     node = z;
@@ -109,18 +143,18 @@ struct Node* balance_tree(struct Node*node ) {
 /* insert a (key, value) in the subtree node
  * returns the new root of this treee
  */
-struct Node* insert(struct Node* node, uint64_t key, void* value) {
+struct ht_node* ht_insert(struct ht_node* node, uint64_t key, void* value) {
   if(!node) {
-    return newNode(key, value);
+    return __ht_new_node(key, value);
   }
 
   if(node->key > key){
     /* insert on the left */
-    node->left = insert(node->left, key, value);
+    node->left = ht_insert(node->left, key, value);
     node->left->parent = node;
   } else if (node->key < key){
     /* insert on the right */
-    node->right = insert(node->right, key, value);
+    node->right = ht_insert(node->right, key, value);
     node->right->parent = node;
   } else {
     /* replace the value of the current node */
@@ -128,14 +162,14 @@ struct Node* insert(struct Node* node, uint64_t key, void* value) {
     return node;
   }
 
-  node = balance_tree(node);
-  update_height(node);
+  node = __ht_balance_tree(node);
+  __ht_update_height(node);
   return node;
 }
 
-void connect_nodes(struct Node* parent,
-		   struct Node* to_remove,
-		   struct Node* child) {
+void connect_nodes(struct ht_node* parent,
+		   struct ht_node* to_remove,
+		   struct ht_node* child) {
 #if 0
   printf("While removing %llx: connecting %llx and %llx\n",
 	 to_remove->key, parent->key, child?child->key:NULL);
@@ -156,10 +190,10 @@ void connect_nodes(struct Node* parent,
 /* remove key from the hash table
  * return the new root of the hash table
  */
-struct Node* remove_key(struct Node* node, uint64_t key) {
-  struct Node *to_remove = node;
-  struct Node *parent = NULL;
-  struct Node *n=NULL;
+struct ht_node* ht_remove_key(struct ht_node* node, uint64_t key) {
+  struct ht_node *to_remove = node;
+  struct ht_node *parent = NULL;
+  struct ht_node *n=NULL;
   while(to_remove) {
     if(to_remove->key < key) {
       parent = to_remove;
@@ -207,12 +241,12 @@ struct Node* remove_key(struct Node* node, uint64_t key) {
       else
 	node = to_remove->left;
     }
-    //    update_height(parent);
+    //    __ht_update_height(parent);
     free(to_remove);
   } else {
     /* to_remove has 2 children */
-    struct Node* succ = to_remove->right;
-    struct Node* succ_parent = to_remove;
+    struct ht_node* succ = to_remove->right;
+    struct ht_node* succ_parent = to_remove;
     while(succ->left) {
       succ_parent = succ;
       succ = succ->left;
@@ -228,20 +262,20 @@ struct Node* remove_key(struct Node* node, uint64_t key) {
     free(succ);
   }
 
-  struct Node* new_root = node;
+  struct ht_node* new_root = node;
 #if 1
 #if 0
   if(n)
     printf("About to balance starting from %p (%llx)\n", n, n->key);
 #endif
-  struct Node* nbis = n;
+  struct ht_node* nbis = n;
   while (nbis) {
-    update_height(n);
+    __ht_update_height(n);
     nbis = nbis->parent;
   }
 #if 0
   printf("Before balancing: \n");
-  print_hash_table(new_root, 0);
+  __ht_print(new_root, 0);
   printf("\n\n");
 #endif
   n = n;
@@ -249,16 +283,16 @@ struct Node* remove_key(struct Node* node, uint64_t key) {
     //    printf("\nBalancing %p (key %llx)\n", n, n->key);
     if(n->parent) {
       if(n->parent->left == n)
-	n->parent->left = balance_tree(n);
+	n->parent->left = __ht_balance_tree(n);
       else if(n->parent->right == n)
-	n->parent->right = balance_tree(n);
+	n->parent->right = __ht_balance_tree(n);
     } else {
       break;
     }
-    //    print_hash_table(new_root, 0);
+    //    __ht_print(new_root, 0);
     n = n->parent;
   }
-  new_root = balance_tree(new_root);
+  new_root = __ht_balance_tree(new_root);
 
 #endif
   return new_root;
@@ -270,49 +304,49 @@ static void print_tabs(int nb_tabs) {
 }
 
 /* print the (key, value) stored in a hash table */
-void print_hash_table(struct Node *node, int depth) {
+static void __ht_print(struct ht_node *node, int depth) {
   if (node) {
     print_tabs(depth);
     printf("Height %d : \"%llx\" value: %p. node=%p\n", node->height, node->key, node->value, node);
 
     print_tabs(depth);
     printf("left of \"%llx\"\n", node->key);
-    print_hash_table(node->left, depth+1);
+    __ht_print(node->left, depth+1);
 
     print_tabs(depth);
     printf("right of \"%llx\"\n", node->key);
-    print_hash_table(node->right, depth+1);
+    __ht_print(node->right, depth+1);
   }
 }
 
 /* Free a subtree */
-void release(struct Node *node) {
+void ht_release(struct ht_node *node) {
   if(node) {
-    release(node->left);
-    release(node->right);
+    ht_release(node->left);
+    ht_release(node->right);
     free(node);
   }
 }
 
-void check_table(struct Node*node) {
+static void __ht_check(struct ht_node*node) {
   if(node) {
     if(node->left) {
       if(node->left->key > node->key) {
 	printf("Found a violation in the binary search tree\n");
 	abort();
       }
-      check_table(node->left);
+      __ht_check(node->left);
     }
     if(node->right) {
       if(node->right->key < node->key) {
 	printf("Found a violation in the binary search tree\n");
 	abort();
       }
-      check_table(node->right);
+      __ht_check(node->right);
     }
 
 #if 0
-    int balance = height(node->left)-height(node->right);
+    int balance = ht_height(node->left)-ht_height(node->right);
     if(balance < -1 || balance > 1) {
       printf("the tree is not balanced !\n");
       abort();
@@ -327,8 +361,24 @@ void check_table(struct Node*node) {
   }
 }
 
-int nb_values(struct Node* node) {
+int ht_size(struct ht_node* node) {
   if(!node)
     return 0;
-  return nb_values(node->left)+nb_values(node->right)+1;
+  return ht_size(node->left)+ht_size(node->right)+1;
+}
+
+/* return 1 if the hash table contains the key */
+int ht_contains_key(struct ht_node* node, uint64_t key) {
+  return __ht_get_node(node, key) != NULL;
+}
+
+
+/* return 1 if the hash table contains at least one key that is mapped to value */
+int ht_contains_value(struct ht_node* node, void* value) {
+  if(!node)
+    return 0;
+  if(node->value == value)
+    return 1;
+  return ht_contains_value(node->left, value) ||
+    ht_contains_value(node->right, value);
 }

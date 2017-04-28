@@ -6,53 +6,51 @@
 #include <string.h>
 #include <stdint.h>
 
-struct Node {
+struct ht_node {
   /* todo: make this parametric */
   uint64_t key;
-  struct Node *parent;
-  struct Node *left;
-  struct Node *right;
+  struct ht_node *parent;
+  struct ht_node *left;
+  struct ht_node *right;
   int height;
   void *value;
 };
 
-#define max(a, b) (((a) > (b))? (a) : (b))
-
-/* return the height of a node */
-int height(struct Node *node);
-
-/* return the node whose key is key */
-struct Node *getNode(struct Node *node, uint64_t key);
-
-/* return the value associated with key */
-void *get(struct Node *node, uint64_t key);
-/* allocate and initialize a node */
-struct Node* newNode(uint64_t key, void *value);
 
 /* insert a (key, value) in the subtree node
- * returns the new root of this treee
+ * returns the new root of this tree
  */
-struct Node* insert(struct Node* node, uint64_t key, void* value);
-
-/* print the (key, value) stored in a hash table */
-void print_hash_table(struct Node *node, int depth);
-
-/* Free a subtree */
-void release(struct Node *node);
-
-void check_table(struct Node *node);
+struct ht_node* ht_insert(struct ht_node* node, uint64_t key, void* value);
 
 /* remove a key from the hashtable */
-struct Node* remove_key(struct Node* node, uint64_t key);
+struct ht_node* ht_remove_key(struct ht_node* node, uint64_t key);
+
+
+/* Free a subtree */
+void ht_release(struct ht_node *node);
+
+
+/* return the value associated with key */
+void *ht_get_value(struct ht_node *node, uint64_t key);
+
+/* return 1 if the hash table contains the key */
+int ht_contains_key(struct ht_node* node, uint64_t key);
+
+/* return 1 if the hash table contains at least one key that is mapped to value */
+int ht_contains_value(struct ht_node* node, void* value);
+
+
 
 /* return the number of values stored in the hashtable */
-int nb_values(struct Node* node);
+int ht_size(struct ht_node* node);
 
-/* update the height of a node based on its children height */
-static void update_height(struct Node *node);
-static struct Node *right_rotate(struct Node *z);
-static struct Node *left_rotate(struct Node *z);
-struct Node* balance_tree(struct Node *node);
+/* return the height of a node */
+int ht_height(struct ht_node *node);
 
+/* print the (key, value) stored in a hash table */
+void ht_print(struct ht_node *node);
+
+/* check if a hashtable is consistent */
+void ht_check(struct ht_node *node);
 
 #endif /* HASH_H */

@@ -12,10 +12,10 @@ struct list {
 int nb_item = 0;
 struct list *values = NULL;
 
-struct Node* insert_random_value(struct Node* root) {
+struct ht_node* insert_random_value(struct ht_node* root) {
   uint64_t key = lrand48();
 
-  if(get(root, key)) {
+  if(ht_get_value(root, key)) {
     /* the key is already in the hashtable */
     return insert_random_value(root);
   }
@@ -26,13 +26,13 @@ struct Node* insert_random_value(struct Node* root) {
   values = value;
   nb_item++;
   printf("Inserting %llx (nb_item = %d)\n", key, nb_item);
-  root = insert(root, key, value);
+  root = ht_insert(root, key, value);
 
-  int nval= nb_values(root);
+  int nval= ht_size(root);
   if(nval != nb_item) {
     printf("Error after inserting %llx: the tree contains %d item instead of %d\n",
 	   key, nval, nb_item);
-    print_hash_table(root, 0);
+    ht_print(root);
 
     abort();
   }
@@ -40,7 +40,7 @@ struct Node* insert_random_value(struct Node* root) {
   return root;
 }
 
-struct Node* delete_random_value(struct Node* root) {
+struct ht_node* delete_random_value(struct ht_node* root) {
   if(!nb_item)
     return root;
 
@@ -64,14 +64,14 @@ struct Node* delete_random_value(struct Node* root) {
 
   printf("Removing %llx (nb_item = %d)\n", l->key, nb_item);
 
-  root = remove_key(root, l->key);
+  root = ht_remove_key(root, l->key);
 
-  int nval= nb_values(root);
+  int nval= ht_size(root);
   if(nval != nb_item) {
     printf("Error after deleting %llx: the tree contains %d item instead of %d\n",
 	   l->key, nval, nb_item);
 
-    print_hash_table(root, 0);
+    ht_print(root);
 
     abort();
   }
@@ -86,7 +86,7 @@ int main(int argc, char**argv) {
   int seed= 1;
   if(argc>1)
     seed=atoi(argv[1]);
-  struct Node *root = NULL;
+  struct ht_node *root = NULL;
   srand48(seed);
   int i;
 
@@ -103,15 +103,15 @@ int main(int argc, char**argv) {
       root = delete_random_value(root);
    }
 
-    //    print_hash_table(root, 0);
-    check_table(root);
-    if(nb_values(root) != nb_item) {
-      printf("Error: the hashtablme contains %d values. It should contain %d\n", nb_values(root), nb_item);
+    //    ht_print(root);
+    ht_check(root);
+    if(ht_size(root) != nb_item) {
+      printf("Error: the hashtablme contains %d values. It should contain %d\n", ht_size(root), nb_item);
       abort();
     }
   }
 
   /* Liberation */
-  release(root);
+  ht_release(root);
   return 0;
 }
