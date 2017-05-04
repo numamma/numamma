@@ -2,7 +2,15 @@
 #define MEM_TOOLS_H
 #include "mem_intercept.h"
 
+/* return the address of the instruction that called the current function */
+void* get_caller_rip(int depth);
+
+/* return the name (function name +line) of the instruction that called the current function */
 char* get_caller_function(int depth);
+
+/* return the name (function name +line) of the instruction located at address rip */
+char* get_caller_function_from_rip(void* rip);
+
 void print_backtrace(int backtrace_max_depth);
 
 struct mem_allocator {

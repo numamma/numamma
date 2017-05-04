@@ -59,6 +59,50 @@ static int backtrace_callback (void *data, uintptr_t pc,
 #endif /* HAVE_LIBBACKTRACE */
 
 
+void* get_caller_rip(int depth) {
+  int backtrace_depth=depth+1;
+  void* buffer[backtrace_depth];
+  int nb_calls = backtrace(buffer, backtrace_depth);
+  if(nb_calls < depth) {
+    return NULL;
+  }
+  return buffer[depth];
+}
+
+char* get_caller_function_from_rip(void* rip) {
+  char* retval = NULL;
+  if(!rip) {
+    retval = libmalloc(sizeof(char)*16);
+    sprintf(retval, "???");
+    return retval;
+  }
+
+#if HAVE_LIBBACKTRACE
+  struct backtrace_state *state = backtrace_create_state (NULL, BACKTRACE_SUPPORTS_THREADS,
+							  error_callback, NULL);
+
+#endif
+#if HAVE_LIBBACKTRACE
+  backtrace_pcinfo (state, (uintptr_t) rip,
+		    backtrace_callback,
+		    error_callback,
+		    NULL);
+  if(current_frame[0] != '\0') {
+    retval = libmalloc(sizeof(char)*4096);
+    sprintf(retval, "%s", current_frame);
+    return retval;
+  }
+#endif
+  /* symbol can't be resolved by libbacktrace, use the symbol name */
+  char **functions;
+  functions = backtrace_symbols(&rip, 1);
+  retval = libmalloc(sizeof(char)*4096);
+  sprintf(retval, "%s", functions[0]);
+  free(functions);
+
+  return retval;
+}
+
 char* get_caller_function(int depth) {
   int backtrace_depth=depth+1;
   void* buffer[backtrace_depth];

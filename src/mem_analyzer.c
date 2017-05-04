@@ -361,7 +361,9 @@ void ma_record_malloc(struct mem_block_info* info) {
    *
    * So, we need to get the name of the function in frame 3.
    */
-  mem_info->caller = get_caller_function(3);
+  //  mem_info->caller = get_caller_function(3);
+  mem_info->caller = NULL;
+  mem_info->caller_rip = get_caller_rip(3);
   __init_counters(mem_info);
 
   debug_printf("[%lu] [%lx] malloc(%lu bytes) -> u_ptr=%p\n",
@@ -470,6 +472,7 @@ void ma_record_free(struct mem_block_info* info) {
 
 struct call_site {
   char* caller;
+  void* caller_rip;
   size_t buffer_size;
   unsigned nb_mallocs;
   struct memory_info mem_info;
@@ -481,7 +484,7 @@ struct call_site *find_call_site(struct memory_info* mem_info) {
   struct call_site * cur_site = call_sites;
   while(cur_site) {
     if(cur_site->buffer_size == mem_info->initial_buffer_size &&
-       strcmp(cur_site->caller, mem_info->caller) == 0) {
+       cur_site->caller_rip == mem_info->caller_rip) {
       return cur_site;
     }
     cur_site = cur_site->next;
@@ -491,6 +494,10 @@ struct call_site *find_call_site(struct memory_info* mem_info) {
 
 struct call_site * new_call_site(struct memory_info* mem_info) {
   struct call_site * site = libmalloc(sizeof(struct call_site));
+  if(!mem_info->caller) {
+    mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
+  }
+  site->caller_rip = mem_info->caller_rip;
   site->caller = mem_allocator_alloc(string_allocator);
   strcpy(site->caller, mem_info->caller);
   site->buffer_size =  mem_info->initial_buffer_size;
@@ -502,6 +509,7 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
   site->mem_info.buffer_size = mem_info->buffer_size;
   site->mem_info.buffer_addr = mem_info->buffer_addr;
   site->mem_info.caller = site->caller;
+  site->mem_info.caller_rip = site->caller_rip;
   int i;
   for(i = 0; i<ACCESS_MAX; i++) {
     memset(&site->mem_info.count[i], 0, sizeof(struct mem_counters));
