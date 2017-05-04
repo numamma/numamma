@@ -25,10 +25,22 @@ static struct ht_node* __ht_min_node(struct ht_node *node) {
   return node;
 }
 
+static struct ht_node* __ht_get_root(struct ht_node *node) {
+  while(node &&node->parent) {
+    node = node->parent;
+  }
+  return node;
+}
+
 static struct ht_node* __ht_next_node(struct ht_node *node) {
   if(node) {
+    uint64_t cur_key = node->key;
+    struct ht_node* cur_node = node;
+    struct ht_node* retval = node;
+
     if(node->right) {
-      return __ht_min_node(node->right);
+      retval = __ht_min_node(node->right);
+      goto out;
     }
 
     /* browse the tree from the bottom to the top */
@@ -37,7 +49,19 @@ static struct ht_node* __ht_next_node(struct ht_node *node) {
     }
     /* after the loop, node points to a subtree that was completed processed */
 
-    return node->parent;
+    retval= node->parent;
+  out:
+#if DEBUG
+    if(retval && retval->key < cur_key) {
+      /* this should never happen ! */
+      printf("Error while browsing the hashtable: can't find the node following:\n %p (key=%llx).\n next found:\n %p (key=%llx)\n",
+	     cur_node, cur_key,
+	     retval, retval->key);
+      ht_print(__ht_get_root(node));
+      abort();
+    }
+#endif
+    return retval;
   }
   return NULL;
 }

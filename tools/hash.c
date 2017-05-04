@@ -102,6 +102,9 @@ static struct ht_node *__ht_right_rotate(struct ht_node *z) {
   y->parent = z->parent;
   z->parent = y;
   z->left = y->right;
+  if(z->left) {
+    z->left->parent = z;
+  }
   y->right = z;
   __ht_update_height(z);
   __ht_update_height(y);
@@ -111,6 +114,9 @@ static struct ht_node *__ht_right_rotate(struct ht_node *z) {
 static struct ht_node *__ht_left_rotate(struct ht_node *z) {
   struct ht_node *y = z->right;
   z->right = y->left;
+  if(z->right) {
+    z->right->parent = z;
+  }
   y->left = z;
   y->parent = z->parent;
   z->parent = y;
@@ -174,11 +180,16 @@ struct ht_node* ht_insert(struct ht_node* node, uint64_t key, void* value) {
   } else {
     /* replace the value of the current node */
     node->value = value;
+    ht_check(node);
     return node;
   }
 
   node = __ht_balance_tree(node);
   __ht_update_height(node);
+
+#if DEBUG
+  ht_check(node);
+#endif
   return node;
 }
 
@@ -334,11 +345,28 @@ static void __ht_check(struct ht_node*node) {
 	printf("Found a violation in the binary search tree\n");
 	abort();
       }
+      if(node->left->parent != node) {
+	printf("Error: node(%p, key=%llx)->left(%p, key=%llx)->parent = %p\n",
+	       node, node->value,
+	       node->left, node->left->value,
+	       node->left->parent);
+	ht_print(__ht_get_root(node));
+	abort();
+      }
       __ht_check(node->left);
     }
     if(node->right) {
       if(node->right->key < node->key) {
 	printf("Found a violation in the binary search tree\n");
+	abort();
+      }
+      if(node->right->parent != node) {
+	printf("Error: node(%p, key=%llx)->right(%p, key=%llx)->parent = %p\n",
+	       node, node->value,
+	       node->right, node->right->value,
+	       node->right->parent);
+
+	ht_print(__ht_get_root(node));
 	abort();
       }
       __ht_check(node->right);
