@@ -30,24 +30,26 @@ static mem_info_node_t mem_list = NULL; // malloc'd buffers currently in use
 static mem_info_node_t past_mem_list = NULL; // malloc'd buffers that were freed
 static pthread_mutex_t mem_list_lock;
 
+__thread unsigned thread_rank;
+unsigned next_thread_rank = 0;
+
 static __thread int is_record_safe = 1;
 #define IS_RECORD_SAFE (is_record_safe)
 
 #define PROTECT_RECORD do {			\
-    assert(is_record_safe !=0);		\
+    assert(is_record_safe !=0);			\
     is_record_safe = 0;				\
   } while(0)
 
-#define UNPROTECT_RECORD do {		\
+#define UNPROTECT_RECORD do {			\
     assert(is_record_safe == 0);		\
-    is_record_safe = 1;			\
+    is_record_safe = 1;				\
   } while(0)
 
 struct mem_allocator* mem_info_allocator = NULL;
 struct mem_allocator* string_allocator = NULL;
 
 /* todo:
- * - intercept thread creation and run numap_sampling_init_measure for each thread
  * - set an alarm every 1ms to collect the sampling info
  * - choose the buffer size
  * - collect read/write accesses
@@ -75,6 +77,8 @@ void ma_init() {
 }
 
 void ma_thread_init() {
+  thread_rank = __sync_fetch_and_add( &next_thread_rank, 1 );
+
   mem_sampling_thread_init();
 }
 
@@ -82,17 +86,16 @@ void ma_thread_finalize() {
   PROTECT_RECORD;
   mem_sampling_thread_finalize();
   pid_t tid = syscall(SYS_gettid);
-  printf("End of thread: %d\n", tid);
   UNPROTECT_RECORD;
 }
 
 static uint64_t new_date() {
 #ifdef __x86_64__
   // This is a copy of rdtscll function from asm/msr.h
-#define ticks(val) do {                                         \
-    uint32_t __a,__d;                                           \
-    asm volatile("rdtsc" : "=a" (__a), "=d" (__d));             \
-    (val) = ((uint64_t)__a) | (((uint64_t)__d)<<32);      \
+#define ticks(val) do {					\
+    uint32_t __a,__d;					\
+    asm volatile("rdtsc" : "=a" (__a), "=d" (__d));	\
+    (val) = ((uint64_t)__a) | (((uint64_t)__d)<<32);	\
   } while(0)
 
 #elif defined(__i386)
@@ -123,7 +126,7 @@ int is_address_in_buffer(uint64_t addr, struct memory_info *buffer){
 
 static mem_info_node_t
 __ma_find_mem_info_from_addr_generic(mem_info_node_t list,
-				      uint64_t ptr) {
+				     uint64_t ptr) {
   mem_info_node_t retval = NULL;
   int n=0;
   pthread_mutex_lock(&mem_list_lock);
@@ -181,20 +184,21 @@ ma_find_past_mem_info_from_addr(uint64_t ptr) {
 
 
 static void __init_counters(struct memory_info* mem_info) {
-  int i;
-  for(i=0; i<ACCESS_MAX; i++) {
-    mem_info->count[i].total_count = 0;
-    mem_info->count[i].na_miss_count = 0;
-    mem_info->count[i].cache1_count = 0;
-    mem_info->count[i].cache2_count = 0;
-    mem_info->count[i].cache3_count = 0;
-    mem_info->count[i].lfb_count = 0;
-    mem_info->count[i].memory_count = 0;
-    mem_info->count[i].remote_memory_count = 0;
-    mem_info->count[i].remote_cache_count = 0;
+  int i, j;
+  for(i=0; i<MAX_THREADS; i++) {
+    for(j=0; j<ACCESS_MAX; j++) {
+      mem_info->count[i][j].total_count = 0;
+      mem_info->count[i][j].na_miss_count = 0;
+      mem_info->count[i][j].cache1_count = 0;
+      mem_info->count[i][j].cache2_count = 0;
+      mem_info->count[i][j].cache3_count = 0;
+      mem_info->count[i][j].lfb_count = 0;
+      mem_info->count[i][j].memory_count = 0;
+      mem_info->count[i][j].remote_memory_count = 0;
+      mem_info->count[i][j].remote_cache_count = 0;
+    }
   }
 }
-
 char null_str[]="";
 
 /* get the list of global/static variables with their address and size */
@@ -230,7 +234,7 @@ void ma_get_global_variables() {
       sscanf(line, "%lx-%lx", &base_addr, &end_addr);
       debug_printf("  This program was compiled with -fPIE. It is mapped at address %p\n", base_addr);
     } else {
-    /* process is not compiled with -fPIE, thus, the addresses in the ELF are the addresses in the binary */
+      /* process is not compiled with -fPIE, thus, the addresses in the ELF are the addresses in the binary */
       base_addr= NULL;
       end_addr= NULL;
       debug_printf("  This program was not compiled with -fPIE. It is mapped at address %p\n", base_addr);
@@ -249,7 +253,7 @@ void ma_get_global_variables() {
 
     /* each line is in the form:
        offset [size] section symbol [file]
-     */
+    */
     char *addr = null_str;
     char *size_str = null_str;
     char *section = null_str;
@@ -314,14 +318,14 @@ void ma_get_global_variables() {
 
 	debug_printf("Found a global variable: %s (defined at %s). base addr=%p, size=%d\n",
 		     symbol, file, mem_info->buffer_addr, mem_info->buffer_size);
-	/* todo: insert large buffers at the beginning of the list since
-	 * their are more likely to be accessed often (this will speed
-	 * up searching at runtime)
-	 */
 	pthread_mutex_lock(&mem_list_lock);
 #ifdef USE_HASHTABLE
 	mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
 #else
+	/* todo: insert large buffers at the beginning of the list since
+	 * their are more likely to be accessed often (this will speed
+	 * up searching at runtime)
+	 */
 	p_node->next = mem_list;
 	mem_list = p_node;
 #endif
@@ -394,10 +398,6 @@ void ma_update_buffer_address(struct mem_block_info* info, void *old_addr, void 
   PROTECT_RECORD;
 
   mem_sampling_collect_samples();
-  /* todo: do we really need the lock here ?
-   * when this list is modified, it is only for inserting new nodes, so browsing the list could
-   * be done without holding the lock ?
-   */
   struct memory_info* mem_info = info->record_info;
   assert(mem_info);
   mem_info->buffer_addr = new_addr;
@@ -406,8 +406,8 @@ void ma_update_buffer_address(struct mem_block_info* info, void *old_addr, void 
   UNPROTECT_RECORD;
 }
 
-/* TODO:
- * remove mem_info from the list so that we only search through active buffers
+/*
+ * remove mem_info from the list of active buffers and add it to the list of inactive buffers
  */
 void set_buffer_free(struct mem_block_info* p_block) {
   pthread_mutex_lock(&mem_list_lock);
@@ -476,6 +476,7 @@ struct call_site {
   size_t buffer_size;
   unsigned nb_mallocs;
   struct memory_info mem_info;
+  struct mem_counters cumulated_counters[ACCESS_MAX];
   struct call_site *next;
 };
 struct call_site* call_sites = NULL;
@@ -510,9 +511,14 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
   site->mem_info.buffer_addr = mem_info->buffer_addr;
   site->mem_info.caller = site->caller;
   site->mem_info.caller_rip = site->caller_rip;
-  int i;
-  for(i = 0; i<ACCESS_MAX; i++) {
-    memset(&site->mem_info.count[i], 0, sizeof(struct mem_counters));
+  int i, j;
+  for(j = 0; j<ACCESS_MAX; j++) {
+    memset(&site->cumulated_counters[j], 0, sizeof(struct mem_counters));
+  }
+  for(i = 0; i<MAX_THREADS; i++) {
+    for(j = 0; j<ACCESS_MAX; j++) {
+      memset(&site->mem_info.count[i][j], 0, sizeof(struct mem_counters));
+    }
   }
 
   site->next = call_sites;
@@ -527,17 +533,29 @@ void update_call_sites(struct memory_info* mem_info) {
   }
 
   site->nb_mallocs++;
-  int i;
-  for(i=0; i<ACCESS_MAX; i++) {
-    site->mem_info.count[i].total_count         += mem_info->count[i].total_count;
-    site->mem_info.count[i].na_miss_count       += mem_info->count[i].na_miss_count;
-    site->mem_info.count[i].cache1_count        += mem_info->count[i].cache1_count;
-    site->mem_info.count[i].cache2_count        += mem_info->count[i].cache2_count;
-    site->mem_info.count[i].cache3_count        += mem_info->count[i].cache3_count;
-    site->mem_info.count[i].lfb_count           += mem_info->count[i].lfb_count;
-    site->mem_info.count[i].memory_count        += mem_info->count[i].memory_count;
-    site->mem_info.count[i].remote_memory_count += mem_info->count[i].remote_memory_count;
-    site->mem_info.count[i].remote_cache_count  += mem_info->count[i].remote_cache_count;
+  int i, j;
+  for(i = 0; i<MAX_THREADS; i++) {
+    for(j = 0; j<ACCESS_MAX; j++) {
+      site->mem_info.count[i][j].total_count         += mem_info->count[i][j].total_count;
+      site->mem_info.count[i][j].na_miss_count       += mem_info->count[i][j].na_miss_count;
+      site->mem_info.count[i][j].cache1_count        += mem_info->count[i][j].cache1_count;
+      site->mem_info.count[i][j].cache2_count        += mem_info->count[i][j].cache2_count;
+      site->mem_info.count[i][j].cache3_count        += mem_info->count[i][j].cache3_count;
+      site->mem_info.count[i][j].lfb_count           += mem_info->count[i][j].lfb_count;
+      site->mem_info.count[i][j].memory_count        += mem_info->count[i][j].memory_count;
+      site->mem_info.count[i][j].remote_memory_count += mem_info->count[i][j].remote_memory_count;
+      site->mem_info.count[i][j].remote_cache_count  += mem_info->count[i][j].remote_cache_count;
+
+      site->cumulated_counters[j].total_count         += mem_info->count[i][j].total_count;
+      site->cumulated_counters[j].na_miss_count       += mem_info->count[i][j].na_miss_count;
+      site->cumulated_counters[j].cache1_count        += mem_info->count[i][j].cache1_count;
+      site->cumulated_counters[j].cache2_count        += mem_info->count[i][j].cache2_count;
+      site->cumulated_counters[j].cache3_count        += mem_info->count[i][j].cache3_count;
+      site->cumulated_counters[j].lfb_count           += mem_info->count[i][j].lfb_count;
+      site->cumulated_counters[j].memory_count        += mem_info->count[i][j].memory_count;
+      site->cumulated_counters[j].remote_memory_count += mem_info->count[i][j].remote_memory_count;
+      site->cumulated_counters[j].remote_cache_count  += mem_info->count[i][j].remote_cache_count;
+    }
   }
 }
 
@@ -545,45 +563,42 @@ void print_call_site_summary() {
   printf("Summary of the call sites:\n");
   printf("--------------------------\n");
   struct call_site* site = call_sites;
+  int nb_threads = next_thread_rank;
   while(site) {
-    if(site->mem_info.count[ACCESS_READ].total_count || site->mem_info.count[ACCESS_WRITE].total_count) {
-      printf("%s (size=%d) - %d buffers. %d read access. %d wr_access\n", site->caller, site->buffer_size, site->nb_mallocs, site->mem_info.count[ACCESS_READ].total_count, site->mem_info.count[ACCESS_WRITE].total_count);
+    if(site->cumulated_counters[ACCESS_READ].total_count ||
+       site->cumulated_counters[ACCESS_WRITE].total_count) {
+
+      printf("%s (size=%d) - %d buffers. %d read access. %d wr_access\n", site->caller, site->buffer_size, site->nb_mallocs, site->cumulated_counters[ACCESS_READ].total_count, site->cumulated_counters[ACCESS_WRITE].total_count);
+
+#define PRINT_COUNTERS(access_type, counter) do {			\
+	if(site->cumulated_counters[access_type].counter) {		\
+	  printf("\t%s:\t", #counter);					\
+	  for(int i=0; i< nb_threads; i++) {				\
+	    printf("%d\t", site->mem_info.count[i][access_type].counter); \
+	  }								\
+	  printf("\n");							\
+	}								\
+      } while(0)
+
       printf("\tREAD accesses:\n");
-      if(site->mem_info.count[ACCESS_READ].na_miss_count)
-	printf("\tna_miss_count:	   %d\n", site->mem_info.count[ACCESS_READ].na_miss_count);
-      if(site->mem_info.count[ACCESS_READ].cache1_count)
-	printf("\tcache1_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache1_count);
-      if(site->mem_info.count[ACCESS_READ].cache2_count)
-	printf("\tcache2_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache2_count);
-      if(site->mem_info.count[ACCESS_READ].cache3_count)
-	printf("\tcache3_count:	   %d\n", site->mem_info.count[ACCESS_READ].cache3_count);
-      if(site->mem_info.count[ACCESS_READ].lfb_count)
-	printf("\tlfb_count:	   %d\n", site->mem_info.count[ACCESS_READ].lfb_count);
-      if(site->mem_info.count[ACCESS_READ].memory_count)
-	printf("\tmemory_count:	   %d\n", site->mem_info.count[ACCESS_READ].memory_count);
-      if(site->mem_info.count[ACCESS_READ].remote_memory_count)
-	printf("\tremote_memory_count: %d\n", site->mem_info.count[ACCESS_READ].remote_memory_count);
-      if(site->mem_info.count[ACCESS_READ].remote_cache_count)
-	printf("\tremote_cache_count:  %d\n", site->mem_info.count[ACCESS_READ].remote_cache_count);
-      printf("\n");
+      PRINT_COUNTERS(ACCESS_READ, na_miss_count);
+      PRINT_COUNTERS(ACCESS_READ, cache1_count);
+      PRINT_COUNTERS(ACCESS_READ, cache2_count);
+      PRINT_COUNTERS(ACCESS_READ, cache3_count);
+      PRINT_COUNTERS(ACCESS_READ, lfb_count);
+      PRINT_COUNTERS(ACCESS_READ, memory_count);
+      PRINT_COUNTERS(ACCESS_READ, remote_memory_count);
+      PRINT_COUNTERS(ACCESS_READ, remote_cache_count);
 
       printf("\tWRITE accesses:\n");
-      if(  site->mem_info.count[ACCESS_WRITE].na_miss_count)
-	printf("\tna_miss_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].na_miss_count);
-      if(  site->mem_info.count[ACCESS_WRITE].cache1_count)
-	printf("\tcache1_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache1_count);
-      if(  site->mem_info.count[ACCESS_WRITE].cache2_count)
-	printf("\tcache2_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache2_count);
-      if(  site->mem_info.count[ACCESS_WRITE].cache3_count)
-	printf("\tcache3_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].cache3_count);
-      if(  site->mem_info.count[ACCESS_WRITE].lfb_count)
-	printf("\tlfb_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].lfb_count);
-      if(  site->mem_info.count[ACCESS_WRITE].memory_count)
-	printf("\tmemory_count:	   %d\n",   site->mem_info.count[ACCESS_WRITE].memory_count);
-      if(site->mem_info.count[ACCESS_WRITE].remote_memory_count)
-	printf("\tremote_memory_count: %d\n", site->mem_info.count[ACCESS_WRITE].remote_memory_count);
-      if(site->mem_info.count[ACCESS_WRITE].remote_cache_count)
-	printf("\tremote_cache_count:  %d\n", site->mem_info.count[ACCESS_WRITE].remote_cache_count);
+      PRINT_COUNTERS(ACCESS_WRITE, na_miss_count);
+      PRINT_COUNTERS(ACCESS_WRITE, cache1_count);
+      PRINT_COUNTERS(ACCESS_WRITE, cache2_count);
+      PRINT_COUNTERS(ACCESS_WRITE, cache3_count);
+      PRINT_COUNTERS(ACCESS_WRITE, lfb_count);
+      PRINT_COUNTERS(ACCESS_WRITE, memory_count);
+      PRINT_COUNTERS(ACCESS_WRITE, remote_memory_count);
+      PRINT_COUNTERS(ACCESS_WRITE, remote_cache_count);
     }
     site = site->next;
   }
@@ -594,26 +609,35 @@ void warn_non_freed_buffers() {
 
   pthread_mutex_lock(&mem_list_lock);
 
+  struct memory_info* mem_info = NULL;
 #ifdef USE_HASHTABLE
-  /* todo */
+  while(mem_list) {
+    mem_info = mem_list->value;
 #else
   while(mem_list) {
-    struct memory_info_list * p_node = mem_list;
+    mem_info = mem_list;
+#endif
+
 #if WARN_NON_FREED
     printf("Warning: buffer %p (size=%lu bytes) was not freed\n",
 	   p_node->mem_info.buffer_addr, p_node->mem_info.buffer_size);
 #endif
 
-    p_node->mem_info.free_date = new_date();
+    mem_info->free_date = new_date();
 
     /* remove the record from the list of malloc'd buffers */
-    mem_list = p_node->next;
+#ifdef USE_HASHTABLE
+    mem_list = ht_remove_key(mem_list, mem_list->key);
+    past_mem_list =  ht_insert(past_mem_list, mem_info->buffer_addr, mem_info);
 
+#else
+    mem_list = p_node->next;
     /* add to the list of freed buffers */
     p_node->next = past_mem_list;
     past_mem_list = p_node;
-  }
 #endif
+  }
+
   pthread_mutex_unlock(&mem_list_lock);
 }
 
@@ -640,45 +664,54 @@ void ma_finalize() {
     for(p_node = past_mem_list;
 	p_node;
 	p_node = p_node->next) {
-    mem_info = &p_node->mem_info;
+      mem_info = &p_node->mem_info;
 #endif
-    update_call_sites(mem_info);
+      update_call_sites(mem_info);
 
-    uint64_t duration = mem_info->free_date?
-      mem_info->free_date-mem_info->alloc_date:
-      0;
-    if(mem_info->count[ACCESS_WRITE].total_count > 0 ||
-       mem_info->count[ACCESS_READ].total_count > 0) {
+      uint64_t duration = mem_info->free_date?
+	mem_info->free_date-mem_info->alloc_date:
+	0;
 
-      double r_access_frequency;
-      if(mem_info->count[ACCESS_READ].total_count)
-	r_access_frequency = (duration/sampling_rate)/mem_info->count[ACCESS_READ].total_count;
-      else
-	r_access_frequency = 0;
-      double w_access_frequency;
-      if(mem_info->count[ACCESS_WRITE].total_count)
-	w_access_frequency = (duration/sampling_rate)/mem_info->count[ACCESS_WRITE].total_count;
-      else
-	w_access_frequency = 0;
+      int nb_threads = next_thread_rank;
+      unsigned total_read_count = 0;
+      unsigned total_write_count = 0;
+      for(int i=0; i<nb_threads; i++) {
+	total_read_count += mem_info->count[i][ACCESS_READ].total_count;
+	total_write_count += mem_info->count[i][ACCESS_WRITE].total_count;
+      }
 
-      debug_printf("buffer %p (%lu bytes) duration =%lu ticks. %d write accesses, %d read accesses. allocated : %s. read operation every %lf ticks\n",
-		   mem_info->buffer_addr,
-		   mem_info->initial_buffer_size,
-		   duration,
-		   mem_info->count[ACCESS_WRITE].total_count,
-		   mem_info->count[ACCESS_READ].total_count,
-		   mem_info->caller,
-		   r_access_frequency);
+      if(total_read_count > 0 ||
+	 total_write_count > 0) {
+
+	double r_access_frequency;
+	if(total_read_count)
+	  r_access_frequency = (duration/sampling_rate)/total_read_count;
+	else
+	  r_access_frequency = 0;
+	double w_access_frequency;
+	if(total_write_count)
+	  w_access_frequency = (duration/sampling_rate)/total_write_count;
+	else
+	  w_access_frequency = 0;
+
+	debug_printf("buffer %p (%lu bytes) duration =%lu ticks. %d write accesses, %d read accesses. allocated : %s. read operation every %lf ticks\n",
+		     mem_info->buffer_addr,
+		     mem_info->initial_buffer_size,
+		     duration,
+		     total_read_count,
+		     total_write_count,
+		     mem_info->caller,
+		     r_access_frequency);
+      }
+
     }
 
-  }
+    print_call_site_summary();
 
-  print_call_site_summary();
-
-  mem_sampling_statistics();
-  if(_dump) {
-    fclose(dump_file);
+    mem_sampling_statistics();
+    if(_dump) {
+      fclose(dump_file);
+    }
+    pthread_mutex_unlock(&mem_list_lock);
+    UNPROTECT_RECORD;
   }
-  pthread_mutex_unlock(&mem_list_lock);
-  UNPROTECT_RECORD;
-}

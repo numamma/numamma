@@ -172,31 +172,31 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
 	if(mem_info) {
 	  found_samples++;
 
-	  mem_info->count[access_type].total_count++;
+	  mem_info->count[thread_rank][access_type].total_count++;
 
 	  if (is_served_by_local_NA_miss(sample->data_src)) {
-	    mem_info->count[access_type].na_miss_count++;
+	    mem_info->count[thread_rank][access_type].na_miss_count++;
 	  }
 	  if (is_served_by_local_cache1(sample->data_src)) {
-	    mem_info->count[access_type].cache1_count++;
+	    mem_info->count[thread_rank][access_type].cache1_count++;
 	  }
 	  if (is_served_by_local_cache2(sample->data_src)) {
-	    mem_info->count[access_type].cache2_count++;
+	    mem_info->count[thread_rank][access_type].cache2_count++;
 	  }
 	  if (is_served_by_local_cache3(sample->data_src)) {
-	    mem_info->count[access_type].cache3_count++;
+	    mem_info->count[thread_rank][access_type].cache3_count++;
 	  }
 	  if (is_served_by_local_lfb(sample->data_src)) {
-	    mem_info->count[access_type].lfb_count++;
+	    mem_info->count[thread_rank][access_type].lfb_count++;
 	  }
 	  if (is_served_by_local_memory(sample->data_src)) {
-	    mem_info->count[access_type].memory_count++;
+	    mem_info->count[thread_rank][access_type].memory_count++;
 	  }
 	  if (is_served_by_remote_memory(sample->data_src)) {
-	    mem_info->count[access_type].remote_memory_count++;
+	    mem_info->count[thread_rank][access_type].remote_memory_count++;
 	  }
 	  if (is_served_by_remote_cache_or_local_memory(sample->data_src)) {
-	    mem_info->count[access_type].remote_cache_count++;
+	    mem_info->count[thread_rank][access_type].remote_cache_count++;
 	  }
 	}
 

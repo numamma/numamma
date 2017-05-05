@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "mem_intercept.h"
 
+#define MAX_THREADS 128
 typedef uint64_t date_t;
 
 struct mem_counters {
@@ -24,6 +25,9 @@ enum access_type {
   ACCESS_MAX
 };
 
+extern __thread unsigned thread_rank;
+extern unsigned next_thread_rank;
+
 struct memory_info {
   date_t alloc_date;
   date_t free_date;
@@ -35,7 +39,7 @@ struct memory_info {
   void* caller_rip;		/* adress of the instruction that called malloc */
   char* caller;			/* callsite (function name+line) of the instruction that called malloc */
   /* TODO: numa node ? thread that allocates */
-  struct mem_counters count[ACCESS_MAX];
+  struct mem_counters count[MAX_THREADS][ACCESS_MAX];
   //  struct mem_counters write_count;
 };
 

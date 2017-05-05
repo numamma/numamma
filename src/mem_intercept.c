@@ -120,9 +120,9 @@ void* malloc(size_t size) {
     UNPROTECT_FROM_RECURSION;
     //    return p_block->u_ptr;
   } else {
-  /* we are already processing a malloc/free function, so don't try to record information,
-   * just call the function
-   */
+    /* we are already processing a malloc/free function, so don't try to record information,
+     * just call the function
+     */
     p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
   }
 
@@ -191,7 +191,7 @@ void* realloc(void *ptr, size_t size) {
     ma_update_buffer_address(p_block, old_addr, new_addr);
     UNPROTECT_FROM_RECURSION;
   } else {
-  /* it is not safe to record information */
+    /* it is not safe to record information */
     p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
   }
 
@@ -296,36 +296,70 @@ struct __pthread_create_info_t {
   void *arg;
 };
 
+enum thread_status_t {
+  thread_status_none,
+  thread_status_created,
+  thread_status_finalized
+};
 
+struct thread_info {
+  pthread_t tid;
+  enum thread_status_t status;
+};
+struct thread_info thread_array[MAX_THREADS];
+int nb_threads = 0;
+
+static int __get_thread_rank(pthread_t thread_id) {
+  int i;
+  for(i=0; i< nb_threads; i++) {
+    if(thread_array[i].tid == thread_id)
+      return i;
+  }
+  return -1;
+}
+
+static void __thread_cleanup_function(void* arg);
 /* Invoked by pthread_create on the new thread */
 static void *
 __pthread_new_thread(void *arg) {
   PROTECT_FROM_RECURSION;
+  void* res = NULL;
   struct __pthread_create_info_t *p_arg = (struct __pthread_create_info_t*) arg;
   void *(*f)(void *) = p_arg->func;
   void *__arg = p_arg->arg;
   libfree(p_arg);
   ma_thread_init();
   UNPROTECT_FROM_RECURSION;
+  int oldtype;
+  pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &oldtype);
 
-  void *res = (*f)(__arg);
+  int thread_rank = __get_thread_rank(pthread_self());
+  pthread_cleanup_push(__thread_cleanup_function,
+		       &thread_array[thread_rank]);
 
+  res = (*f)(__arg);
+
+  pthread_cleanup_pop(1);
+  return res;
+}
+
+
+static void __thread_cleanup_function(void* arg) {
+  struct thread_info* me = arg;
   PROTECT_FROM_RECURSION;
   ma_thread_finalize();
+  me->status = thread_status_finalized;
   UNPROTECT_FROM_RECURSION;
-  return res;
 }
 
 int
 pthread_create (pthread_t *__restrict thread,
 		const pthread_attr_t *__restrict attr,
 		void *(*start_routine) (void *),
-		void *__restrict arg)
-{
+		void *__restrict arg) {
   FUNCTION_ENTRY;
   struct __pthread_create_info_t * __args =
     (struct __pthread_create_info_t*) libmalloc(sizeof(struct __pthread_create_info_t));
-
   __args->func = start_routine;
   __args->arg = arg;
 
@@ -333,11 +367,16 @@ pthread_create (pthread_t *__restrict thread,
     libpthread_create = dlsym(RTLD_NEXT, "pthread_create");
   }
 
+  int thread_rank = __sync_fetch_and_add( &nb_threads, 1 );
+  thread_array[thread_rank].status = thread_status_created;
+
   /* We do not call directly start_routine since we want to initialize stuff at the thread startup.
    * Instead, let's invoke __pthread_new_thread that initialize the thread-specific things and call
    * start_routine.
    */
-  int retval = libpthread_create(thread, attr, __pthread_new_thread, __args);
+  int retval = libpthread_create(&thread_array[thread_rank].tid, attr, __pthread_new_thread, __args);
+  memcpy(thread, &thread_array[thread_rank].tid, sizeof(pthread_t));
+
   return retval;
 }
 
@@ -422,10 +461,36 @@ static void __memory_init(void) {
   UNPROTECT_FROM_RECURSION;
 }
 
+void wait_for_other_threads() {
+  int i;
+  for(i=0; i<nb_threads; i++) {
+    /* the thread is still running */
+    if(thread_array[i].status == thread_status_created) {
+      /* ask the thread to stop */
+      int retval = pthread_cancel(thread_array[i].tid);
+      if(retval != 0) {
+	fprintf(stderr, "pthread_cancel failed (%s)\n", strerror(errno));
+	abort();
+      }
+
+      /* wait until the thread stopped */
+
+      /* we could use pthread_join, but join may fail if the thread is not joinable (OpenMP
+       * thread for instance)
+       */
+      while(thread_array[i].status == thread_status_created) {
+	sched_yield();
+      }
+
+    }
+  }
+}
+
 static void __memory_conclude(void) __attribute__ ((destructor));
 static void __memory_conclude(void) {
-  __memory_initialized = 0;
 
+  wait_for_other_threads();
+  __memory_initialized = 0;
   ma_finalize();
   if(dump_filename) {
     printf("Samples were written to %s\n", dump_filename);
