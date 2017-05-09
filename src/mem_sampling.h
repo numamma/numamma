@@ -14,8 +14,6 @@ void mem_sampling_thread_finalize();
 
 void mem_sampling_collect_samples();
 void mem_sampling_start();
-
-static void __analyze_sampling(struct numap_sampling_measure *sm,
-			       enum access_type access_type);
+void mem_sampling_statistics();
 
 #endif /* MEM_SAMPLING_H */

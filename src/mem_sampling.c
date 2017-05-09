@@ -25,6 +25,9 @@ double get_cur_date() {
 __thread struct numap_sampling_measure sm;
 __thread struct numap_sampling_measure sm_wr;
 
+static void __analyze_sampling(struct numap_sampling_measure *sm,
+			       enum access_type access_type);
+
 void mem_sampling_init() {
 
 #if USE_NUMAP
