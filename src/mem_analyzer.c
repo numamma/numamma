@@ -212,6 +212,52 @@ extern void unset_ld_preload();
 extern void reset_ld_preload();
 
 
+/* find the address range of the stack and add a mem_info record */
+static void __ma_get_stack_range(const char* program_file) {
+  char cmd[4096];
+  char line[4096];
+  void *stack_base_addr = NULL;
+  void *stack_end_addr = NULL;
+
+  /* find the address range of the stack */
+  sprintf(cmd, "cat /proc/%d/maps |grep \"\\[stack\\]\"", getpid(), program_file);
+  FILE* f = popen(cmd, "r");
+  fgets(line, 4096, f);
+  fclose(f);
+  /* extract start/end addresses */
+  sscanf(line, "%lx-%lx", &stack_base_addr, &stack_end_addr);
+  size_t stack_size = stack_end_addr - stack_base_addr;
+
+  debug_printf("Stack address range: %lx-%lx (stack size: %lu bytes)\n",
+	       stack_base_addr, stack_end_addr, stack_size);
+
+  /* create a mem_info record */
+  struct memory_info * mem_info = NULL;
+#ifdef USE_HASHTABLE
+  mem_info = mem_allocator_alloc(mem_info_allocator);
+#else
+  struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
+  mem_info = &p_node->mem_info;
+#endif
+
+  mem_info->alloc_date = 0;
+  mem_info->free_date = 0;
+  mem_info->initial_buffer_size = stack_size;
+  mem_info->buffer_size = stack_size;
+  mem_info->buffer_addr = stack_base_addr;
+  mem_info->caller = mem_allocator_alloc(string_allocator);
+  snprintf(mem_info->caller, 1024, "[stack]");
+  __init_counters(mem_info);
+  pthread_mutex_lock(&mem_list_lock);
+#ifdef USE_HASHTABLE
+  mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
+#else
+  p_node->next = mem_list;
+  mem_list = p_node;
+#endif
+  pthread_mutex_unlock(&mem_list_lock);
+}
+
 /* get the list of global/static variables with their address and size */
 void ma_get_global_variables() {
   /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
@@ -237,6 +283,7 @@ void ma_get_global_variables() {
   sprintf(cmd, "file \"%s\" |grep \"shared object\" > plop", program_file);
   int ret = system(cmd);
   if(WIFEXITED(ret)) {
+    /* find address range of the heap */
     int exit_status= WEXITSTATUS(ret);
     if(exit_status == EXIT_SUCCESS) {
       /* process is compiled with -fPIE, thus, the addresses in the ELF are to be relocated */
@@ -253,6 +300,8 @@ void ma_get_global_variables() {
       end_addr= NULL;
       debug_printf("  This program was not compiled with -fPIE. It is mapped at address %p\n", base_addr);
     }
+
+    __ma_get_stack_range(program_file);
   }
 
   /* get the list of global variables in the current binary */
