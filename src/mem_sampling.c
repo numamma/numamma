@@ -13,6 +13,9 @@ unsigned nb_found_samples_total = 0;
 /* set to 1 if we are currently sampling memory accesses */
 static __thread int is_sampling = 0;
 
+/* set to 1 once the thread was finalized */
+static __thread int status_finalized = 0;
+
 struct timespec t_init;
 
 double get_cur_date() {
@@ -63,6 +66,7 @@ void mem_sampling_thread_init() {
 
 void mem_sampling_thread_finalize() {
   mem_sampling_collect_samples();
+  status_finalized = 1;
 }
 
 void mem_sampling_statistics() {
@@ -77,6 +81,9 @@ static __thread int setting_sampling_stuff=0;
 
 void mem_sampling_start() {
 #if USE_NUMAP
+  if(status_finalized)
+    return;
+
   debug_printf("[%lx][%lf] Start sampling %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
 
   if(is_sampling) {
@@ -113,10 +120,13 @@ void mem_sampling_start() {
 
 void mem_sampling_collect_samples() {
 #if USE_NUMAP
+  if(status_finalized)
+    return;
+
   debug_printf("[%lx][%lf] Collect samples %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
 
   if(!is_sampling) {
-    printf("[%lx] is_sampling = %d !\n", syscall(SYS_gettid), is_sampling);
+    printf("[%lx] Trying to collect sampling data, but sampling has not started !\n", syscall(SYS_gettid));
     abort();
   }
   is_sampling = 0;
