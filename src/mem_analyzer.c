@@ -650,7 +650,7 @@ void warn_non_freed_buffers() {
     /* remove the record from the list of malloc'd buffers */
 #ifdef USE_HASHTABLE
     mem_list = ht_remove_key(mem_list, mem_list->key);
-    past_mem_list =  ht_insert(past_mem_list, mem_info->buffer_addr, mem_info);
+    past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
 
 #else
     mem_list = p_node->next;
