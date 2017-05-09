@@ -100,7 +100,6 @@ void* malloc(size_t size) {
   }
 
   //debug_printf("%s(size=%lu) ", __FUNCTION__, size);
-
   /* allocate a buffer */
   void* pptr = libmalloc(size + HEADER_SIZE + TAIL_SIZE);
   /* fill the information on the malloc'd buffer */
@@ -109,7 +108,6 @@ void* malloc(size_t size) {
 
   if(__memory_initialized && IS_RECURSE_SAFE) {
     PROTECT_FROM_RECURSION;
-    //    debug_printf("malloc(%d) ", size);
 
     p_block->mem_type = MEM_TYPE_MALLOC;
 
@@ -414,11 +412,21 @@ static void read_options() {
 }
 
 extern char**environ;
+char ld_preload_value[4096];
+
 /* unset LD_PRELOAD
  * this makes sure that forked processes will not be analyzed
  */
 void unset_ld_preload() {
   /* unset LD_PRELOAD */
+  char* ld_preload = getenv("LD_PRELOAD");
+  if(!ld_preload) {
+    ld_preload_value[0]='\0';
+    return;
+  }
+
+  /* save the value of ld_preload so that we can set it back later */
+  strncpy(ld_preload_value, ld_preload, 4096);
   int ret = unsetenv("LD_PRELOAD");
   if(ret != 0 ){
     fprintf(stderr, "unsetenv failed ! %s\n", strerror(errno));
@@ -431,7 +439,7 @@ void unset_ld_preload() {
   for (int i=0; environ[i]; i++) {
     if (strstr(environ[i],"LD_PRELOAD=")) {
       printf("hacking out LD_PRELOAD from environ[%d]\n",i);
-      environ[i][0] = 'D';
+      environ[i][0] = '\0';
     }
   }
   char*plop=getenv("LD_PRELOAD");
@@ -441,10 +449,20 @@ void unset_ld_preload() {
   }
 }
 
+/* set LD_PRELOAD so that future forked processes are analyzed
+ *  you need to call unset_ld_preload before calling this function
+ */
+void reset_ld_preload() {
+  if(strlen(ld_preload_value)>0) {
+    debug_printf("Setting back ld_preload to %s\n", ld_preload_value);
+    setenv("LD_PRELOAD", ld_preload_value, 1);
+  }
+}
+
 static void __memory_init(void) __attribute__ ((constructor));
 static void __memory_init(void) {
   PROTECT_FROM_RECURSION;
-  unset_ld_preload();
+
   libmalloc = dlsym(RTLD_NEXT, "malloc");
   libcalloc = dlsym(RTLD_NEXT, "calloc");
   librealloc = dlsym(RTLD_NEXT, "realloc");

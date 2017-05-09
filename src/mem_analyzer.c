@@ -201,8 +201,22 @@ static void __init_counters(struct memory_info* mem_info) {
 }
 char null_str[]="";
 
+/* unset LD_PRELOAD
+ * this makes sure that forked processes will not be analyzed
+ */
+extern void unset_ld_preload();
+
+/* set LD_PRELOAD so that future forked processes are analyzed
+ *  you need to call unset_ld_preload before calling this function
+ */
+extern void reset_ld_preload();
+
+
 /* get the list of global/static variables with their address and size */
 void ma_get_global_variables() {
+  /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
+  unset_ld_preload();
+
   debug_printf("Looking for global variables\n");
   /* get the filename of the program being run */
   char readlink_cmd[1024];
@@ -248,7 +262,7 @@ void ma_get_global_variables() {
 
   while(!feof(f)) {
     if( ! fgets(line, 4096, f) ) {
-      return;
+      goto out;
     }
 
     /* each line is in the form:
@@ -333,6 +347,14 @@ void ma_get_global_variables() {
       }
     }
   }
+ out:
+  /* Restore LD_PRELOAD.
+   * This is usefull when the program is run with gdb. gdb creates a process than runs bash -e prog arg1
+   * Thus, the ld_preload affects bash. bash then calls execvp to execute the program.
+   * If we unset ld_preload, the ld_preload will only affect bash (and not the programà
+   * Hence, we need to restore ld_preload here.
+   */
+  reset_ld_preload();
 }
 
 void ma_record_malloc(struct mem_block_info* info) {
