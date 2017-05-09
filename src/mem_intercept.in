@@ -59,7 +59,7 @@ if [ x$debug = xy ]; then
     fi
     echo "set env LD_LIBRARY_PATH=$ld_library_path" >> $gdbinit_file
     echo "echo \n" >> $gdbinit_file
-    echo "echo EZTrace: hook loaded\n" >> $gdbinit_file
+    echo "echo NuMMa: hook loaded\n" >> $gdbinit_file
 
     gdb -x $gdbinit_file  --args $prog_name $*
     rm  $gdbinit_file
