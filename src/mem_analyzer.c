@@ -49,6 +49,8 @@ static __thread int is_record_safe = 1;
 struct mem_allocator* mem_info_allocator = NULL;
 struct mem_allocator* string_allocator = NULL;
 
+struct tick tick_array[NTICKS];
+
 /* todo:
  * - set an alarm every 1ms to collect the sampling info
  * - choose the buffer size
@@ -71,6 +73,11 @@ void ma_init() {
   mem_allocator_init(&string_allocator,
 		     sizeof(char)*1024,
 		     1024);
+
+  for(int i=0; i<NTICKS; i++) {
+    init_tick(i);
+  }
+
   mem_sampling_init();
   ma_thread_init();
   UNPROTECT_RECORD;
@@ -86,6 +93,16 @@ void ma_thread_finalize() {
   PROTECT_RECORD;
   mem_sampling_thread_finalize();
   pid_t tid = syscall(SYS_gettid);
+
+  for(int i=0; i<NTICKS; i++) {
+    if(tick_array[i].nb_calls>0) {
+      double total_duration = tick_array[i].total_duration;
+      double avg_duration = total_duration / tick_array[i].nb_calls;
+      printf("tick[%d] : %s -- %d calls. %lf us per call (total: %lf ms)\n",
+	     i, tick_array[i].tick_name, tick_array[i].nb_calls,
+	     avg_duration/1e3, total_duration/1e6);
+    }
+  }
   UNPROTECT_RECORD;
 }
 
@@ -411,7 +428,11 @@ void ma_record_malloc(struct mem_block_info* info) {
     return;
   PROTECT_RECORD;
 
+  start_tick(collect_samples);
   mem_sampling_collect_samples();
+  stop_tick(collect_samples);
+
+  start_tick(record_malloc);
 
   struct memory_info * mem_info = NULL;
 #ifdef USE_HASHTABLE
@@ -456,7 +477,12 @@ void ma_record_malloc(struct mem_block_info* info) {
 #endif
   pthread_mutex_unlock(&mem_list_lock);
 
+  stop_tick(record_malloc);
+
+  start_tick(sampling_start);
   mem_sampling_start();
+  stop_tick(sampling_start);
+
   UNPROTECT_RECORD;
 }
 
@@ -468,12 +494,18 @@ void ma_update_buffer_address(struct mem_block_info* info, void *old_addr, void 
 
   PROTECT_RECORD;
 
+  start_tick(collect_samples);
   mem_sampling_collect_samples();
+  stop_tick(collect_samples);
+
   struct memory_info* mem_info = info->record_info;
   assert(mem_info);
   mem_info->buffer_addr = new_addr;
 
+  start_tick(sampling_start);
   mem_sampling_start();
+  stop_tick(sampling_start);
+
   UNPROTECT_RECORD;
 }
 
@@ -525,7 +557,11 @@ void ma_record_free(struct mem_block_info* info) {
     return;
 
   PROTECT_RECORD;
+  start_tick(collect_samples);
   mem_sampling_collect_samples();
+  stop_tick(collect_samples);
+
+  start_tick(record_free);
 
   struct memory_info* mem_info = info->record_info;
   assert(mem_info);
@@ -537,8 +573,13 @@ void ma_record_free(struct mem_block_info* info) {
 	       mem_info->buffer_addr);
 
   set_buffer_free(info);
+
+  stop_tick(record_free);
+
+  start_tick(sampling_start);
   mem_sampling_start();
-  UNPROTECT_RECORD;
+  stop_tick(sampling_start);
+ UNPROTECT_RECORD;
 }
 
 struct call_site {

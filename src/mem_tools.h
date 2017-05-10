@@ -2,6 +2,8 @@
 #define MEM_TOOLS_H
 #include "mem_intercept.h"
 
+#define  ENABLE_TICKS 1
+
 /* return the address of the instruction that called the current function */
 void* get_caller_rip(int depth);
 
@@ -12,6 +14,64 @@ char* get_caller_function(int depth);
 char* get_caller_function_from_rip(void* rip);
 
 void print_backtrace(int backtrace_max_depth);
+
+
+#define GENERATE_ENUM(ENUM) ENUM,
+#define GENERATE_STRING(STRING) #STRING,
+
+#define FOREACH_TICK(TICK)			\
+  TICK(record_malloc)				\
+  TICK(record_free)				\
+  TICK(sampling_start)				\
+  TICK(collect_samples)
+
+enum tick_ids{
+  FOREACH_TICK(GENERATE_ENUM)
+  NTICKS
+};
+static const char *tick_names[] = {
+  FOREACH_TICK(GENERATE_STRING)
+};
+
+struct tick {
+  enum tick_ids id;
+  char tick_name[80];
+  struct timespec start_tick;
+  struct timespec stop_tick;
+  unsigned nb_calls;
+  double total_duration;
+};
+extern struct tick tick_array[NTICKS];
+
+#define TIME_DIFF(t1, t2) (((t2).tv_sec-(t1).tv_sec)*1e9+((t2).tv_nsec-(t1).tv_nsec))
+#define init_tick(tick_id) do {			\
+    struct tick*t = &tick_array[tick_id];	\
+    sprintf(t->tick_name, "%s", tick_names[tick_id]);	\
+    t->nb_calls=0;				\
+    t->total_duration=0;			\
+  }while(0)
+
+#ifdef ENABLE_TICKS
+#define start_tick(tick_id) do {					\
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tick_array[tick_id].start_tick); \
+  } while(0)
+
+#define stop_tick(tick_id) do {					\
+    struct tick*t = &tick_array[tick_id];			\
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t->stop_tick);	\
+    t->nb_calls++;						\
+    t->total_duration+=TIME_DIFF(t->start_tick, t->stop_tick);	\
+  } while(0)
+#else
+
+#define start_tick(tick_id) do {		\
+  } while(0)
+
+#define stop_tick(tick_id) do {			\
+    struct tick*t = &tick_array[tick_id];	\
+    t->nb_calls++;				\
+  } while(0)
+#endif
 
 struct mem_allocator {
   struct mem_allocator* next_mem; /* next block of memory */
