@@ -49,7 +49,7 @@ static __thread int is_record_safe = 1;
 struct mem_allocator* mem_info_allocator = NULL;
 struct mem_allocator* string_allocator = NULL;
 
-struct tick tick_array[NTICKS];
+__thread struct tick tick_array[NTICKS];
 
 /* todo:
  * - set an alarm every 1ms to collect the sampling info
@@ -74,10 +74,6 @@ void ma_init() {
 		     sizeof(char)*1024,
 		     1024);
 
-  for(int i=0; i<NTICKS; i++) {
-    init_tick(i);
-  }
-
   mem_sampling_init();
   ma_thread_init();
   UNPROTECT_RECORD;
@@ -86,14 +82,23 @@ void ma_init() {
 void ma_thread_init() {
   thread_rank = __sync_fetch_and_add( &next_thread_rank, 1 );
 
+  for(int i=0; i<NTICKS; i++) {
+    init_tick(i);
+  }
+
   mem_sampling_thread_init();
 }
 
 void ma_thread_finalize() {
   PROTECT_RECORD;
-  mem_sampling_thread_finalize();
-  pid_t tid = syscall(SYS_gettid);
 
+  start_tick(collect_samples);
+  mem_sampling_thread_finalize();
+  stop_tick(collect_samples);
+
+  pid_t tid = syscall(SYS_gettid);
+#if  ENABLE_TICKS
+  printf("%s (tid=%x)\n", __FUNCTION__, tid);
   for(int i=0; i<NTICKS; i++) {
     if(tick_array[i].nb_calls>0) {
       double total_duration = tick_array[i].total_duration;
@@ -103,6 +108,7 @@ void ma_thread_finalize() {
 	     avg_duration/1e3, total_duration/1e6);
     }
   }
+#endif
   UNPROTECT_RECORD;
 }
 

@@ -41,7 +41,7 @@ struct tick {
   unsigned nb_calls;
   double total_duration;
 };
-extern struct tick tick_array[NTICKS];
+extern __thread struct tick tick_array[NTICKS];
 
 #define TIME_DIFF(t1, t2) (((t2).tv_sec-(t1).tv_sec)*1e9+((t2).tv_nsec-(t1).tv_nsec))
 #define init_tick(tick_id) do {			\
