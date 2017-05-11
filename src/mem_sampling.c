@@ -28,8 +28,27 @@ double get_cur_date() {
 __thread struct numap_sampling_measure sm;
 __thread struct numap_sampling_measure sm_wr;
 
+
+/* base address of the buffer where we store samples */
+void* sample_buffer = NULL;
+/* address of the next free slot in the buffer */
+void* sample_buffer_offset = NULL;
+/* allocated size of the buffer */
+size_t sample_buffer_size = 0;
+/* available size of the buffer */
+size_t sample_remaining_size = 0;
+
+
+/* if set to 1, samples are copied to a buffer at runtime and analyzed after the
+ * end of the application. -> low overlead, high memory consumption
+ * if set to 0, samples are analyzed at runtime. -> high overhead, low memory consumption.
+ */
+static int offline_analysis = 0;
+
 static void __analyze_sampling(struct numap_sampling_measure *sm,
 			       enum access_type access_type);
+static void __copy_samples(struct numap_sampling_measure *sm,
+			   enum access_type access_type);
 
 void mem_sampling_init() {
 
@@ -42,6 +61,12 @@ void mem_sampling_init() {
   printf("Sampling rate: %d\n", sampling_rate);
 
   numap_init();
+
+  char* str=getenv("OFFLINE_ANALYSIS");
+  if(str) {
+    printf("Memory access will be analyzed offline\n");
+    offline_analysis=1;
+  }
 #endif
 }
 
@@ -72,6 +97,9 @@ void mem_sampling_thread_finalize() {
 void mem_sampling_statistics() {
   printf("%d samples (including %d samples that match a known memory buffer)\n",
 	 nb_samples_total, nb_found_samples_total);
+  if(offline_analysis) {
+    printf("Buffer size for sample: %llu bytes\n", sample_buffer_size);
+  }
 }
 
 /* make sure this function is not called by collect_samples or start_sampling.
@@ -160,13 +188,93 @@ void mem_sampling_collect_samples() {
 #endif	/* USE_NUMAP */
 }
 
+
+/* copy the samples to a buffer so that they can be analyzed later */
+static void __copy_samples(struct numap_sampling_measure *sm,
+			   enum access_type access_type) {
+
+  /* well, sm->nb_threads should be 1, but let's make things generic */
+  int thread;
+  for (thread = 0; thread < sm->nb_threads; thread++) {
+    size_t sample_size = 0;
+    struct mem_sampling_stat p_stat;
+    struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
+
+    char* start_addr = (char *)metadata_page+metadata_page->data_offset;
+    /* where the data begins */
+    p_stat.head = metadata_page -> data_head;
+    /* On SMP-capable platforms, after reading the data_head value,
+     * user space should issue an rmb().
+     */
+    rmb();
+    p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
+    sample_size =  p_stat.head;
+
+    debug_printf("about to copy %d bytes starting at %p (or is it %p ?)\n", sample_size,
+	   start_addr, p_stat.header);
+
+    p_stat.consumed = 0;
+    while (p_stat.consumed < p_stat.head) {
+      if (p_stat.header->size == 0) {
+  	fprintf(stderr, "Error: invalid header size = 0\n");
+  	abort();
+      }
+      p_stat.consumed += p_stat.header->size;
+      p_stat.header = (struct perf_event_header *)((char *)p_stat.header + p_stat.header->size);
+    }
+    sample_size = (char*)p_stat.header-start_addr;
+	   
+    p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
+    p_stat.consumed = 0;
+
+    while(sample_size > sample_remaining_size) {
+      /* allocate the buffer */
+            if(sample_buffer_size == 0) {
+	/* first allocation */
+	sample_buffer_size = 4096*1024; /* allocate 4MB */
+	sample_remaining_size = sample_buffer_size;
+      } else {
+	/* double the size of the buffer */
+	sample_remaining_size += sample_buffer_size;
+	sample_buffer_size += sample_buffer_size;
+      }
+      void* ptr = librealloc(sample_buffer, sample_buffer_size);
+      if(!ptr) {
+	fprintf(stderr, "realloc failed !\n");
+	abort();
+      }
+      sample_buffer = ptr;
+    }
+
+    //    memcpy(next_sample_buffer, (void*)p_stat.head, sample_size);
+    void* dest_addr = (uintptr_t)sample_buffer + (uintptr_t)sample_buffer_offset;
+#if 1
+    memcpy(dest_addr, start_addr, sample_size);
+#endif
+    sample_buffer_offset += sample_size;
+    sample_remaining_size -= sample_size;
+
+  
+    //    p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
+    //    p_stat.consumed = 0;
+    p_stat.consumed = sample_size;
+    p_stat.header = (struct perf_event_header *)((char *)p_stat.header + sample_size);
+
+    debug_printf("[%d] copied %llu bytes\n", thread_rank, sample_size);
+  }
+}
+
 void __analyze_sampling(struct numap_sampling_measure *sm,
 			enum access_type access_type) {
+  if(offline_analysis) {
+    __copy_samples(sm, access_type);
+    return;
+  }
   int thread;
   int nb_samples = 0;
   int found_samples = 0;
-  for (thread = 0; thread < sm->nb_threads; thread++) {
 
+  for (thread = 0; thread < sm->nb_threads; thread++) {
     struct mem_sampling_stat p_stat;
     struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
     p_stat.head = metadata_page -> data_head;

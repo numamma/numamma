@@ -22,6 +22,7 @@ void print_backtrace(int backtrace_max_depth);
 #define FOREACH_TICK(TICK)			\
   TICK(record_malloc)				\
   TICK(record_free)				\
+  TICK(fast_alloc)				\
   TICK(sampling_start)				\
   TICK(collect_samples)
 

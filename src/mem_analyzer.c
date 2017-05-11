@@ -63,16 +63,16 @@ void ma_init() {
 #ifdef USE_HASHTABLE
   mem_allocator_init(&mem_info_allocator,
 		     sizeof(struct memory_info),
-		     1024);
+		     2*1024);
 #else
   mem_allocator_init(&mem_info_allocator,
 		     sizeof(struct memory_info_list),
-		     1024);
+		     2*1024);
 #endif
 
   mem_allocator_init(&string_allocator,
 		     sizeof(char)*1024,
-		     1024);
+		     2*1024);
 
   mem_sampling_init();
   ma_thread_init();
@@ -98,7 +98,7 @@ void ma_thread_finalize() {
 
   pid_t tid = syscall(SYS_gettid);
 #if  ENABLE_TICKS
-  printf("%s (tid=%x)\n", __FUNCTION__, tid);
+  printf("End of thread %x\n", __FUNCTION__, tid);
   for(int i=0; i<NTICKS; i++) {
     if(tick_array[i].nb_calls>0) {
       double total_duration = tick_array[i].total_duration;
@@ -433,12 +433,11 @@ void ma_record_malloc(struct mem_block_info* info) {
   if(!IS_RECORD_SAFE)
     return;
   PROTECT_RECORD;
-
   start_tick(collect_samples);
   mem_sampling_collect_samples();
   stop_tick(collect_samples);
 
-  start_tick(record_malloc);
+  start_tick(fast_alloc);
 
   struct memory_info * mem_info = NULL;
 #ifdef USE_HASHTABLE
@@ -447,6 +446,9 @@ void ma_record_malloc(struct mem_block_info* info) {
   struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
   mem_info = &p_node->mem_info;
 #endif
+  stop_tick(fast_alloc);
+
+  start_tick(record_malloc);
 
   mem_info->alloc_date = new_date();
   mem_info->free_date = 0;
