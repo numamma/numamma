@@ -62,6 +62,10 @@ static int backtrace_callback (void *data, uintptr_t pc,
 void* get_caller_rip(int depth) {
   int backtrace_depth=depth+1;
   void* buffer[backtrace_depth];
+
+  /* TODO: calling backtrace seems to be very expensive (~7.5 usec)
+   * maybe we should implement it to make it faster
+   */
   int nb_calls = backtrace(buffer, backtrace_depth);
   if(nb_calls < depth) {
     return NULL;

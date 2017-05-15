@@ -14,6 +14,8 @@ void mem_sampling_thread_finalize();
 
 void mem_sampling_collect_samples();
 void mem_sampling_start();
+void mem_sampling_resume();
+
 void mem_sampling_statistics();
 
 #endif /* MEM_SAMPLING_H */

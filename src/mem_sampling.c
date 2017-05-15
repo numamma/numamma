@@ -4,6 +4,7 @@
 
 #include "mem_sampling.h"
 #include "mem_analyzer.h"
+#include "mem_tools.h"
 
 int sampling_rate = 10000;
 
@@ -107,6 +108,44 @@ void mem_sampling_statistics() {
  */
 static __thread int setting_sampling_stuff=0;
 
+void mem_sampling_resume() {
+#if USE_NUMAP
+  if(status_finalized)
+    return;
+
+  debug_printf("[%lx][%lf] Resume sampling %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
+
+  if(is_sampling) {
+    printf("[%lx]is_sampling = %d !\n", syscall(SYS_gettid), is_sampling);
+    abort();
+  }
+  is_sampling=1;
+  /* make sure this function is not called by collect_samples or start_sampling.
+   * This could be the case if one of these functions fail and calls exit
+   */
+  if(setting_sampling_stuff)
+    return;
+  setting_sampling_stuff=1;
+
+  int res = numap_sampling_resume(&sm);
+  if(res < 0) {
+    fprintf(stderr, "numap_sampling_resme error : %s\n", numap_error_message(res));
+    if(res ==  ERROR_PERF_EVENT_OPEN && errno == EACCES) {
+      fprintf(stderr, "try running 'echo 1 > /proc/sys/kernel/perf_event_paranoid' to fix the problem\n");
+    }
+    abort();
+  }
+
+  res = numap_sampling_resume(&sm_wr);
+  if(res < 0) {
+    fprintf(stderr, "numap_sampling_resume error : %s\n", numap_error_message(res));
+    abort();
+  }
+
+  setting_sampling_stuff=0;
+#endif	/* USE_NUMAP */
+}
+
 void mem_sampling_start() {
 #if USE_NUMAP
   if(status_finalized)
@@ -128,6 +167,10 @@ void mem_sampling_start() {
   setting_sampling_stuff=1;
 
   // Start memory read access sampling
+
+  /* TODO: implement numap_sampling_read_resume(&sm)
+   * this function would only call ioctl (there's no need to call perf_event_open, mmap, etc. again
+   */
   int res = numap_sampling_read_start(&sm);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_start error : %s\n", numap_error_message(res));
@@ -166,24 +209,27 @@ void mem_sampling_collect_samples() {
     return;
   setting_sampling_stuff=1;
 
-  // Stop memory read access sampling
+  start_tick(pause_sampling);
+  // Stop memory read/write access sampling
   int res = numap_sampling_read_stop(&sm);
   if(res < 0) {
     printf("numap_sampling_stop error : %s\n", numap_error_message(res));
     abort();
   }
-  debug_printf("read_stop done\n");
-  // Print memory read sampling results
-  __analyze_sampling(&sm, ACCESS_READ);
-  debug_printf("analyze done\n");
   res = numap_sampling_write_stop(&sm_wr);
   if(res < 0) {
     printf("numap_sampling_stop error : %s\n", numap_error_message(res));
     abort();
   }
-
-  // Print memory read sampling results
+  stop_tick(pause_sampling);
+  
+  // Analyze samples
+  start_tick(analyze_samples);
+    __analyze_sampling(&sm, ACCESS_READ);
   __analyze_sampling(&sm_wr, ACCESS_WRITE);
+  debug_printf("analyze done\n");
+  stop_tick(analyze_samples);
+
   setting_sampling_stuff=0;
 #endif	/* USE_NUMAP */
 }
@@ -247,8 +293,8 @@ static void __copy_samples(struct numap_sampling_measure *sm,
     }
 
     //    memcpy(next_sample_buffer, (void*)p_stat.head, sample_size);
-    void* dest_addr = (uintptr_t)sample_buffer + (uintptr_t)sample_buffer_offset;
-#if 1
+    void* dest_addr =(void*)( (uintptr_t)sample_buffer + (uintptr_t)sample_buffer_offset);
+#if 0
     memcpy(dest_addr, start_addr, sample_size);
 #endif
     sample_buffer_offset += sample_size;

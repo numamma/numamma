@@ -63,16 +63,16 @@ void ma_init() {
 #ifdef USE_HASHTABLE
   mem_allocator_init(&mem_info_allocator,
 		     sizeof(struct memory_info),
-		     2*1024);
+		     16*1024);
 #else
   mem_allocator_init(&mem_info_allocator,
 		     sizeof(struct memory_info_list),
-		     2*1024);
+		     16*1024);
 #endif
 
   mem_allocator_init(&string_allocator,
 		     sizeof(char)*1024,
-		     2*1024);
+		     16*1024);
 
   mem_sampling_init();
   ma_thread_init();
@@ -92,9 +92,7 @@ void ma_thread_init() {
 void ma_thread_finalize() {
   PROTECT_RECORD;
 
-  start_tick(collect_samples);
   mem_sampling_thread_finalize();
-  stop_tick(collect_samples);
 
   pid_t tid = syscall(SYS_gettid);
 #if  ENABLE_TICKS
@@ -208,6 +206,9 @@ ma_find_past_mem_info_from_addr(uint64_t ptr) {
 
 static void __init_counters(struct memory_info* mem_info) {
   int i, j;
+#if 1
+  memset(mem_info->count, 0x00, sizeof(mem_info->count));
+#else
   for(i=0; i<MAX_THREADS; i++) {
     for(j=0; j<ACCESS_MAX; j++) {
       mem_info->count[i][j].total_count = 0;
@@ -221,6 +222,7 @@ static void __init_counters(struct memory_info* mem_info) {
       mem_info->count[i][j].remote_cache_count = 0;
     }
   }
+#endif
 }
 char null_str[]="";
 
@@ -433,9 +435,10 @@ void ma_record_malloc(struct mem_block_info* info) {
   if(!IS_RECORD_SAFE)
     return;
   PROTECT_RECORD;
-  start_tick(collect_samples);
+
+  start_tick(record_malloc);
+
   mem_sampling_collect_samples();
-  stop_tick(collect_samples);
 
   start_tick(fast_alloc);
 
@@ -447,8 +450,7 @@ void ma_record_malloc(struct mem_block_info* info) {
   mem_info = &p_node->mem_info;
 #endif
   stop_tick(fast_alloc);
-
-  start_tick(record_malloc);
+  start_tick(init_block);
 
   mem_info->alloc_date = new_date();
   mem_info->free_date = 0;
@@ -468,7 +470,11 @@ void ma_record_malloc(struct mem_block_info* info) {
   //  mem_info->caller = get_caller_function(3);
   mem_info->caller = NULL;
   mem_info->caller_rip = get_caller_rip(3);
-  __init_counters(mem_info);
+  int offline_analysis=1;
+  if(!offline_analysis) {
+    /* todo: when implementing offline analysis, make sure counters are initialized */
+    __init_counters(mem_info);
+  }
 
   debug_printf("[%lu] [%lx] malloc(%lu bytes) -> u_ptr=%p\n",
 	       mem_info->alloc_date,
@@ -476,6 +482,9 @@ void ma_record_malloc(struct mem_block_info* info) {
 	       mem_info->initial_buffer_size,
 	       mem_info->buffer_addr);
 
+  stop_tick(init_block);
+
+  start_tick(insert_in_tree);
   pthread_mutex_lock(&mem_list_lock);
 #ifdef USE_HASHTABLE
   mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
@@ -485,11 +494,13 @@ void ma_record_malloc(struct mem_block_info* info) {
 #endif
   pthread_mutex_unlock(&mem_list_lock);
 
-  stop_tick(record_malloc);
+  stop_tick(insert_in_tree);
 
-  start_tick(sampling_start);
-  mem_sampling_start();
-  stop_tick(sampling_start);
+  start_tick(sampling_resume);
+  mem_sampling_resume();
+  stop_tick(sampling_resume);
+
+  stop_tick(record_malloc);
 
   UNPROTECT_RECORD;
 }
@@ -502,17 +513,15 @@ void ma_update_buffer_address(struct mem_block_info* info, void *old_addr, void 
 
   PROTECT_RECORD;
 
-  start_tick(collect_samples);
   mem_sampling_collect_samples();
-  stop_tick(collect_samples);
 
   struct memory_info* mem_info = info->record_info;
   assert(mem_info);
   mem_info->buffer_addr = new_addr;
 
-  start_tick(sampling_start);
-  mem_sampling_start();
-  stop_tick(sampling_start);
+  start_tick(sampling_resume);
+  mem_sampling_resume();
+  stop_tick(sampling_resume);
 
   UNPROTECT_RECORD;
 }
@@ -565,11 +574,9 @@ void ma_record_free(struct mem_block_info* info) {
     return;
 
   PROTECT_RECORD;
-  start_tick(collect_samples);
-  mem_sampling_collect_samples();
-  stop_tick(collect_samples);
-
   start_tick(record_free);
+  mem_sampling_collect_samples();
+
 
   struct memory_info* mem_info = info->record_info;
   assert(mem_info);
@@ -582,12 +589,12 @@ void ma_record_free(struct mem_block_info* info) {
 
   set_buffer_free(info);
 
-  stop_tick(record_free);
 
-  start_tick(sampling_start);
-  mem_sampling_start();
-  stop_tick(sampling_start);
- UNPROTECT_RECORD;
+  start_tick(sampling_resume);
+  mem_sampling_resume();
+  stop_tick(sampling_resume);
+  stop_tick(record_free);
+  UNPROTECT_RECORD;
 }
 
 struct call_site {

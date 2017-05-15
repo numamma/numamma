@@ -21,10 +21,14 @@ void print_backtrace(int backtrace_max_depth);
 
 #define FOREACH_TICK(TICK)			\
   TICK(record_malloc)				\
-  TICK(record_free)				\
+  TICK(pause_sampling)				\
+  TICK(analyze_samples)				\
   TICK(fast_alloc)				\
-  TICK(sampling_start)				\
-  TICK(collect_samples)
+  TICK(init_block)				\
+  TICK(insert_in_tree)				\
+  TICK(sampling_resume)				\
+  TICK(record_free)				\
+  TICK(sampling_start)				
 
 enum tick_ids{
   FOREACH_TICK(GENERATE_ENUM)
