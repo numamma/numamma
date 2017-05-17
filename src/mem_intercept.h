@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-#include "numma.h"
+#include "numamma.h"
 
 extern void* (*libcalloc)(size_t nmemb, size_t size);
 extern void* (*libmalloc)(size_t size);

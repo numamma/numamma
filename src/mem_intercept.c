@@ -12,7 +12,7 @@
 #include <pthread.h>
 #include <errno.h>
 
-#include "numma.h"
+#include "numamma.h"
 #include "mem_intercept.h"
 #include "mem_analyzer.h"
 #include "mem_tools.h"
@@ -394,7 +394,7 @@ void pthread_exit(void *thread_return) {
 static char* dump_filename = NULL;
 
 static void read_options() {
-  char* verbose_str = getenv("NUMMA_VERBOSE");
+  char* verbose_str = getenv("NUMAMMA_VERBOSE");
   if(verbose_str) {
     if(strcmp(verbose_str, "0")!=0) {
       _verbose = 1;
@@ -402,7 +402,7 @@ static void read_options() {
     }
   }
 
-  char* dump_str = getenv("NUMMA_DUMP");
+  char* dump_str = getenv("NUMAMMA_DUMP");
   if(dump_str) {
     if(strcmp(dump_str, "0")!=0) {
       _dump = 1;

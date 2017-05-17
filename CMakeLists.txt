@@ -3,11 +3,11 @@ INCLUDE (CheckLibraryExists)
 find_package(PkgConfig)
 
 
-project (NuMMa)
-set (NuMMa_VERSION_MAJOR 0)
-set (NuMMa_VERSION_MINOR 1)
-SET(PROJECT_VERSION "${NuMMa_VERSION_MAJOR}.${NuMMa_VERSION_MINOR}")
-SET(PROJECT_DESCRIPTION "NuMMa is a memory manager for NUMA architectures")
+project (NumaMMa)
+set (NumaMMa_VERSION_MAJOR 0)
+set (NumaMMa_VERSION_MINOR 1)
+SET(PROJECT_VERSION "${NumaMMA_VERSION_MAJOR}.${NumaMMA_VERSION_MINOR}")
+SET(PROJECT_DESCRIPTION "NumaMMA is a memory manager for NUMA architectures")
 
 SET(PKG_CONFIG_LIBDIR  "\${prefix}/lib"  )
 SET(PKG_CONFIG_INCLUDEDIR  "\${prefix}/include"  )
@@ -47,8 +47,8 @@ endif()
 # to the source code
 
 configure_file (
-  "${PROJECT_SOURCE_DIR}/src/numma.h.in"
-  "${PROJECT_BINARY_DIR}/src/numma.h"
+  "${PROJECT_SOURCE_DIR}/src/numamma.h.in"
+  "${PROJECT_BINARY_DIR}/src/numamma.h"
   )
 
 # use, i.e. don't skip the full RPATH for the build tree

@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <execinfo.h>
 
-#include "numma.h"
+#include "numamma.h"
 #include "mem_tools.h"
 #include "mem_intercept.h"
 

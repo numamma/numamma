@@ -1,10 +1,10 @@
-add_library(numma SHARED
+add_library(numamma SHARED
   mem_intercept.c
   mem_tools.c
   mem_sampling.c
   mem_analyzer.c
   )
-target_link_libraries(numma ${NUMAP_LIBRARY} -ldl -lpthread numma-tools)
+target_link_libraries(numamma ${NUMAP_LIBRARY} -ldl -lpthread numamma-tools)
 
 configure_file (
   "${PROJECT_SOURCE_DIR}/src/mem_intercept.in"
@@ -16,4 +16,4 @@ list(APPEND SCRIPTS
   )
 
 install(PROGRAMS ${SCRIPTS} DESTINATION bin)
-install(TARGETS numma DESTINATION lib)
+install(TARGETS numamma DESTINATION lib)
