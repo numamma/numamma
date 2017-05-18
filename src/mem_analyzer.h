@@ -9,6 +9,7 @@ typedef uint64_t date_t;
 
 struct mem_counters {
   unsigned total_count;
+  unsigned total_weight;
   unsigned na_miss_count;
   unsigned cache1_count;
   unsigned cache2_count;

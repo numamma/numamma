@@ -340,6 +340,7 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
 	  found_samples++;
 
 	  mem_info->count[thread_rank][access_type].total_count++;
+	  mem_info->count[thread_rank][access_type].total_weight += sample->weight;
 
 	  if (is_served_by_local_NA_miss(sample->data_src)) {
 	    mem_info->count[thread_rank][access_type].na_miss_count++;

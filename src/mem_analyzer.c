@@ -212,6 +212,7 @@ static void __init_counters(struct memory_info* mem_info) {
   for(i=0; i<MAX_THREADS; i++) {
     for(j=0; j<ACCESS_MAX; j++) {
       mem_info->count[i][j].total_count = 0;
+      mem_info->count[i][j].total_weight = 0;
       mem_info->count[i][j].na_miss_count = 0;
       mem_info->count[i][j].cache1_count = 0;
       mem_info->count[i][j].cache2_count = 0;
@@ -664,6 +665,7 @@ void update_call_sites(struct memory_info* mem_info) {
   for(i = 0; i<MAX_THREADS; i++) {
     for(j = 0; j<ACCESS_MAX; j++) {
       site->mem_info.count[i][j].total_count         += mem_info->count[i][j].total_count;
+      site->mem_info.count[i][j].total_weight        += mem_info->count[i][j].total_weight;
       site->mem_info.count[i][j].na_miss_count       += mem_info->count[i][j].na_miss_count;
       site->mem_info.count[i][j].cache1_count        += mem_info->count[i][j].cache1_count;
       site->mem_info.count[i][j].cache2_count        += mem_info->count[i][j].cache2_count;
@@ -674,6 +676,7 @@ void update_call_sites(struct memory_info* mem_info) {
       site->mem_info.count[i][j].remote_cache_count  += mem_info->count[i][j].remote_cache_count;
 
       site->cumulated_counters[j].total_count         += mem_info->count[i][j].total_count;
+      site->cumulated_counters[j].total_weight        += mem_info->count[i][j].total_weight;
       site->cumulated_counters[j].na_miss_count       += mem_info->count[i][j].na_miss_count;
       site->cumulated_counters[j].cache1_count        += mem_info->count[i][j].cache1_count;
       site->cumulated_counters[j].cache2_count        += mem_info->count[i][j].cache2_count;
@@ -695,7 +698,13 @@ void print_call_site_summary() {
     if(site->cumulated_counters[ACCESS_READ].total_count ||
        site->cumulated_counters[ACCESS_WRITE].total_count) {
 
-      printf("%s (size=%d) - %d buffers. %d read access. %d wr_access\n", site->caller, site->buffer_size, site->nb_mallocs, site->cumulated_counters[ACCESS_READ].total_count, site->cumulated_counters[ACCESS_WRITE].total_count);
+      double avg_read_weight = 0;
+      if(site->cumulated_counters[ACCESS_READ].total_count)
+	avg_read_weight = (double)site->cumulated_counters[ACCESS_READ].total_weight / site->cumulated_counters[ACCESS_READ].total_count;
+
+      printf("%s (size=%d) - %d buffers. %d read access (avg weight: %lf). %d wr_access\n", site->caller, site->buffer_size, site->nb_mallocs,
+	     site->cumulated_counters[ACCESS_READ].total_count, avg_read_weight,
+	     site->cumulated_counters[ACCESS_WRITE].total_count);
 
 #define PRINT_COUNTERS(access_type, counter) do {			\
 	if(site->cumulated_counters[access_type].counter) {		\
