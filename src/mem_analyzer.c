@@ -11,7 +11,7 @@
 #include "mem_tools.h"
 #include "mem_sampling.h"
 
-#define USE_HASHTABLE
+//#define USE_HASHTABLE
 
 //static __thread  int  __record_infos = 0;
 
@@ -51,6 +51,9 @@ struct mem_allocator* string_allocator = NULL;
 
 __thread struct tick tick_array[NTICKS];
 
+date_t origin_date;
+#define DATE(d) ((d)-origin_date)
+
 /* todo:
  * - set an alarm every 1ms to collect the sampling info
  * - choose the buffer size
@@ -59,6 +62,7 @@ __thread struct tick tick_array[NTICKS];
 void ma_init() {
   PROTECT_RECORD;
   pthread_mutex_init(&mem_list_lock, NULL);
+  origin_date = new_date();
 
 #ifdef USE_HASHTABLE
   mem_allocator_init(&mem_info_allocator,
@@ -108,31 +112,6 @@ void ma_thread_finalize() {
   }
 #endif
   UNPROTECT_RECORD;
-}
-
-static uint64_t new_date() {
-#ifdef __x86_64__
-  // This is a copy of rdtscll function from asm/msr.h
-#define ticks(val) do {					\
-    uint32_t __a,__d;					\
-    asm volatile("rdtsc" : "=a" (__a), "=d" (__d));	\
-    (val) = ((uint64_t)__a) | (((uint64_t)__d)<<32);	\
-  } while(0)
-
-#elif defined(__i386)
-
-#define ticks(val)                              \
-  __asm__ volatile("rdtsc" : "=A" (val))
-
-#else
-  ERROR_TIMER_NOT_AVAILABLE();
-#define ticks(val) (val) = -1
-#endif
-
-  uint64_t time;
-  ticks(time);
-
-  return time;
 }
 
 static
@@ -190,15 +169,76 @@ ma_find_mem_info_from_addr(uint64_t ptr) {
   return NULL;
 }
 
-struct memory_info*
-ma_find_past_mem_info_from_addr(uint64_t ptr) {
-  mem_info_node_t ret = __ma_find_mem_info_from_addr_generic(past_mem_list, ptr);
-  if(ret) {
+static mem_info_node_t
+__ma_find_mem_info_in_list(mem_info_node_t list,
+			 uint64_t ptr,
+			 date_t start_date,
+			 date_t stop_date) {
 #ifdef USE_HASHTABLE
-    return ret->value;
-#else
-    return &ret->mem_info;
+  fprintf(stderr, "%s not implemented\n", __FUNCTION__);
+  return NULL;
 #endif
+  mem_info_node_t retval = NULL;
+  int n=0;
+  pthread_mutex_lock(&mem_list_lock);
+  struct memory_info_list * p_node = list;
+  while(p_node) {
+    if(is_address_in_buffer(ptr, &p_node->mem_info)) {
+
+      if((p_node->mem_info.alloc_date >= start_date &&
+	  p_node->mem_info.alloc_date <= stop_date) ||
+	 (p_node->mem_info.free_date >= start_date &&
+	  p_node->mem_info.free_date <= stop_date)) {
+	/* the buffer existed during the timeframe. It may have been allocated or
+	 * freed during the timeframe, but let's say we found a hit
+	 */
+
+	retval = p_node;
+	goto out;
+      }
+    }
+    n++;
+    p_node = p_node->next;
+  }
+
+ out:
+  pthread_mutex_unlock(&mem_list_lock);
+  return retval;
+}
+
+/* search for a buffer that contains address ptr
+ * the memory access occured between start_date and stop_date
+ */
+struct memory_info*
+ma_find_past_mem_info_from_addr(uint64_t ptr,
+				date_t start_date,
+				date_t stop_date) {
+#ifdef USE_HASHTABLE
+  mem_info_node_t ret = __ma_find_mem_info_from_addr_generic(past_mem_list, ptr);
+#else
+  mem_info_node_t ret = __ma_find_mem_info_in_list(past_mem_list, ptr, start_date, stop_date);
+#endif
+
+  if(ret) {
+    struct memory_info* retval = NULL;
+#ifdef USE_HASHTABLE
+    retval = ret->value;
+#else
+    retval = &ret->mem_info;
+#endif
+    if((retval->alloc_date >= start_date &&
+	retval->alloc_date <= stop_date) ||
+       (retval->free_date >= start_date &&
+	retval->free_date <= stop_date)) {
+      /* the buffer existed during the timeframe. It may have been allocated or
+       * freed during the timeframe, but let's say we found a hit
+       */
+      return retval;
+    } else {
+      printf("We searching for addr %p (between %lx and %lx)\n", ptr, DATE(start_date), DATE(stop_date));
+      printf("\tFound mem info %p / %p (alloc %lx, free %lx)\n", retval, retval->buffer_addr,
+	     DATE(retval->alloc_date), DATE(retval->free_date));
+    }
   }
   return NULL;
 }
@@ -799,7 +839,7 @@ void warn_non_freed_buffers() {
     mem_info = mem_list->value;
 #else
   while(mem_list) {
-    mem_info = mem_list;
+    mem_info = &mem_list->mem_info;
 #endif
 
 #if WARN_NON_FREED
@@ -815,6 +855,7 @@ void warn_non_freed_buffers() {
     past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
 
 #else
+    struct memory_info_list* p_node = mem_list;
     mem_list = p_node->next;
     /* add to the list of freed buffers */
     p_node->next = past_mem_list;

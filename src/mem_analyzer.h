@@ -65,4 +65,9 @@ void ma_thread_finalize();
 void ma_finalize();
 
 struct memory_info* ma_find_mem_info_from_addr(uint64_t ptr);
+struct memory_info* ma_find_past_mem_info_from_addr(uint64_t ptr,
+						    date_t start_date,
+						    date_t stop_date);
+
+
 #endif	/* MEM_ANALYZER */

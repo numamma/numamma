@@ -100,7 +100,7 @@ void test_malloc() {
     buffer[i][0] = use_buffer(buffer[i], alloc_size,  500000);
     //compute(50000);
     free(buffer[i]);
-    compute(10000);
+    //    compute(10000);
   }
 }
 
@@ -125,7 +125,7 @@ void test_realloc() {
     buffer[i][0] = use_buffer(buffer[i], alloc_size, 200000);
 
     free(buffer[i]);
-    compute(10000);
+    //    compute(10000);
   }
 }
 
@@ -153,22 +153,22 @@ int main(int argc, char**argv) {
   char* buffer[ITER];
   int i, j;
 
-#if 0
+#if 1
   debug("Testing malloc\n");
-  test_malloc();
+  //test_malloc();
   debug("1/2 done\n");
 
-  compute(100000);
-  test_malloc();
+  //  compute(100000);
+  //  test_malloc();
   debug("2/2 done\n");
 
-  compute(100000);
+  //  compute(100000);
   debug("Testing realloc\n");
   test_realloc();
   debug("realloc done\n");
 #endif
 
-  compute(100000);
+  //  compute(100000);
   debug("Testing calloc\n");
   test_calloc();
   debug("calloc done\n");
