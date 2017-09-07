@@ -868,6 +868,8 @@ void warn_non_freed_buffers() {
 
 void ma_finalize() {
   ma_thread_finalize();
+  mem_sampling_finalize();
+
   PROTECT_RECORD;
 
   warn_non_freed_buffers();

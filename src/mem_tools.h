@@ -49,12 +49,15 @@ static inline uint64_t new_date() {
   TICK(record_malloc)				\
   TICK(pause_sampling)				\
   TICK(analyze_samples)				\
+  TICK(memcpy_samples)				\
+  TICK(rmb)				\
   TICK(fast_alloc)				\
   TICK(init_block)				\
   TICK(insert_in_tree)				\
   TICK(sampling_resume)				\
   TICK(record_free)				\
-  TICK(sampling_start)				
+  TICK(sampling_start)				\
+  TICK(offline_sample_analysis)
 
 enum tick_ids{
   FOREACH_TICK(GENERATE_ENUM)

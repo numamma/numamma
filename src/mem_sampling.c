@@ -52,7 +52,7 @@ struct sample_list {
   /* todo: add timestamps */
 };
 struct sample_list *samples = NULL;
-
+static int nb_sample_buffers = 0;
 
 /* if set to 1, samples are copied to a buffer at runtime and analyzed after the
  * end of the application. -> low overlead, high memory consumption
@@ -109,29 +109,40 @@ void mem_sampling_thread_init() {
   mem_sampling_start();
 }
 
-void mem_sampling_thread_finalize() {
-  mem_sampling_collect_samples();
+void mem_sampling_finalize() {
   printf("%s %d\n", __FUNCTION__, offline_analysis);
   if(offline_analysis) {
     /* analyze the samples that were copied at runtime */
 
-    int total_nb_samples = 0;
-    int total_found_samples = 0;
+    printf("Analyzing %d blocks\n", nb_sample_buffers);
+    start_tick(offline_sample_analysis);
     int nb_blocks = 0;
+    size_t total_buffer_size = 0;
     while(samples) {
       int nb_samples = 0;
       int found_samples = 0;
+      printf("\rAnalyzing block %d/%d", nb_blocks, nb_sample_buffers);
+      if(nb_blocks % 10 == 0) {
+	fflush(stdout);
+      }
       __analyze_buffer(samples, &nb_samples, &found_samples);
-      total_nb_samples += nb_samples;
-      total_found_samples += found_samples;
+      nb_samples_total += nb_samples;
+      nb_found_samples_total += found_samples;
+      total_buffer_size += samples->buffer_size;
       struct sample_list *prev = samples;
       samples = samples->next;
       nb_blocks++;
       free(prev->buffer);
       free(prev);
     }
-    printf("Total: %d samples including %d matches in %d blocks\n", total_nb_samples, total_found_samples, nb_blocks);
+    printf("\n");
+    printf("Total: %d samples including %d matches in %d blocks (%lu bytes)\n", nb_samples_total, nb_found_samples_total, nb_blocks, total_buffer_size);
+    stop_tick(offline_sample_analysis);
   }
+}
+
+void mem_sampling_thread_finalize() {
+  mem_sampling_collect_samples();
   status_finalized = 1;
 }
 
@@ -283,6 +294,7 @@ static void __copy_samples(struct numap_sampling_measure *sm,
   /* well, sm->nb_threads should be 1, but let's make things generic */
   int thread;
   for (thread = 0; thread < sm->nb_threads; thread++) {
+    start_tick(rmb);
     size_t sample_size = 0;
     struct mem_sampling_stat p_stat;
     struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
@@ -305,6 +317,9 @@ static void __copy_samples(struct numap_sampling_measure *sm,
     new_sample_buffer->buffer = malloc(sample_size);
     new_sample_buffer->access_type = access_type;
     new_sample_buffer->buffer_size = sample_size;
+
+    start_tick(memcpy_samples);
+
     memcpy(new_sample_buffer->buffer, start_addr, sample_size);
 
     /* todo: when analyzing, take timestamps into account  */
@@ -318,10 +333,14 @@ static void __copy_samples(struct numap_sampling_measure *sm,
     /* todo: make this thread-safe */
     new_sample_buffer->next = samples;
     samples = new_sample_buffer;
+    nb_sample_buffers++;
+
+    stop_tick(memcpy_samples);
 
     //    metadata_page->data_tail = metadata_page->data_head;
 
     debug_printf("[%d] copied %llu bytes\n", thread_rank, sample_size);
+    stop_tick(rmb);
   }
 }
 

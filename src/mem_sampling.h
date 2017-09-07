@@ -11,6 +11,7 @@ extern int sampling_rate;
 void mem_sampling_init();
 void mem_sampling_thread_init();
 void mem_sampling_thread_finalize();
+void mem_sampling_finalize();
 
 void mem_sampling_collect_samples();
 void mem_sampling_start();
