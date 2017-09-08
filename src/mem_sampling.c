@@ -69,6 +69,10 @@ static void __analyze_buffer(struct sample_list* samples,
 			     int *nb_samples,
 			     int *found_samples);
 
+static void __print_samples(struct sample_list* samples,
+			    int *nb_samples,
+			    int *found_samples);
+
 void mem_sampling_init() {
 
 #if USE_NUMAP
@@ -109,10 +113,15 @@ void mem_sampling_thread_init() {
   mem_sampling_start();
 }
 
+extern uint64_t avg_pos;
+
 void mem_sampling_finalize() {
   printf("%s %d\n", __FUNCTION__, offline_analysis);
   if(offline_analysis) {
     /* analyze the samples that were copied at runtime */
+
+    //    ma_print_current_buffers();
+    //    ma_print_past_buffers();
 
     printf("Analyzing %d blocks\n", nb_sample_buffers);
     start_tick(offline_sample_analysis);
@@ -137,7 +146,10 @@ void mem_sampling_finalize() {
     }
     printf("\n");
     printf("Total: %d samples including %d matches in %d blocks (%lu bytes)\n", nb_samples_total, nb_found_samples_total, nb_blocks, total_buffer_size);
+    printf("avg position: %llu\n", avg_pos/nb_samples_total);
     stop_tick(offline_sample_analysis);
+    printf("Offline analysis took %lf s\n",tick_duration(offline_sample_analysis)/1e9);
+
   }
 }
 
@@ -147,8 +159,9 @@ void mem_sampling_thread_finalize() {
 }
 
 void mem_sampling_statistics() {
-  printf("%d samples (including %d samples that match a known memory buffer)\n",
-	 nb_samples_total, nb_found_samples_total);
+  float percent = 100.0*(nb_samples_total-nb_found_samples_total)/nb_samples_total;
+  printf("%d samples (including %d samples that do not match a known memory buffer / %f\%)\n",
+	 nb_samples_total, nb_samples_total-nb_found_samples_total, percent);
   if(offline_analysis) {
     printf("Buffer size for sample: %llu bytes\n", sample_buffer_size);
   }
@@ -309,9 +322,6 @@ static void __copy_samples(struct numap_sampling_measure *sm,
     p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
     sample_size =  p_stat.head;
 
-    debug_printf("about to copy %d bytes starting at %p (or is it %p ?)\n", sample_size,
-	   start_addr, p_stat.header);
-
     struct sample_list* new_sample_buffer = malloc(sizeof(struct sample_list));
     //    struct sample_list* new_sample_buffer = mem_allocator_alloc(sample_mem);
     new_sample_buffer->buffer = malloc(sample_size);
@@ -343,6 +353,9 @@ static void __copy_samples(struct numap_sampling_measure *sm,
     stop_tick(rmb);
   }
 }
+
+extern date_t origin_date;
+#define DATE(d) ((d)-origin_date)
 
 static void __analyze_buffer(struct sample_list* samples,
 			     int *nb_samples,
@@ -396,6 +409,16 @@ static void __analyze_buffer(struct sample_list* samples,
 	if (is_served_by_remote_cache_or_local_memory(sample->data_src)) {
 	  mem_info->count[thread_rank][samples->access_type].remote_cache_count++;
 	}
+      } else {
+#if 0
+	printf("\nNo match for addr %p between %lx - %lx\n", sample->addr,
+	       DATE(samples->start_date),
+	       DATE(samples->stop_date));
+	printf("here's the list of past buffers:\n");
+	ma_print_past_buffers();
+	printf("\n\nAnd the list of current buffers:\n");
+	ma_print_current_buffers();
+#endif
       }
 
       if(_dump) {

@@ -21,6 +21,7 @@ typedef struct ht_node* mem_info_node_t;
 #else
 struct memory_info_list {
   struct memory_info_list* next;
+  struct memory_info_list* prev;
   struct memory_info mem_info;
 };
 typedef struct memory_info_list* mem_info_node_t;
@@ -123,6 +124,38 @@ int is_address_in_buffer(uint64_t addr, struct memory_info *buffer){
   return 0;
 }
 
+void ma_print_mem_info(struct memory_info *mem) {
+  if(mem) {
+    if(!mem->caller) {
+      mem->caller = get_caller_function_from_rip(mem->caller_rip);
+    }
+
+    printf("mem %p = {.alloc=%x, .free=%x, size=%ld, alloc_site=%p / %s}\n",
+	   mem->buffer_addr, mem->alloc_date?DATE(mem->alloc_date):0, mem->free_date?DATE(mem->free_date):0,
+	   mem->buffer_size, mem->caller_rip, mem->caller?mem->caller:"");
+  }
+}
+
+static void __ma_print_buffers_generic(mem_info_node_t list) {
+#ifdef USE_HASHTABLE
+  /* todo */
+  fprintf(stderr, "%s not implemented\n", __FUNCTION__);
+#else
+  struct memory_info_list * p_node = list;
+  while(p_node) {
+    ma_print_mem_info(&p_node->mem_info);
+    p_node = p_node->next;
+  }
+#endif
+}
+
+void ma_print_current_buffers() {
+  __ma_print_buffers_generic(mem_list);
+}
+
+void ma_print_past_buffers() {
+  __ma_print_buffers_generic(past_mem_list);
+}
 
 static mem_info_node_t
 __ma_find_mem_info_from_addr_generic(mem_info_node_t list,
@@ -169,8 +202,10 @@ ma_find_mem_info_from_addr(uint64_t ptr) {
   return NULL;
 }
 
+uint64_t avg_pos = 0;
+
 static mem_info_node_t
-__ma_find_mem_info_in_list(mem_info_node_t list,
+__ma_find_mem_info_in_list(mem_info_node_t *list,
 			 uint64_t ptr,
 			 date_t start_date,
 			 date_t stop_date) {
@@ -181,28 +216,46 @@ __ma_find_mem_info_in_list(mem_info_node_t list,
   mem_info_node_t retval = NULL;
   int n=0;
   pthread_mutex_lock(&mem_list_lock);
-  struct memory_info_list * p_node = list;
+  struct memory_info_list * p_node = *list;
+  uint64_t pos = 0;
   while(p_node) {
     if(is_address_in_buffer(ptr, &p_node->mem_info)) {
+      if((! p_node->mem_info.alloc_date) /* the buffer is a global variable */
+	 ||
+	 (p_node->mem_info.alloc_date >= start_date &&
+	  p_node->mem_info.free_date <= stop_date)  /* the access happened during the lifespan
+						       of the buffer */
+	 ||
+	 (start_date >= p_node->mem_info.alloc_date &&
+	  start_date <= p_node->mem_info.free_date) /* the variable was allocated during the
+						       range of the memory access */
+	 ||
+	 (stop_date >= p_node->mem_info.alloc_date &&
+	  stop_date <= p_node->mem_info.free_date)  /* the variable was freed during the
+						       range of the memory access */
+	 ) {
 
-      if((p_node->mem_info.alloc_date >= start_date &&
-	  p_node->mem_info.alloc_date <= stop_date) ||
-	 (p_node->mem_info.free_date >= start_date &&
-	  p_node->mem_info.free_date <= stop_date)) {
 	/* the buffer existed during the timeframe. It may have been allocated or
 	 * freed during the timeframe, but let's say we found a hit
 	 */
 
 	retval = p_node;
 	goto out;
+      } else {
+	printf("When searching for %p (%lx-%x), found %p (%lx-%lx)\n",
+	       ptr, DATE(start_date), DATE(stop_date),
+	       p_node->mem_info.buffer_addr, DATE(p_node->mem_info.alloc_date),
+	       DATE(p_node->mem_info.free_date));
       }
     }
     n++;
     p_node = p_node->next;
+    pos++;
   }
 
  out:
   pthread_mutex_unlock(&mem_list_lock);
+  avg_pos += pos;
   return retval;
 }
 
@@ -216,28 +269,30 @@ ma_find_past_mem_info_from_addr(uint64_t ptr,
 #ifdef USE_HASHTABLE
   mem_info_node_t ret = __ma_find_mem_info_from_addr_generic(past_mem_list, ptr);
 #else
-  mem_info_node_t ret = __ma_find_mem_info_in_list(past_mem_list, ptr, start_date, stop_date);
+  mem_info_node_t ret = __ma_find_mem_info_in_list(&past_mem_list, ptr, start_date, stop_date);
 #endif
 
   if(ret) {
     struct memory_info* retval = NULL;
 #ifdef USE_HASHTABLE
     retval = ret->value;
-#else
-    retval = &ret->mem_info;
-#endif
     if((retval->alloc_date >= start_date &&
 	retval->alloc_date <= stop_date) ||
        (retval->free_date >= start_date &&
-	retval->free_date <= stop_date)) {
-      /* the buffer existed during the timeframe. It may have been allocated or
-       * freed during the timeframe, but let's say we found a hit
-       */
-      return retval;
-    } else {
-      printf("We searching for addr %p (between %lx and %lx)\n", ptr, DATE(start_date), DATE(stop_date));
-      printf("\tFound mem info %p / %p (alloc %lx, free %lx)\n", retval, retval->buffer_addr,
-	     DATE(retval->alloc_date), DATE(retval->free_date));
+	retval->free_date <= stop_date))    
+#else
+    retval = &ret->mem_info;
+    if(1) 
+#endif
+      {
+	/* the buffer existed during the timeframe. It may have been allocated or
+	 * freed during the timeframe, but let's say we found a hit
+	 */
+	return retval;
+      } else {
+      printf("When searching for %p (%lx-%x), found %p (%lx-%lx)\n",
+	     ptr, DATE(start_date), DATE(stop_date),
+	     retval->buffer_addr, DATE(retval->alloc_date), DATE(retval->free_date));
     }
   }
   return NULL;
@@ -292,6 +347,11 @@ static void __ma_get_stack_range(const char* program_file) {
   fclose(f);
   /* extract start/end addresses */
   sscanf(line, "%lx-%lx", &stack_base_addr, &stack_end_addr);
+
+  //ack_base_addr = 0x500000000000;
+  stack_base_addr = 0x700000000000;
+  stack_end_addr = 0x7fffffffffff;
+
   size_t stack_size = stack_end_addr - stack_base_addr;
 
   debug_printf("Stack address range: %lx-%lx (stack size: %lu bytes)\n",
@@ -319,6 +379,9 @@ static void __ma_get_stack_range(const char* program_file) {
   mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
 #else
   p_node->next = mem_list;
+  p_node->prev = NULL;
+  if(p_node->next)
+    p_node->next->prev = p_node;
   mem_list = p_node;
 #endif
   pthread_mutex_unlock(&mem_list_lock);
@@ -456,6 +519,9 @@ void ma_get_global_variables() {
 	 * up searching at runtime)
 	 */
 	p_node->next = mem_list;
+	p_node->prev = NULL;
+	if(p_node->next)
+	  p_node->next->prev = p_node;
 	mem_list = p_node;
 #endif
 	pthread_mutex_unlock(&mem_list_lock);
@@ -531,6 +597,9 @@ void ma_record_malloc(struct mem_block_info* info) {
   mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
 #else
   p_node->next = mem_list;
+  p_node->prev = NULL;
+  if(p_node->next)
+    p_node->next->prev = NULL;
   mem_list = p_node;
 #endif
   pthread_mutex_unlock(&mem_list_lock);
@@ -582,7 +651,12 @@ void set_buffer_free(struct mem_block_info* p_block) {
   if(p_block->record_info == &p_node->mem_info) {
     /* the first record is the one we're looking for */
     mem_list = p_node->next;
+    if(p_node->next)
+      p_node->next->prev = p_node->prev;
     p_node->next = past_mem_list;
+    p_node->prev = NULL;
+    if(p_node->next)
+      p_node->next->prev = p_node;
     past_mem_list = p_node;
     goto out;
   }
@@ -593,8 +667,13 @@ void set_buffer_free(struct mem_block_info* p_block) {
       struct memory_info_list *to_move = p_node->next;
       /* remove to_move from the list of malloc'd buffers */
       p_node->next = to_move->next;
+      if(p_node->next)
+	p_node->next->prev = p_node;
       /* add it to the list of freed buffers */
       to_move->next = past_mem_list;
+      to_move->prev = NULL;
+      if(to_move->next)
+	to_move->next->prev = to_move;
       past_mem_list = to_move;
       goto out;
     }
@@ -729,6 +808,10 @@ void update_call_sites(struct memory_info* mem_info) {
   }
 }
 
+void update_all_call_sites() {
+
+}
+
 /* remove site from the list of callsites */
 static void __remove_site(struct call_site*site) {
   struct call_site*cur_site = call_sites;
@@ -857,8 +940,12 @@ void warn_non_freed_buffers() {
 #else
     struct memory_info_list* p_node = mem_list;
     mem_list = p_node->next;
+    if(mem_list)
+      mem_list->prev = NULL;
     /* add to the list of freed buffers */
     p_node->next = past_mem_list;
+    if(p_node->next)
+      p_node->next->prev = p_node;
     past_mem_list = p_node;
 #endif
   }
@@ -868,11 +955,11 @@ void warn_non_freed_buffers() {
 
 void ma_finalize() {
   ma_thread_finalize();
+  PROTECT_RECORD;
+  warn_non_freed_buffers();
   mem_sampling_finalize();
 
-  PROTECT_RECORD;
 
-  warn_non_freed_buffers();
 
   printf("---------------------------------\n");
   printf("         MEM ANALYZER\n");

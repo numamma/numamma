@@ -64,8 +64,6 @@ static void* hand_made_malloc(size_t size) {
   total_alloc += size;
   next_slot = next_slot + p_block->total_size;
 
-  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
-
   return p_block->u_ptr;
 }
 

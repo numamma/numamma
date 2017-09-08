@@ -84,6 +84,7 @@ extern __thread struct tick tick_array[NTICKS];
     t->nb_calls=0;				\
     t->total_duration=0;			\
   }while(0)
+#define tick_duration(tick_id) TIME_DIFF(tick_array[tick_id].start_tick, tick_array[tick_id].stop_tick)
 
 #ifdef ENABLE_TICKS
 #define start_tick(tick_id) do {					\
