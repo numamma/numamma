@@ -49,7 +49,7 @@ struct sample_list {
   enum access_type access_type;
   date_t start_date;
   date_t stop_date;
-  /* todo: add timestamps */
+  unsigned thread_rank;
 };
 struct sample_list *samples = NULL;
 static int nb_sample_buffers = 0;
@@ -339,6 +339,7 @@ static void __copy_samples(struct numap_sampling_measure *sm,
 
     new_sample_buffer->start_date = start_date;
     new_sample_buffer->stop_date = new_date();
+    new_sample_buffer->thread_rank = thread_rank;
 
     /* todo: make this thread-safe */
     new_sample_buffer->next = samples;
@@ -382,32 +383,32 @@ static void __analyze_buffer(struct sample_list* samples,
       if(mem_info) {
 	(*found_samples)++;
 
-	mem_info->count[thread_rank][samples->access_type].total_count++;
-	mem_info->count[thread_rank][samples->access_type].total_weight += sample->weight;
+	mem_info->count[samples->thread_rank][samples->access_type].total_count++;
+	mem_info->count[samples->thread_rank][samples->access_type].total_weight += sample->weight;
 
 	if (is_served_by_local_NA_miss(sample->data_src)) {
-	  mem_info->count[thread_rank][samples->access_type].na_miss_count++;
+	  mem_info->count[samples->thread_rank][samples->access_type].na_miss_count++;
 	}
 	if (is_served_by_local_cache1(sample->data_src)) {
-	  mem_info->count[thread_rank][samples->access_type].cache1_count++;
+	  mem_info->count[samples->thread_rank][samples->access_type].cache1_count++;
 	}
 	if (is_served_by_local_cache2(sample->data_src)) {
-	  mem_info->count[thread_rank][samples->access_type].cache2_count++;
+	  mem_info->count[samples->thread_rank][samples->access_type].cache2_count++;
 	}
 	if (is_served_by_local_cache3(sample->data_src)) {
-	  mem_info->count[thread_rank][samples->access_type].cache3_count++;
+	  mem_info->count[samples->thread_rank][samples->access_type].cache3_count++;
 	}
 	if (is_served_by_local_lfb(sample->data_src)) {
-	  mem_info->count[thread_rank][samples->access_type].lfb_count++;
+	  mem_info->count[samples->thread_rank][samples->access_type].lfb_count++;
 	}
 	if (is_served_by_local_memory(sample->data_src)) {
-	  mem_info->count[thread_rank][samples->access_type].memory_count++;
+	  mem_info->count[samples->thread_rank][samples->access_type].memory_count++;
 	}
 	if (is_served_by_remote_memory(sample->data_src)) {
-	  mem_info->count[thread_rank][samples->access_type].remote_memory_count++;
+	  mem_info->count[samples->thread_rank][samples->access_type].remote_memory_count++;
 	}
 	if (is_served_by_remote_cache_or_local_memory(sample->data_src)) {
-	  mem_info->count[thread_rank][samples->access_type].remote_cache_count++;
+	  mem_info->count[samples->thread_rank][samples->access_type].remote_cache_count++;
 	}
       } else {
 #if 0
@@ -454,6 +455,7 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
       .access_type = access_type,
       .start_date = start_date,
       .stop_date = new_date(),
+      .thread_rank = thread_rank,
     };
 
     __analyze_buffer(&samples, &nb_samples, &found_samples);
