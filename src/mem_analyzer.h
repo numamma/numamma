@@ -40,9 +40,11 @@ struct memory_info {
   void* caller_rip;		/* adress of the instruction that called malloc */
   char* caller;			/* callsite (function name+line) of the instruction that called malloc */
   /* TODO: numa node ? thread that allocates */
-  struct mem_counters count[MAX_THREADS][ACCESS_MAX];
+  //  struct mem_counters count[MAX_THREADS][ACCESS_MAX];
+  struct mem_counters **count;
   //  struct mem_counters write_count;
 };
+
 
 /**
  * Structure collecting statistics on samples
@@ -64,6 +66,8 @@ void ma_thread_init();
 void ma_thread_finalize();
 void ma_finalize();
 
+void ma_allocate_counters(struct memory_info* mem_info);
+void ma_init_counters(struct memory_info* mem_info);
 
 struct memory_info* ma_find_mem_info_from_addr(uint64_t ptr);
 struct memory_info* ma_find_past_mem_info_from_addr(uint64_t ptr,

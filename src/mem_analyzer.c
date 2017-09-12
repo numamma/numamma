@@ -298,10 +298,16 @@ ma_find_past_mem_info_from_addr(uint64_t ptr,
   return NULL;
 }
 
+static void __allocate_counters(struct memory_info* mem_info) {
+  mem_info->count = malloc(sizeof(struct mem_counters*) * MAX_THREADS);
+  for(int i=0; i<MAX_THREADS; i++) {
+    mem_info->count[i] = malloc(sizeof(struct mem_counters) * ACCESS_MAX);
+  }
+}
 
 static void __init_counters(struct memory_info* mem_info) {
   int i, j;
-#if 1
+#if 0
   memset(mem_info->count, 0x00, sizeof(mem_info->count));
 #else
   for(i=0; i<MAX_THREADS; i++) {
@@ -320,6 +326,15 @@ static void __init_counters(struct memory_info* mem_info) {
   }
 #endif
 }
+
+void ma_allocate_counters(struct memory_info* mem_info) {
+  __allocate_counters(mem_info);
+}
+
+void ma_init_counters(struct memory_info* mem_info) {
+  __init_counters(mem_info);
+}
+
 char null_str[]="";
 
 /* unset LD_PRELOAD
@@ -373,7 +388,10 @@ static void __ma_get_stack_range(const char* program_file) {
   mem_info->buffer_addr = stack_base_addr;
   mem_info->caller = mem_allocator_alloc(string_allocator);
   snprintf(mem_info->caller, 1024, "[stack]");
-  __init_counters(mem_info);
+  if(! offline_analysis) {
+    __allocate_counters(mem_info);
+    __init_counters(mem_info);
+  }
   pthread_mutex_lock(&mem_list_lock);
 #ifdef USE_HASHTABLE
   mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
@@ -506,7 +524,10 @@ void ma_get_global_variables() {
 	mem_info->buffer_addr = offset + (uint8_t*)base_addr;
 	mem_info->caller = mem_allocator_alloc(string_allocator);
 	snprintf(mem_info->caller, 1024, "%s in %s", symbol, file);
-	__init_counters(mem_info);
+	if(! offline_analysis) {
+	  __allocate_counters(mem_info);
+	  __init_counters(mem_info);
+	}
 
 	debug_printf("Found a global variable: %s (defined at %s). base addr=%p, size=%d\n",
 		     symbol, file, mem_info->buffer_addr, mem_info->buffer_size);
@@ -564,6 +585,7 @@ void ma_record_malloc(struct mem_block_info* info) {
   mem_info->initial_buffer_size = info->size;
   mem_info->buffer_size = info->size;
   mem_info->buffer_addr = info->u_ptr;
+  mem_info->count = NULL;
   info->record_info = mem_info;
 
   /* the current backtrace looks like this:
@@ -577,9 +599,9 @@ void ma_record_malloc(struct mem_block_info* info) {
   //  mem_info->caller = get_caller_function(3);
   mem_info->caller = NULL;
   mem_info->caller_rip = get_caller_rip(3);
-  int offline_analysis=1;
   if(!offline_analysis) {
     /* todo: when implementing offline analysis, make sure counters are initialized */
+    __allocate_counters(mem_info);
     __init_counters(mem_info);
   }
 
@@ -758,6 +780,9 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
   site->mem_info.buffer_addr = mem_info->buffer_addr;
   site->mem_info.caller = site->caller;
   site->mem_info.caller_rip = site->caller_rip;
+  ma_allocate_counters(&site->mem_info);
+  ma_init_counters(&site->mem_info);
+
   int i, j;
   for(j = 0; j<ACCESS_MAX; j++) {
     memset(&site->cumulated_counters[j], 0, sizeof(struct mem_counters));
@@ -806,10 +831,6 @@ void update_call_sites(struct memory_info* mem_info) {
       site->cumulated_counters[j].remote_cache_count  += mem_info->count[i][j].remote_cache_count;
     }
   }
-}
-
-void update_all_call_sites() {
-
 }
 
 /* remove site from the list of callsites */
@@ -980,6 +1001,12 @@ void ma_finalize() {
 	p_node = p_node->next) {
       mem_info = &p_node->mem_info;
 #endif
+
+      if(!mem_info->count) {
+	/* not a single memory access on this buffer was detected */
+	  ma_allocate_counters(mem_info);
+	  ma_init_counters(mem_info);
+      }
       update_call_sites(mem_info);
 
       uint64_t duration = mem_info->free_date?

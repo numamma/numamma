@@ -7,6 +7,7 @@
 #define USE_NUMAP 1
 
 extern int sampling_rate;
+extern int offline_analysis;
 
 void mem_sampling_init();
 void mem_sampling_thread_init();
