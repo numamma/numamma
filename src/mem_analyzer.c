@@ -6,6 +6,9 @@
 #include <execinfo.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
 #include "mem_intercept.h"
 #include "mem_analyzer.h"
 #include "mem_tools.h"
@@ -206,9 +209,9 @@ uint64_t avg_pos = 0;
 
 static mem_info_node_t
 __ma_find_mem_info_in_list(mem_info_node_t *list,
-			 uint64_t ptr,
-			 date_t start_date,
-			 date_t stop_date) {
+			   uint64_t ptr,
+			   date_t start_date,
+			   date_t stop_date) {
 #ifdef USE_HASHTABLE
   fprintf(stderr, "%s not implemented\n", __FUNCTION__);
   return NULL;
@@ -281,7 +284,7 @@ ma_find_past_mem_info_from_addr(uint64_t ptr,
        (retval->free_date >= start_date &&
 	retval->free_date <= stop_date))    
 #else
-    retval = &ret->mem_info;
+      retval = &ret->mem_info;
     if(1) 
 #endif
       {
@@ -299,32 +302,31 @@ ma_find_past_mem_info_from_addr(uint64_t ptr,
 }
 
 static void __allocate_counters(struct memory_info* mem_info) {
-  mem_info->count = malloc(sizeof(struct mem_counters*) * MAX_THREADS);
+  mem_info->blocks = malloc(sizeof(struct block_info*) * MAX_THREADS);
   for(int i=0; i<MAX_THREADS; i++) {
-    mem_info->count[i] = malloc(sizeof(struct mem_counters) * ACCESS_MAX);
+    mem_info->blocks[i] = malloc(sizeof(struct block_info));
+    mem_info->blocks[i]->block_id = 0;
+    mem_info->blocks[i]->next = 0;
   }
 }
 
+/* initialize a mem_counters structure */
+static void __init_counter(struct mem_counters* counters){
+  memset(counters, 0, sizeof(struct mem_counters));
+}
+
+/* initialize the counters of a mem_info structure */
 static void __init_counters(struct memory_info* mem_info) {
   int i, j;
-#if 0
-  memset(mem_info->count, 0x00, sizeof(mem_info->count));
-#else
   for(i=0; i<MAX_THREADS; i++) {
-    for(j=0; j<ACCESS_MAX; j++) {
-      mem_info->count[i][j].total_count = 0;
-      mem_info->count[i][j].total_weight = 0;
-      mem_info->count[i][j].na_miss_count = 0;
-      mem_info->count[i][j].cache1_count = 0;
-      mem_info->count[i][j].cache2_count = 0;
-      mem_info->count[i][j].cache3_count = 0;
-      mem_info->count[i][j].lfb_count = 0;
-      mem_info->count[i][j].memory_count = 0;
-      mem_info->count[i][j].remote_memory_count = 0;
-      mem_info->count[i][j].remote_cache_count = 0;
+    struct block_info*block = mem_info->blocks[i];
+    while(block) {
+      for(j=0; j<ACCESS_MAX; j++) {
+	__init_counter(&block->counters[j]);
+      }
+      block = block->next;
     }
   }
-#endif
 }
 
 void ma_allocate_counters(struct memory_info* mem_info) {
@@ -334,6 +336,73 @@ void ma_allocate_counters(struct memory_info* mem_info) {
 void ma_init_counters(struct memory_info* mem_info) {
   __init_counters(mem_info);
 }
+
+
+#define PAGE_SIZE 4096
+
+/* return the block_info corresponding to page_no in a list of blocks */
+struct block_info* __ma_search_block(struct block_info* block,
+				     int page_no) {
+
+  /* browse the list of block and search for page_no */
+  while(block) {
+    if(block->block_id == page_no) {
+      return block;
+    }
+    if((! block->next) ||	/* we are on the last block */
+       (block->next->block_id > page_no)) { /* the next block is too high  */
+      return NULL;
+    }
+    block = block->next;
+  }
+  return NULL;
+}
+
+/* return the block_info corresponding to page_no in a list of blocks
+ * if not found, this function allocates a new block and returns it
+ */
+struct block_info* __ma_get_block(struct block_info* block,
+				  int page_no) {
+  /* uncomment this to store all the memory accesses in a single block */
+  //  return block;
+
+  /* browse the list of block and search for page_no */
+  while(block) {
+    if(block->block_id == page_no) {
+      return block;
+    }
+    if((! block->next) ||	/* we are on the last block */
+       (block->next->block_id > page_no)) { /* the next block is too high  */
+      /* insert a new block after the current block */
+      struct block_info *new_block = malloc(sizeof(struct block_info));
+
+      /* initialize the block */
+      new_block->block_id = page_no;
+      for(int j=0; j<ACCESS_MAX; j++) {
+	__init_counter(&new_block->counters[j]);
+      }
+
+      /* enqueue it after block */
+      new_block->next = block->next;
+      block->next = new_block;
+    }
+
+    block = block->next;
+  }
+  return NULL;
+}
+/* return the block that contains ptr in a mem_info */
+struct block_info* ma_get_block(struct memory_info* mem_info,
+				int thread_rank,
+				uintptr_t ptr) {
+  assert(ptr <= ((uintptr_t)mem_info->buffer_addr) + mem_info->buffer_size);
+
+  size_t offset = ptr - (uintptr_t)mem_info->buffer_addr;
+  int page_no = offset / PAGE_SIZE;
+  struct block_info* block = mem_info->blocks[thread_rank];
+  return __ma_get_block(block, page_no);
+}
+
 
 char null_str[]="";
 
@@ -364,8 +433,8 @@ static void __ma_get_stack_range(const char* program_file) {
   sscanf(line, "%lx-%lx", &stack_base_addr, &stack_end_addr);
 
   //ack_base_addr = 0x500000000000;
-  stack_base_addr = 0x700000000000;
-  stack_end_addr = 0x7fffffffffff;
+  stack_base_addr = (void*)0x700000000000;
+  stack_end_addr = (void*)0x7fffffffffff;
 
   size_t stack_size = stack_end_addr - stack_base_addr;
 
@@ -585,7 +654,7 @@ void ma_record_malloc(struct mem_block_info* info) {
   mem_info->initial_buffer_size = info->size;
   mem_info->buffer_size = info->size;
   mem_info->buffer_addr = info->u_ptr;
-  mem_info->count = NULL;
+  mem_info->blocks = NULL;
   info->record_info = mem_info;
 
   /* the current backtrace looks like this:
@@ -745,7 +814,8 @@ struct call_site {
   size_t buffer_size;
   unsigned nb_mallocs;
   struct memory_info mem_info;
-  struct mem_counters cumulated_counters[ACCESS_MAX];
+  //  struct mem_counters cumulated_counters[ACCESS_MAX];
+  struct block_info cumulated_counters;
   struct call_site *next;
 };
 struct call_site* call_sites = NULL;
@@ -783,15 +853,13 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
   ma_allocate_counters(&site->mem_info);
   ma_init_counters(&site->mem_info);
 
+  site->cumulated_counters.block_id = 0;
+  site->cumulated_counters.next = NULL;
   int i, j;
   for(j = 0; j<ACCESS_MAX; j++) {
-    memset(&site->cumulated_counters[j], 0, sizeof(struct mem_counters));
+    memset(&site->cumulated_counters.counters[j], 0, sizeof(struct mem_counters));
   }
-  for(i = 0; i<MAX_THREADS; i++) {
-    for(j = 0; j<ACCESS_MAX; j++) {
-      memset(&site->mem_info.count[i][j], 0, sizeof(struct mem_counters));
-    }
-  }
+  __init_counters(&site->mem_info);
 
   site->next = call_sites;
   call_sites = site;
@@ -807,28 +875,36 @@ void update_call_sites(struct memory_info* mem_info) {
   site->nb_mallocs++;
   int i, j;
   for(i = 0; i<MAX_THREADS; i++) {
-    for(j = 0; j<ACCESS_MAX; j++) {
-      site->mem_info.count[i][j].total_count         += mem_info->count[i][j].total_count;
-      site->mem_info.count[i][j].total_weight        += mem_info->count[i][j].total_weight;
-      site->mem_info.count[i][j].na_miss_count       += mem_info->count[i][j].na_miss_count;
-      site->mem_info.count[i][j].cache1_count        += mem_info->count[i][j].cache1_count;
-      site->mem_info.count[i][j].cache2_count        += mem_info->count[i][j].cache2_count;
-      site->mem_info.count[i][j].cache3_count        += mem_info->count[i][j].cache3_count;
-      site->mem_info.count[i][j].lfb_count           += mem_info->count[i][j].lfb_count;
-      site->mem_info.count[i][j].memory_count        += mem_info->count[i][j].memory_count;
-      site->mem_info.count[i][j].remote_memory_count += mem_info->count[i][j].remote_memory_count;
-      site->mem_info.count[i][j].remote_cache_count  += mem_info->count[i][j].remote_cache_count;
+    struct block_info *block = mem_info->blocks[i];
+    while(block) {
+      struct block_info* mem_block = __ma_get_block(site->mem_info.blocks[i], block->block_id);
+      //      struct block_info* site_block = __ma_get_block(&site->cumulated_counters, block->block_id);
+      struct block_info* site_block = __ma_get_block(&site->cumulated_counters, 0);
 
-      site->cumulated_counters[j].total_count         += mem_info->count[i][j].total_count;
-      site->cumulated_counters[j].total_weight        += mem_info->count[i][j].total_weight;
-      site->cumulated_counters[j].na_miss_count       += mem_info->count[i][j].na_miss_count;
-      site->cumulated_counters[j].cache1_count        += mem_info->count[i][j].cache1_count;
-      site->cumulated_counters[j].cache2_count        += mem_info->count[i][j].cache2_count;
-      site->cumulated_counters[j].cache3_count        += mem_info->count[i][j].cache3_count;
-      site->cumulated_counters[j].lfb_count           += mem_info->count[i][j].lfb_count;
-      site->cumulated_counters[j].memory_count        += mem_info->count[i][j].memory_count;
-      site->cumulated_counters[j].remote_memory_count += mem_info->count[i][j].remote_memory_count;
-      site->cumulated_counters[j].remote_cache_count  += mem_info->count[i][j].remote_cache_count;
+      for(j = 0; j<ACCESS_MAX; j++) {
+	mem_block->counters[j].total_count         += block->counters[j].total_count;
+	mem_block->counters[j].total_weight        += block->counters[j].total_weight;
+	mem_block->counters[j].na_miss_count       += block->counters[j].na_miss_count;
+	mem_block->counters[j].cache1_count        += block->counters[j].cache1_count;
+	mem_block->counters[j].cache2_count        += block->counters[j].cache2_count;
+	mem_block->counters[j].cache3_count        += block->counters[j].cache3_count;
+	mem_block->counters[j].lfb_count           += block->counters[j].lfb_count;
+	mem_block->counters[j].memory_count        += block->counters[j].memory_count;
+	mem_block->counters[j].remote_memory_count += block->counters[j].remote_memory_count;
+	mem_block->counters[j].remote_cache_count  += block->counters[j].remote_cache_count;
+
+	site_block->counters[j].total_count         += block->counters[j].total_count;
+	site_block->counters[j].total_weight        += block->counters[j].total_weight;
+	site_block->counters[j].na_miss_count       += block->counters[j].na_miss_count;
+	site_block->counters[j].cache1_count        += block->counters[j].cache1_count;
+	site_block->counters[j].cache2_count        += block->counters[j].cache2_count;
+	site_block->counters[j].cache3_count        += block->counters[j].cache3_count;
+	site_block->counters[j].lfb_count           += block->counters[j].lfb_count;
+	site_block->counters[j].memory_count        += block->counters[j].memory_count;
+	site_block->counters[j].remote_memory_count += block->counters[j].remote_memory_count;
+	site_block->counters[j].remote_cache_count  += block->counters[j].remote_cache_count;
+      }
+      block = block->next;
     }
   }
 }
@@ -860,10 +936,16 @@ static void __sort_sites() {
   while(call_sites) {
     struct call_site* cur_site = call_sites;
     struct call_site*min_weight_site  = cur_site;
-    int min_weight = cur_site->cumulated_counters[ACCESS_READ].total_weight;
+    /* todo: for now, the sites are sorted according to the number of
+     * access to the first block.
+     * This should be changed so that they
+     * are sorted based on the total number of access (to any block)
+     */
+
+    int min_weight = cur_site->cumulated_counters.counters[ACCESS_READ].total_weight;
     while (cur_site) {
-      if(cur_site->cumulated_counters[ACCESS_READ].total_weight < min_weight) {
-	min_weight = cur_site->cumulated_counters[ACCESS_READ].total_weight;
+      if(cur_site->cumulated_counters.counters[ACCESS_READ].total_weight < min_weight) {
+	min_weight = cur_site->cumulated_counters.counters[ACCESS_READ].total_weight;
 	min_weight_site = cur_site;
       }
       cur_site = cur_site->next;
@@ -875,6 +957,33 @@ static void __sort_sites() {
   call_sites = head;
 }
 
+static void __plot_counters(struct memory_info *mem_info,
+			    int nb_threads,
+			    const char*filename) {
+
+  FILE* file = fopen(filename, "w");
+  assert(file);
+  int nb_pages = (mem_info->buffer_size / PAGE_SIZE)+1;
+  for(int i=0; i<nb_pages; i++) {
+    /* the block was accessed by at least one thread */
+      size_t start_offset = i*PAGE_SIZE;
+      size_t stop_offset = (i+1)*PAGE_SIZE;
+      //      fprintf(file, "%d", i);
+      for(int th=0; th< nb_threads; th++) {
+	struct block_info* block =  __ma_search_block(mem_info->blocks[th], i);
+	int total_access = 0;
+	if(block) {
+	  total_access += block->counters[ACCESS_READ].total_count;
+	  total_access += block->counters[ACCESS_WRITE].total_count;
+	}
+	fprintf(file, "\t%d", total_access);
+	//	fprintf(file, "%d\t%d\t%d\n", i, th, total_access);
+      }
+      fprintf(file, "\n");
+
+  }
+  fclose(file);
+}
 
 void print_call_site_summary() {
   printf("Summary of the call sites:\n");
@@ -882,27 +991,35 @@ void print_call_site_summary() {
   __sort_sites();
   struct call_site* site = call_sites;
   int nb_threads = next_thread_rank;
+  int site_no=0;
   while(site) {
-    if(site->cumulated_counters[ACCESS_READ].total_count ||
-       site->cumulated_counters[ACCESS_WRITE].total_count) {
+    if(site->cumulated_counters.counters[ACCESS_READ].total_count ||
+       site->cumulated_counters.counters[ACCESS_WRITE].total_count) {
 
       double avg_read_weight = 0;
-      if(site->cumulated_counters[ACCESS_READ].total_count) {
-	avg_read_weight = (double)site->cumulated_counters[ACCESS_READ].total_weight / site->cumulated_counters[ACCESS_READ].total_count;
+      if(site->cumulated_counters.counters[ACCESS_READ].total_count) {
+	avg_read_weight = (double)site->cumulated_counters.counters[ACCESS_READ].total_weight / site->cumulated_counters.counters[ACCESS_READ].total_count;
       }
 
-      printf("%s (size=%d) - %d buffers. %d read access (total weight: %u, avg weight: %lf). %d wr_access\n",
-	     site->caller, site->buffer_size, site->nb_mallocs,
-	     site->cumulated_counters[ACCESS_READ].total_count,
+      printf("%d\t%s (size=%d) - %d buffers. %d read access (total weight: %u, avg weight: %lf). %d wr_access\n",
+	     site_no, site->caller, site->buffer_size, site->nb_mallocs,
+	     site->cumulated_counters.counters[ACCESS_READ].total_count,
 	     avg_read_weight,
-	     site->cumulated_counters[ACCESS_READ].total_weight,
-	     site->cumulated_counters[ACCESS_WRITE].total_count);
+	     site->cumulated_counters.counters[ACCESS_READ].total_weight,
+	     site->cumulated_counters.counters[ACCESS_WRITE].total_count);
 
+      char filename[1024];
+      sprintf(filename, "/tmp/counters/counters_%d.dat", site_no);
+      mkdir("/tmp/counters/", S_IRWXU);
+      site_no++;
+      __plot_counters(&site->mem_info, nb_threads, filename);
+
+#if 0
 #define PRINT_COUNTERS(access_type, counter) do {			\
-	if(site->cumulated_counters[access_type].counter) {		\
+	if(site->cumulated_counters.counters[access_type].counter) {	\
 	  printf("\t%s:\t", #counter);					\
 	  for(int i=0; i< nb_threads; i++) {				\
-	    printf("%d\t", site->mem_info.count[i][access_type].counter); \
+	    printf("%d\t", site->mem_info.blocks[i]->counters[access_type].counter); \
 	  }								\
 	  printf("\n");							\
 	}								\
@@ -927,6 +1044,7 @@ void print_call_site_summary() {
       PRINT_COUNTERS(ACCESS_WRITE, memory_count);
       PRINT_COUNTERS(ACCESS_WRITE, remote_memory_count);
       PRINT_COUNTERS(ACCESS_WRITE, remote_cache_count);
+#endif
     }
     site = site->next;
   }
@@ -941,10 +1059,19 @@ void warn_non_freed_buffers() {
 #ifdef USE_HASHTABLE
   while(mem_list) {
     mem_info = mem_list->value;
+#if WARN_NON_FREED
+    printf("Warning: buffer %p (size=%lu bytes) was not freed\n",
+	   p_node->mem_info.buffer_addr, p_node->mem_info.buffer_size);
+#endif
+    mem_info->free_date = new_date();
+    /* remove the record from the list of malloc'd buffers */
+    mem_list = ht_remove_key(mem_list, mem_list->key);
+    past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
+  }
+
 #else
   while(mem_list) {
     mem_info = &mem_list->mem_info;
-#endif
 
 #if WARN_NON_FREED
     printf("Warning: buffer %p (size=%lu bytes) was not freed\n",
@@ -954,11 +1081,6 @@ void warn_non_freed_buffers() {
     mem_info->free_date = new_date();
 
     /* remove the record from the list of malloc'd buffers */
-#ifdef USE_HASHTABLE
-    mem_list = ht_remove_key(mem_list, mem_list->key);
-    past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
-
-#else
     struct memory_info_list* p_node = mem_list;
     mem_list = p_node->next;
     if(mem_list)
@@ -968,11 +1090,12 @@ void warn_non_freed_buffers() {
     if(p_node->next)
       p_node->next->prev = p_node;
     past_mem_list = p_node;
-#endif
   }
+#endif	/* USE_HASHTABLE */
 
   pthread_mutex_unlock(&mem_list_lock);
 }
+
 
 void ma_finalize() {
   ma_thread_finalize();
@@ -1002,10 +1125,10 @@ void ma_finalize() {
       mem_info = &p_node->mem_info;
 #endif
 
-      if(!mem_info->count) {
+      if(!mem_info->blocks) {
 	/* not a single memory access on this buffer was detected */
-	  ma_allocate_counters(mem_info);
-	  ma_init_counters(mem_info);
+	ma_allocate_counters(mem_info);
+	ma_init_counters(mem_info);
       }
       update_call_sites(mem_info);
 
@@ -1017,8 +1140,8 @@ void ma_finalize() {
       unsigned total_read_count = 0;
       unsigned total_write_count = 0;
       for(int i=0; i<nb_threads; i++) {
-	total_read_count += mem_info->count[i][ACCESS_READ].total_count;
-	total_write_count += mem_info->count[i][ACCESS_WRITE].total_count;
+	total_read_count += mem_info->blocks[i]->counters[ACCESS_READ].total_count;
+	total_write_count += mem_info->blocks[i]->counters[ACCESS_WRITE].total_count;
       }
 
       if(total_read_count > 0 ||
@@ -1056,3 +1179,4 @@ void ma_finalize() {
     pthread_mutex_unlock(&mem_list_lock);
     UNPROTECT_RECORD;
   }
+

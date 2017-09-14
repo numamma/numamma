@@ -29,6 +29,12 @@ enum access_type {
 extern __thread unsigned thread_rank;
 extern unsigned next_thread_rank;
 
+struct block_info {
+  unsigned block_id;
+  struct mem_counters counters[ACCESS_MAX];
+  struct block_info *next;
+};
+
 struct memory_info {
   date_t alloc_date;
   date_t free_date;
@@ -40,9 +46,8 @@ struct memory_info {
   void* caller_rip;		/* adress of the instruction that called malloc */
   char* caller;			/* callsite (function name+line) of the instruction that called malloc */
   /* TODO: numa node ? thread that allocates */
+  struct block_info **blocks;
   //  struct mem_counters count[MAX_THREADS][ACCESS_MAX];
-  struct mem_counters **count;
-  //  struct mem_counters write_count;
 };
 
 
@@ -68,6 +73,9 @@ void ma_finalize();
 
 void ma_allocate_counters(struct memory_info* mem_info);
 void ma_init_counters(struct memory_info* mem_info);
+
+/* return the block that contains ptr in a mem_info */
+struct block_info* ma_get_block(struct memory_info* mem_info, int thread_rank, uintptr_t ptr);
 
 struct memory_info* ma_find_mem_info_from_addr(uint64_t ptr);
 struct memory_info* ma_find_past_mem_info_from_addr(uint64_t ptr,

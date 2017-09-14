@@ -381,39 +381,40 @@ static void __analyze_buffer(struct sample_list* samples,
 								     samples->stop_date);
 
       if(mem_info) {
-	if(!mem_info->count) {
+	if(!mem_info->blocks) {
 	  ma_allocate_counters(mem_info);
 	  ma_init_counters(mem_info);
 	}
 
 	(*found_samples)++;
+	struct block_info *block = ma_get_block(mem_info, samples->thread_rank, sample->addr);
 
-	mem_info->count[samples->thread_rank][samples->access_type].total_count++;
-	mem_info->count[samples->thread_rank][samples->access_type].total_weight += sample->weight;
+	block->counters[samples->access_type].total_count++;
+	block->counters[samples->access_type].total_weight += sample->weight;
 
 	if (is_served_by_local_NA_miss(sample->data_src)) {
-	  mem_info->count[samples->thread_rank][samples->access_type].na_miss_count++;
+	  block->counters[samples->access_type].na_miss_count++;
 	}
 	if (is_served_by_local_cache1(sample->data_src)) {
-	  mem_info->count[samples->thread_rank][samples->access_type].cache1_count++;
+	  block->counters[samples->access_type].cache1_count++;
 	}
 	if (is_served_by_local_cache2(sample->data_src)) {
-	  mem_info->count[samples->thread_rank][samples->access_type].cache2_count++;
+	  block->counters[samples->access_type].cache2_count++;
 	}
 	if (is_served_by_local_cache3(sample->data_src)) {
-	  mem_info->count[samples->thread_rank][samples->access_type].cache3_count++;
+	  block->counters[samples->access_type].cache3_count++;
 	}
 	if (is_served_by_local_lfb(sample->data_src)) {
-	  mem_info->count[samples->thread_rank][samples->access_type].lfb_count++;
+	  block->counters[samples->access_type].lfb_count++;
 	}
 	if (is_served_by_local_memory(sample->data_src)) {
-	  mem_info->count[samples->thread_rank][samples->access_type].memory_count++;
+	  block->counters[samples->access_type].memory_count++;
 	}
 	if (is_served_by_remote_memory(sample->data_src)) {
-	  mem_info->count[samples->thread_rank][samples->access_type].remote_memory_count++;
+	  block->counters[samples->access_type].remote_memory_count++;
 	}
 	if (is_served_by_remote_cache_or_local_memory(sample->data_src)) {
-	  mem_info->count[samples->thread_rank][samples->access_type].remote_cache_count++;
+	  block->counters[samples->access_type].remote_cache_count++;
 	}
       } else {
 #if 0
@@ -464,62 +465,6 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
     };
 
     __analyze_buffer(&samples, &nb_samples, &found_samples);
-
-#if 0
-    p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
-    p_stat.consumed = 0;
-    while (p_stat.consumed < p_stat.head) {
-      if (p_stat.header->size == 0) {
-  	fprintf(stderr, "Error: invalid header size = 0\n");
-  	abort();
-      }
-      if (p_stat.header -> type == PERF_RECORD_SAMPLE) {
-	struct sample *sample = (struct sample *)((char *)(p_stat.header) + 8);
-	nb_samples++;
-	struct memory_info* mem_info = ma_find_mem_info_from_addr(sample->addr);
-	if(mem_info) {
-	  found_samples++;
-
-	  mem_info->count[thread_rank][access_type].total_count++;
-	  mem_info->count[thread_rank][access_type].total_weight += sample->weight;
-
-	  if (is_served_by_local_NA_miss(sample->data_src)) {
-	    mem_info->count[thread_rank][access_type].na_miss_count++;
-	  }
-	  if (is_served_by_local_cache1(sample->data_src)) {
-	    mem_info->count[thread_rank][access_type].cache1_count++;
-	  }
-	  if (is_served_by_local_cache2(sample->data_src)) {
-	    mem_info->count[thread_rank][access_type].cache2_count++;
-	  }
-	  if (is_served_by_local_cache3(sample->data_src)) {
-	    mem_info->count[thread_rank][access_type].cache3_count++;
-	  }
-	  if (is_served_by_local_lfb(sample->data_src)) {
-	    mem_info->count[thread_rank][access_type].lfb_count++;
-	  }
-	  if (is_served_by_local_memory(sample->data_src)) {
-	    mem_info->count[thread_rank][access_type].memory_count++;
-	  }
-	  if (is_served_by_remote_memory(sample->data_src)) {
-	    mem_info->count[thread_rank][access_type].remote_memory_count++;
-	  }
-	  if (is_served_by_remote_cache_or_local_memory(sample->data_src)) {
-	    mem_info->count[thread_rank][access_type].remote_cache_count++;
-	  }
-	}
-
-	if(_dump) {
-	  fprintf(dump_file, "[%lx]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 " -- node=%p\n",
-		  syscall(SYS_gettid), sample->ip, sample->addr, get_data_src_level(sample->data_src),
-		  sample->weight, mem_info);
-	}
-      }
-
-      p_stat.consumed += p_stat.header->size;
-      p_stat.header = (struct perf_event_header *)((char *)p_stat.header + p_stat.header->size);
-    }
-#endif
   }
 
   if(nb_samples>0) {
