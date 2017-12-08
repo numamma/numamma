@@ -104,7 +104,7 @@ void ma_thread_finalize() {
 
   pid_t tid = syscall(SYS_gettid);
 #if  ENABLE_TICKS
-  printf("End of thread %x\n", __FUNCTION__, tid);
+  printf("End of thread %s %x\n", __FUNCTION__, tid);
   for(int i=0; i<NTICKS; i++) {
     if(tick_array[i].nb_calls>0) {
       double total_duration = tick_array[i].total_duration;
@@ -133,7 +133,7 @@ void ma_print_mem_info(struct memory_info *mem) {
       mem->caller = get_caller_function_from_rip(mem->caller_rip);
     }
 
-    printf("mem %p = {.alloc=%x, .free=%x, size=%ld, alloc_site=%p / %s}\n",
+    printf("mem %p = {.alloc=%" PRIu64 ", .free=%" PRIu64 ", size=%ld, alloc_site=%p / %s}\n",
 	   mem->buffer_addr, mem->alloc_date?DATE(mem->alloc_date):0, mem->free_date?DATE(mem->free_date):0,
 	   mem->buffer_size, mem->caller_rip, mem->caller?mem->caller:"");
   }
@@ -245,8 +245,8 @@ __ma_find_mem_info_in_list(mem_info_node_t *list,
 	retval = p_node;
 	goto out;
       } else {
-	printf("When searching for %p (%lx-%x), found %p (%lx-%lx)\n",
-	       ptr, DATE(start_date), DATE(stop_date),
+	printf("When searching for %p (%" PRIu64 "-%" PRIu64 "), found %p (%" PRIu64 "-%" PRIu64 ")\n",
+	       (void*)ptr, DATE(start_date), DATE(stop_date),
 	       p_node->mem_info.buffer_addr, DATE(p_node->mem_info.alloc_date),
 	       DATE(p_node->mem_info.free_date));
       }
@@ -293,8 +293,8 @@ ma_find_past_mem_info_from_addr(uint64_t ptr,
 	 */
 	return retval;
       } else {
-      printf("When searching for %p (%lx-%x), found %p (%lx-%lx)\n",
-	     ptr, DATE(start_date), DATE(stop_date),
+        printf("When searching for %p (%" PRIu64 "-%" PRIu64 "), found %p (%" PRIu64 "-%" PRIu64 ")\n",
+	       (void*)ptr, DATE(start_date), DATE(stop_date),
 	     retval->buffer_addr, DATE(retval->alloc_date), DATE(retval->free_date));
     }
   }
@@ -425,12 +425,12 @@ static void __ma_get_stack_range(const char* program_file) {
   void *stack_end_addr = NULL;
 
   /* find the address range of the stack */
-  sprintf(cmd, "cat /proc/%d/maps |grep \"\\[stack\\]\"", getpid(), program_file);
+  sprintf(cmd, "cat /proc/%d/maps |grep \"\\[stack\\]\"", getpid());
   FILE* f = popen(cmd, "r");
   fgets(line, 4096, f);
   fclose(f);
   /* extract start/end addresses */
-  sscanf(line, "%lx-%lx", &stack_base_addr, &stack_end_addr);
+  sscanf(line, "%p-%p", &stack_base_addr, &stack_end_addr);
 
   //ack_base_addr = 0x500000000000;
   stack_base_addr = (void*)0x700000000000;
@@ -438,7 +438,7 @@ static void __ma_get_stack_range(const char* program_file) {
 
   size_t stack_size = stack_end_addr - stack_base_addr;
 
-  debug_printf("Stack address range: %lx-%lx (stack size: %lu bytes)\n",
+  debug_printf("Stack address range: %p-%p (stack size: %lu bytes)\n",
 	       stack_base_addr, stack_end_addr, stack_size);
 
   /* create a mem_info record */
@@ -504,11 +504,11 @@ void ma_get_global_variables() {
     if(exit_status == EXIT_SUCCESS) {
       /* process is compiled with -fPIE, thus, the addresses in the ELF are to be relocated */
       //      sprintf(cmd, "cat /proc/%d/maps |grep \"%s\" | grep  \" rw-p \"", getpid(), program_file);
-      sprintf(cmd, "cat /proc/%d/maps |grep \"[heap]\"", getpid(), program_file);
+      sprintf(cmd, "cat /proc/%d/maps |grep \"[heap]\"", getpid());
       f = popen(cmd, "r");
       fgets(line, 4096, f);
       fclose(f);
-      sscanf(line, "%lx-%lx", &base_addr, &end_addr);
+      sscanf(line, "%p-%p", &base_addr, &end_addr);
       debug_printf("  This program was compiled with -fPIE. It is mapped at address %p\n", base_addr);
     } else {
       /* process is not compiled with -fPIE, thus, the addresses in the ELF are the addresses in the binary */
@@ -598,7 +598,7 @@ void ma_get_global_variables() {
 	  __init_counters(mem_info);
 	}
 
-	debug_printf("Found a global variable: %s (defined at %s). base addr=%p, size=%d\n",
+	debug_printf("Found a global variable: %s (defined at %s). base addr=%p, size=%zu\n",
 		     symbol, file, mem_info->buffer_addr, mem_info->buffer_size);
 	pthread_mutex_lock(&mem_list_lock);
 #ifdef USE_HASHTABLE
@@ -1001,7 +1001,7 @@ void print_call_site_summary() {
 	avg_read_weight = (double)site->cumulated_counters.counters[ACCESS_READ].total_weight / site->cumulated_counters.counters[ACCESS_READ].total_count;
       }
 
-      printf("%d\t%s (size=%d) - %d buffers. %d read access (total weight: %u, avg weight: %lf). %d wr_access\n",
+      printf("%d\t%s (size=%zu) - %d buffers. %d read access (total weight: %f, avg weight: %u). %d wr_access\n",
 	     site_no, site->caller, site->buffer_size, site->nb_mallocs,
 	     site->cumulated_counters.counters[ACCESS_READ].total_count,
 	     avg_read_weight,

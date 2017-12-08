@@ -1,4 +1,5 @@
 #include "hash.h"
+#include <inttypes.h>
 
 #define max(a, b) (((a) > (b))? (a) : (b))
 
@@ -317,14 +318,14 @@ static void __ht_print_tabs(int nb_tabs) {
 static void __ht_print(struct ht_node *node, int depth) {
   if (node) {
     __ht_print_tabs(depth);
-    printf("Height %d : \"%llx\" value: %p. node=%p\n", node->height, node->key, node->value, node);
+    printf("Height %d : \"%" PRIu64 "\" value: %p. node=%p\n", node->height, node->key, node->value, node);
 
     __ht_print_tabs(depth);
-    printf("left of \"%llx\"\n", node->key);
+    printf("left of \"%" PRIu64 "\"\n", node->key);
     __ht_print(node->left, depth+1);
 
     __ht_print_tabs(depth);
-    printf("right of \"%llx\"\n", node->key);
+    printf("right of \"%" PRIu64 "\"\n", node->key);
     __ht_print(node->right, depth+1);
   }
 }
@@ -346,7 +347,7 @@ static void __ht_check(struct ht_node*node) {
 	abort();
       }
       if(node->left->parent != node) {
-	printf("Error: node(%p, key=%llx)->left(%p, key=%llx)->parent = %p\n",
+	printf("Error: node(%p, key=%p)->left(%p, key=%p)->parent = %p\n",
 	       node, node->value,
 	       node->left, node->left->value,
 	       node->left->parent);
@@ -361,7 +362,7 @@ static void __ht_check(struct ht_node*node) {
 	abort();
       }
       if(node->right->parent != node) {
-	printf("Error: node(%p, key=%llx)->right(%p, key=%llx)->parent = %p\n",
+	printf("Error: node(%p, key=%p)->right(%p, key=%p)->parent = %p\n",
 	       node, node->value,
 	       node->right, node->right->value,
 	       node->right->parent);

@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <inttypes.h>
+#include <sys/time.h>
 #include "hash.h"
 
 struct list {
@@ -29,7 +31,7 @@ struct ht_node* insert_random_value(struct ht_node* root) {
 
   int nval= ht_size(root);
   if(nval != nb_item) {
-    printf("Error after inserting %llx: the tree contains %d item instead of %d\n",
+    printf("Error after inserting %" PRIu64 ": the tree contains %d item instead of %d\n",
 	   key, nval, nb_item);
     ht_print(root);
 
@@ -65,7 +67,7 @@ struct ht_node* delete_random_value(struct ht_node* root) {
 
   int nval= ht_size(root);
   if(nval != nb_item) {
-    printf("Error after deleting %llx: the tree contains %d item instead of %d\n",
+    printf("Error after deleting %" PRIu64 ": the tree contains %d item instead of %d\n",
 	   l->key, nval, nb_item);
 
     ht_print(root);

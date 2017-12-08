@@ -204,7 +204,7 @@ void* calloc(size_t nmemb, size_t size) {
     return ret;
   }
 
-  debug_printf("calloc(nmemb=%d, size=%lu) ", nmemb, size);
+  debug_printf("calloc(nmemb=%zu, size=%zu) ", nmemb, size);
 
   /* compute the number of blocks for header */
   int nb_memb_header = (HEADER_SIZE  + TAIL_SIZE)/ size;
@@ -268,7 +268,7 @@ void free(void* ptr) {
     //    debug_printf("free(%p)\n", ptr);
 
     if(!TAIL_CANARY_OK(p_block)) {
-      fprintf(stderr, "Warning: tail canary erased :'( (%x instead of %x)\n", p_block->tail_block->canary, CANARY_PATTERN);
+      fprintf(stderr, "Warning: tail canary erased :'( (%" PRIu64 " instead of %" PRIu64 ")\n", p_block->tail_block->canary, CANARY_PATTERN);
       abort();
     }
 
@@ -336,7 +336,7 @@ __pthread_new_thread(void *arg) {
   res = (*f)(__arg);
 
   pthread_cleanup_pop(0);
-  fprintf(stderr, "End of thread %x\n", thread_array[thread_rank].tid);
+  fprintf(stderr, "End of thread %lu\n", thread_array[thread_rank].tid);
   __thread_cleanup_function(&thread_array[thread_rank]);
   return res;
 }

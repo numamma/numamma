@@ -146,7 +146,7 @@ void mem_sampling_finalize() {
     }
     printf("\n");
     printf("Total: %d samples including %d matches in %d blocks (%lu bytes)\n", nb_samples_total, nb_found_samples_total, nb_blocks, total_buffer_size);
-    printf("avg position: %llu\n", avg_pos/nb_samples_total);
+    printf("avg position: %" PRIu64 "\n", avg_pos/nb_samples_total);
     stop_tick(offline_sample_analysis);
     printf("Offline analysis took %lf s\n",tick_duration(offline_sample_analysis)/1e9);
 
@@ -160,10 +160,10 @@ void mem_sampling_thread_finalize() {
 
 void mem_sampling_statistics() {
   float percent = 100.0*(nb_samples_total-nb_found_samples_total)/nb_samples_total;
-  printf("%d samples (including %d samples that do not match a known memory buffer / %f\%)\n",
+  printf("%d samples (including %d samples that do not match a known memory buffer / %f%%)\n",
 	 nb_samples_total, nb_samples_total-nb_found_samples_total, percent);
   if(offline_analysis) {
-    printf("Buffer size for sample: %llu bytes\n", sample_buffer_size);
+    printf("Buffer size for sample: %zu bytes\n", sample_buffer_size);
   }
 }
 
@@ -350,7 +350,7 @@ static void __copy_samples(struct numap_sampling_measure *sm,
 
     //    metadata_page->data_tail = metadata_page->data_head;
 
-    debug_printf("[%d] copied %llu bytes\n", thread_rank, sample_size);
+    debug_printf("[%d] copied %zu bytes\n", thread_rank, sample_size);
     stop_tick(rmb);
   }
 }
