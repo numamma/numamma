@@ -23,6 +23,14 @@ FILE* dump_file = NULL; // useless
 int _verbose = 0;
 __thread int is_recurse_unsafe = 0;
 
+/* set to 1 if thread binding is activated */
+int bind_threads=0;
+
+/* array describing the binding of each thread */
+int thread_bindings[100];
+/* number of valid entries in the array */
+int nb_thread_max=0;
+
 /* set to 1 when all the hooks are set.
  * This is useful in order to avoid recursive calls
  */
@@ -229,10 +237,6 @@ static void __thread_cleanup_function(void* arg) {
   UNPROTECT_FROM_RECURSION;
 }
 
-int bind_threads=0;
-int thread_bindings[100];
-int nb_thread_max=0;
-
 int
 pthread_create (pthread_t *__restrict thread,
 		const pthread_attr_t *__restrict attr,
@@ -255,7 +259,7 @@ pthread_create (pthread_t *__restrict thread,
   if(attr) {
     memcpy(&local_attr, attr, sizeof(local_attr));
   }
-  if(bind_threads) {
+  if(bind_threads && thread_rank < nb_thread_max) {
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET(thread_bindings[thread_rank], &cpuset);
@@ -347,6 +351,15 @@ void reset_ld_preload() {
   }
 }
 
+/* bind the current thread on a cpu */
+static void bind_current_thread(int cpu) {
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(cpu, &cpuset);
+
+  pthread_t current_thread = pthread_self();
+  pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+}
 
 static void get_thread_binding() {
   char* str=getenv("NUMAMA_THREAD_BIND");
@@ -366,6 +379,13 @@ static void get_thread_binding() {
 	printf("[MemRun] Thread %d is bound to %d\n", i, thread_bindings[i]);
       }
     }
+
+    int thread_rank = nb_threads++;
+    thread_array[thread_rank].status = thread_status_created;
+
+    if(_verbose)
+      printf("[MemRun] Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
+    bind_current_thread(thread_bindings[thread_rank]);
   }
 }
 
