@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include "mem_intercept.h"
 
-#define MAX_THREADS 128
 typedef uint64_t date_t;
 
 struct mem_counters {
