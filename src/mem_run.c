@@ -259,7 +259,8 @@ pthread_create (pthread_t *__restrict thread,
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET(thread_bindings[thread_rank], &cpuset);
-    printf("Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
+    if(_verbose)
+      printf("[MemRun] Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
     int ret = pthread_attr_setaffinity_np(&local_attr,
 					  sizeof(cpuset),
 					  &cpuset);
@@ -360,9 +361,10 @@ static void get_thread_binding() {
     }
 
     bind_threads=1;
-
-    for(int i=0; i<nb_thread_max; i++) {
-      printf("Thread %d is bound to %d\n", i, thread_bindings[i]);
+    if(_verbose) {
+      for(int i=0; i<nb_thread_max; i++) {
+	printf("[MemRun] Thread %d is bound to %d\n", i, thread_bindings[i]);
+      }
     }
   }
 }
