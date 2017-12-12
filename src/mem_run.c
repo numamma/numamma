@@ -23,11 +23,18 @@
 int _dump = 0;
 FILE* dump_file = NULL; // useless
 int _verbose = 0;
-int _bind_interleaved=0;
 __thread int is_recurse_unsafe = 0;
 
 /* set to 1 if thread binding is activated */
 int bind_threads=0;
+
+enum mbind_policy{
+  POLICY_NONE,
+  POLICY_INTERLEAVED,
+  POLICY_BLOCK,
+  POLICY_MAX
+};
+enum mbind_policy _mbind_policy;
 
 /* array describing the binding of each thread */
 int thread_bindings[100];
@@ -51,7 +58,7 @@ int  (*libpthread_create) (pthread_t * thread, const pthread_attr_t * attr,
 			   void *(*start_routine) (void *), void *arg) = NULL;
 void (*libpthread_exit) (void *thread_return) = NULL;
 
-static void bind_interleaved(void* buffer, size_t len);
+static void bind_buffer(void* buffer, size_t len);
 
 
 /* Custom malloc function. It is used when libmalloc=NULL (e.g. during startup)
@@ -119,9 +126,8 @@ void* malloc(size_t size) {
 
   /* allocate a buffer */
   void* pptr = libmalloc(size);
-  if(size > page_size) {
-    bind_interleaved(pptr, size);
-  }
+  bind_buffer(pptr, size);
+
   return pptr;
 }
 
@@ -311,12 +317,15 @@ static void read_options() {
     }
   }
 
-  char* interleaved_str = getenv("NUMAMMA_INTERLEAVED");
-  if(interleaved_str) {
-    if(strcmp(interleaved_str, "0")!=0) {
-      _bind_interleaved = 1;
+  char* mbind_policy_str = getenv("NUMAMMA_MBIND_POLICY");
+  if(mbind_policy_str) {
+    if(strcmp(mbind_policy_str, "interleaved")==0) {
+      _mbind_policy= POLICY_INTERLEAVED;
       printf("Memory binding (interleaved) enabled\n");
-    }
+    } else if(strcmp(mbind_policy_str, "block")==0) {
+      _mbind_policy= POLICY_BLOCK;
+      printf("Memory binding (block) enabled\n");
+    } 
   }
 }
 
@@ -380,8 +389,8 @@ uintptr_t align_ptr(uintptr_t ptr, int align) {
   return ptr & mask;
 }
 
-static void bind_buffer(void*buffer, size_t len,
-			int n_blocks, struct block_bind* blocks) {
+static void bind_buffer_blocks(void*buffer, size_t len,
+			       int n_blocks, struct block_bind* blocks) {
   if(n_blocks*page_size > len+page_size) {
     /* too many blocks ! */
     abort();
@@ -395,6 +404,8 @@ static void bind_buffer(void*buffer, size_t len,
     uintptr_t start_addr=base_addr + blocks[i].start_page*page_size;
     size_t block_len=((blocks[i].end_page - blocks[i].start_page)+1)*page_size;
     const unsigned long nodeMask = 1UL << blocks[i].numa_node;
+    if(_verbose)
+      printf("\t[MemRun] Binding pages %d-%d to node %d\n", blocks[i].start_page, blocks[i].end_page, blocks[i].numa_node);
     int ret = mbind((void*)start_addr, block_len, MPOL_BIND, &nodeMask, sizeof(nodeMask), MPOL_MF_MOVE | MPOL_MF_STRICT);
     if(ret < 0) {
       perror("mbind failed");
@@ -403,8 +414,36 @@ static void bind_buffer(void*buffer, size_t len,
   }
 }
 
+static void bind_block(void*buffer, size_t len) {
+  if(_mbind_policy != POLICY_BLOCK)
+    return;
+  int nb_pages=((len/page_size)+1); // 1
+  int nb_pages_per_node=1;
+  if(nb_pages > nb_nodes) {
+    nb_pages_per_node=nb_pages/nb_nodes; // 1
+  }
+
+  int nb_blocks=0;
+  struct block_bind blocks[nb_nodes];
+
+  for(int i=0; i<nb_nodes; i++){
+    blocks[i].start_page = i * nb_pages_per_node; // 0
+    blocks[i].end_page   = (i+1) * nb_pages_per_node; // 1
+    blocks[i].numa_node = i;
+    nb_blocks++;
+    if(i==nb_nodes-1) {
+      /* the last node gets all the remaining blocks */
+      blocks[i].end_page = nb_pages;
+      break;
+    }
+  }
+
+  bind_buffer_blocks(buffer, len, nb_blocks, blocks);
+}
+
 static void bind_interleaved(void* buffer, size_t len) {
-  if(!_bind_interleaved) return;
+  if(_mbind_policy != POLICY_INTERLEAVED)
+    return;
   int nblocks=(len/page_size)+1;
   struct block_bind blocks[nblocks];
   for(int i=0; i<nblocks; i++){
@@ -412,7 +451,22 @@ static void bind_interleaved(void* buffer, size_t len) {
     blocks[i].end_page=i+1;
     blocks[i].numa_node = i%nb_nodes;
   }
-  bind_buffer(buffer, len, nblocks, blocks);
+  bind_buffer_blocks(buffer, len, nblocks, blocks);
+}
+
+static void bind_buffer(void* buffer, size_t len) {
+
+  if(len > page_size) {
+    switch(_mbind_policy) {
+    case POLICY_INTERLEAVED:
+      bind_interleaved(buffer, len);
+      break;
+    case POLICY_BLOCK:
+      bind_block(buffer, len);
+      break;
+      /* else: nothing to do */
+    }
+  }
 }
 
 /* bind the current thread on a cpu */
