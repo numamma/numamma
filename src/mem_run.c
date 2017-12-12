@@ -308,6 +308,48 @@ void pthread_exit(void *thread_return) {
   __builtin_unreachable();
 }
 
+/* bind the current thread on a cpu */
+static void bind_current_thread(int cpu) {
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(cpu, &cpuset);
+
+  pthread_t current_thread = pthread_self();
+  pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
+}
+
+static void get_thread_binding() {
+  char* str=getenv("NUMAMMA_THREAD_BIND");
+  if(str) {
+    printf("[MemRun] Thread binding activated: %s\n", str);
+    char bindings[1024];
+    strncpy(bindings, str, 1024);
+    char* token = strtok(bindings, ",");
+    while(token) {
+      thread_bindings[nb_thread_max] = atoi(token);
+      nb_thread_max++;
+      token = strtok(NULL, ",");
+    }
+
+    bind_threads=1;
+    if(_verbose) {
+      for(int i=0; i<nb_thread_max; i++) {
+	printf("[MemRun] Thread %d is bound to %d\n", i, thread_bindings[i]);
+      }
+    }
+
+    int thread_rank = nb_threads++;
+    thread_array[thread_rank].status = thread_status_created;
+
+    if(_verbose)
+      printf("[MemRun] Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
+    bind_current_thread(thread_bindings[thread_rank]);
+  } else {
+    printf("[MemRun] No thread binding policy selected.\n");
+    printf("[MemRun] \tYou can use NUMAMMA_THREAD_BIND\n");
+  }
+}
+
 static void read_options() {
   char* verbose_str = getenv("NUMAMMA_VERBOSE");
   if(verbose_str) {
@@ -326,7 +368,12 @@ static void read_options() {
       _mbind_policy= POLICY_BLOCK;
       printf("Memory binding (block) enabled\n");
     } 
+  } else {
+    printf("[MemRun] No memory binding policy selected.\n");
+    printf("[MemRun] \tYou can use NUMAMMA_MBIND_POLICY=interleaved|block\n");
   }
+
+  get_thread_binding();
 }
 
 extern char**environ;
@@ -397,15 +444,24 @@ static void bind_buffer_blocks(void*buffer, size_t len,
   }
 
   uintptr_t base_addr=align_ptr((uintptr_t)buffer, page_size);
+  
   if(_verbose)
     printf("[MemRun] Binding %d blocks. starting at %p\n", n_blocks, base_addr);
 
+
   for(int i=0; i<n_blocks; i++) {
     uintptr_t start_addr=base_addr + blocks[i].start_page*page_size;
-    size_t block_len=((blocks[i].end_page - blocks[i].start_page)+1)*page_size;
+    start_addr+=page_size;
+    size_t block_len=((blocks[i].end_page - blocks[i].start_page))*page_size;
     const unsigned long nodeMask = 1UL << blocks[i].numa_node;
     if(_verbose)
       printf("\t[MemRun] Binding pages %d-%d to node %d\n", blocks[i].start_page, blocks[i].end_page, blocks[i].numa_node);
+
+    if(start_addr+block_len > (uintptr_t)buffer+len) {
+      /* make sure there's no overflow */
+      block_len=(uintptr_t)buffer+len-start_addr;
+    }
+
     int ret = mbind((void*)start_addr, block_len, MPOL_BIND, &nodeMask, sizeof(nodeMask), MPOL_MF_MOVE | MPOL_MF_STRICT);
     if(ret < 0) {
       perror("mbind failed");
@@ -469,43 +525,187 @@ static void bind_buffer(void* buffer, size_t len) {
   }
 }
 
-/* bind the current thread on a cpu */
-static void bind_current_thread(int cpu) {
-  cpu_set_t cpuset;
-  CPU_ZERO(&cpuset);
-  CPU_SET(cpu, &cpuset);
+char null_str[]="";
 
-  pthread_t current_thread = pthread_self();
-  pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset);
-}
+/* get the list of global/static variables with their address and size, and bind them
+ * according to _mbind_policy
+ */
+void bind_global_variables() {
+  if(_mbind_policy == POLICY_NONE) {
+    /* nothing to do */
+    return;
+  }
 
-static void get_thread_binding() {
-  char* str=getenv("NUMAMMA_THREAD_BIND");
-  if(str) {
-    printf("[MemRun] Thread binding activated: %s\n", str);
-    char bindings[1024];
-    strncpy(bindings, str, 1024);
-    char* token = strtok(bindings, ",");
-    while(token) {
-      thread_bindings[nb_thread_max] = atoi(token);
-      nb_thread_max++;
-      token = strtok(NULL, ",");
+  /* TODO: this function, share a lot of code with the ma_get_global_variables defined
+   * in mem_analyzer.c
+   * Maybe we should merge them ?
+   */
+
+  /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
+  unset_ld_preload();
+
+  debug_printf("Looking for global variables\n");
+  /* get the filename of the program being run */
+  char readlink_cmd[1024];
+  sprintf(readlink_cmd, "readlink /proc/%d/exe", getpid());
+  FILE* f = popen(readlink_cmd, "r");
+  char program_file[4096];
+  fgets(program_file, 4096, f);
+  strtok(program_file, "\n"); // remove trailing newline
+  fclose(f);
+
+  debug_printf("  The program file is %s\n", program_file);
+  /* get the address at which the program is mapped in memory */
+  char cmd[4069];
+  char line[4096];
+  void *base_addr = NULL;
+  void *end_addr = NULL;
+
+  sprintf(cmd, "file \"%s\" |grep \"shared object\" > plop", program_file);
+  int ret = system(cmd);
+  if(WIFEXITED(ret)) {
+    /* find address range of the heap */
+    int exit_status= WEXITSTATUS(ret);
+    if(exit_status == EXIT_SUCCESS) {
+      /* process is compiled with -fPIE, thus, the addresses in the ELF are to be relocated */
+      //      sprintf(cmd, "cat /proc/%d/maps |grep \"%s\" | grep  \" rw-p \"", getpid(), program_file);
+      sprintf(cmd, "cat /proc/%d/maps |grep \"[heap]\"", getpid());
+      f = popen(cmd, "r");
+      fgets(line, 4096, f);
+      fclose(f);
+      sscanf(line, "%p-%p", &base_addr, &end_addr);
+      debug_printf("  This program was compiled with -fPIE. It is mapped at address %p\n", base_addr);
+    } else {
+      /* process is not compiled with -fPIE, thus, the addresses in the ELF are the addresses in the binary */
+      base_addr= NULL;
+      end_addr= NULL;
+      debug_printf("  This program was not compiled with -fPIE. It is mapped at address %p\n", base_addr);
+    }
+  }
+
+  /* get the list of global variables in the current binary */
+  char nm_cmd[1024];
+  sprintf(nm_cmd, "nm -fs --defined-only -l -S %s", program_file);
+  //sprintf(nm_cmd, "nm --defined-only -l -S %s", program_file);
+  f = popen(nm_cmd, "r");
+
+  while(!feof(f)) {
+    if( ! fgets(line, 4096, f) ) {
+      goto out;
     }
 
-    bind_threads=1;
-    if(_verbose) {
-      for(int i=0; i<nb_thread_max; i++) {
-	printf("[MemRun] Thread %d is bound to %d\n", i, thread_bindings[i]);
+    char *addr = null_str;
+    char *size_str = null_str;
+    char *section = null_str;
+    char *symbol = null_str;
+    char *file = null_str;
+    char *type = null_str;
+
+    int nb_found;
+    /* line is in the form:
+symbol_name |addr| section | type |symbol_size| [line]    |section    [file:line]
+    */
+    const char* delim="| \t\n";
+
+    symbol = strtok(line, delim);
+    if(!symbol) {
+      /* nothing to read */
+      continue;
+    }
+    
+    addr = strtok(NULL, delim);
+    if(!addr) {
+      /* nothing to read */
+      continue;
+    }
+
+    section = strtok(NULL, delim);
+    if(!section) {
+      /* nothing to read */
+      continue;
+    }
+    type = strtok(NULL, delim);
+    if(!type) {
+      /* nothing to read */
+      continue;
+    }
+
+    size_str = strtok(NULL, " \t\n");
+    if(!size_str) {
+      /* nothing to read */
+      continue;
+    }
+
+    if(!symbol) {
+      /* only 3 fields (addr section symbol) */
+      nb_found = 3;
+      symbol = section;
+      section = size_str;
+      size_str = null_str;
+      /* this is not enough (we need the size), skip this one */
+      continue;
+    } else {
+      nb_found = 4;
+      /*  fields */
+      file = strtok(NULL, " \t\n");
+      if(!file) {
+	file = null_str;
+      } else {
+	nb_found = 5;
       }
     }
 
-    int thread_rank = nb_threads++;
-    thread_array[thread_rank].status = thread_status_created;
+    if(section[0]== 'b' || section[0]=='B' || /* BSS (uninitialized global vars) section */
+       section[0]== 'd' || section[0]=='D' || /* initialized data section */
+       section[0]== 'g' || section[0]=='G') { /* initialized data section for small objects */
 
-    if(_verbose)
-      printf("[MemRun] Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
-    bind_current_thread(thread_bindings[thread_rank]);
+      if(strcmp(type, "TLS") == 0) {
+	continue;
+      }
+      size_t size;
+      sscanf(size_str, "%lx", &size);
+      if(size) {
+
+	
+#if 0
+	struct memory_info * mem_info = NULL;
+#ifdef USE_HASHTABLE
+	mem_info = mem_allocator_alloc(mem_info_allocator);
+#else
+	struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
+	mem_info = &p_node->mem_info;
+#endif
+
+	mem_info->alloc_date = 0;
+	mem_info->free_date = 0;
+	mem_info->initial_buffer_size = size;
+	mem_info->buffer_size = mem_info->initial_buffer_size;
+#endif
+	
+	/* addr is the offset within the binary. The actual address of the variable is located at
+	 *  addr+base_addr
+	 */
+	size_t offset;
+	sscanf(addr, "%lx", &offset);
+	void* buffer_addr = offset + (uint8_t*)base_addr;
+	size_t buffer_size = size;
+	char caller[1024];
+	snprintf(caller, 1024, "%s in %s", symbol, file);
+
+	debug_printf("Found a global variable: %s (defined at %s). base addr=%p, size=%zu\n",
+		     symbol, file, buffer_addr, buffer_size);
+	bind_buffer(buffer_addr, buffer_size);
+      }
+    }
   }
+ out:
+  /* Restore LD_PRELOAD.
+   * This is usefull when the program is run with gdb. gdb creates a process than runs bash -e prog arg1
+   * Thus, the ld_preload affects bash. bash then calls execvp to execute the program.
+   * If we unset ld_preload, the ld_preload will only affect bash (and not the programà
+   * Hence, we need to restore ld_preload here.
+   */
+  reset_ld_preload();
 }
 
 static void __memory_init(void) __attribute__ ((constructor));
@@ -519,11 +719,10 @@ static void __memory_init(void) {
   libpthread_create = dlsym(RTLD_NEXT, "pthread_create");
   libpthread_exit = dlsym(RTLD_NEXT, "pthread_exit");
 
-  read_options();
   nb_nodes = numa_num_configured_nodes();
-  printf("There are %d nodes\n", nb_nodes);
-  get_thread_binding();
-  //  ma_get_global_variables();
+  read_options();
+
+  bind_global_variables();
 
   __memory_initialized = 1;
   UNPROTECT_FROM_RECURSION;
