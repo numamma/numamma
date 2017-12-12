@@ -235,7 +235,7 @@ __pthread_new_thread(void *arg) {
   res = (*f)(__arg);
 
   pthread_cleanup_pop(0);
-  fprintf(stderr, "End of thread %x\n", thread_array[thread_rank].tid);
+  fprintf(stderr, "End of thread %lu\n", thread_array[thread_rank].tid);
   __thread_cleanup_function(&thread_array[thread_rank]);
   return res;
 }

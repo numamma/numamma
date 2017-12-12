@@ -116,7 +116,7 @@ void mem_sampling_thread_init() {
 extern uint64_t avg_pos;
 
 void mem_sampling_finalize() {
-  printf("%s %d\n", __FUNCTION__, offline_analysis);
+  printf("%s offline_analysis=%s\n", __FUNCTION__, offline_analysis ? "true" : "false");
   if(offline_analysis) {
     /* analyze the samples that were copied at runtime */
 
@@ -177,7 +177,9 @@ void mem_sampling_resume() {
   if(status_finalized)
     return;
 
-  debug_printf("[%lx][%lf] Resume sampling %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
+  debug_printf("in %s : [tid=%lx][cur_date=%lf] Resume sampling %d\n",
+	       __FUNCTION__,
+	       syscall(SYS_gettid), get_cur_date(), is_sampling);
 
   if(is_sampling) {
     printf("[%lx]is_sampling = %d !\n", syscall(SYS_gettid), is_sampling);
@@ -191,19 +193,23 @@ void mem_sampling_resume() {
     return;
   setting_sampling_stuff=1;
 
+  // Resume read sampling
   int res = numap_sampling_resume(&sm);
   if(res < 0) {
-    fprintf(stderr, "numap_sampling_resme error : %s\n", numap_error_message(res));
+    fprintf(stderr, "numap_sampling_resume error : %s\n", numap_error_message(res));
     if(res ==  ERROR_PERF_EVENT_OPEN && errno == EACCES) {
       fprintf(stderr, "try running 'echo 1 > /proc/sys/kernel/perf_event_paranoid' to fix the problem\n");
     }
     abort();
   }
 
-  res = numap_sampling_resume(&sm_wr);
-  if(res < 0) {
-    fprintf(stderr, "numap_sampling_resume error : %s\n", numap_error_message(res));
-    abort();
+  // Resume write sampling if needed
+  if (numap_sampling_write_supported()) {
+    res = numap_sampling_resume(&sm_wr);
+    if(res < 0) {
+      fprintf(stderr, "numap_sampling_resume error : %s\n", numap_error_message(res));
+      abort();
+    }
   }
 
   setting_sampling_stuff=0;
@@ -239,17 +245,20 @@ void mem_sampling_start() {
    */
   int res = numap_sampling_read_start(&sm);
   if(res < 0) {
-    fprintf(stderr, "numap_sampling_start error : %s\n", numap_error_message(res));
+    fprintf(stderr, "numap_sampling_read_start error : %s\n", numap_error_message(res));
     if(res ==  ERROR_PERF_EVENT_OPEN && errno == EACCES) {
       fprintf(stderr, "try running 'echo 1 > /proc/sys/kernel/perf_event_paranoid' to fix the problem\n");
     }
     abort();
   }
 
-  res = numap_sampling_write_start(&sm_wr);
-  if(res < 0) {
-    fprintf(stderr, "numap_sampling_start error : %s\n", numap_error_message(res));
-    abort();
+  // Start write sampling only if supported
+  if (numap_sampling_write_supported()) {
+    res = numap_sampling_write_start(&sm_wr);
+    if(res < 0) {
+      fprintf(stderr, "numap_sampling_write_start error : %s\n", numap_error_message(res));
+      abort();
+    }
   }
   setting_sampling_stuff=0;
 #endif	/* USE_NUMAP */
@@ -260,7 +269,9 @@ void mem_sampling_collect_samples() {
   if(status_finalized)
     return;
 
-  debug_printf("[%lx][%lf] Collect samples %d\n", syscall(SYS_gettid), get_cur_date(), is_sampling);
+  debug_printf("in %s : [tid=%lx][cur_date=%lf] Collect samples %d\n",
+	       __FUNCTION__,
+	       syscall(SYS_gettid), get_cur_date(), is_sampling);
 
   if(!is_sampling) {
     printf("[%lx] Trying to collect sampling data, but sampling has not started !\n", syscall(SYS_gettid));
@@ -276,23 +287,29 @@ void mem_sampling_collect_samples() {
   setting_sampling_stuff=1;
 
   start_tick(pause_sampling);
-  // Stop memory read/write access sampling
+  // Stop memory read access sampling
   int res = numap_sampling_read_stop(&sm);
   if(res < 0) {
     printf("numap_sampling_stop error : %s\n", numap_error_message(res));
     abort();
   }
-  res = numap_sampling_write_stop(&sm_wr);
-  if(res < 0) {
-    printf("numap_sampling_stop error : %s\n", numap_error_message(res));
-    abort();
+
+  // Stop memory write access sampling if needed
+  if (numap_sampling_write_supported()) {
+    res = numap_sampling_write_stop(&sm_wr);
+    if(res < 0) {
+      printf("numap_sampling_stop error : %s\n", numap_error_message(res));
+      abort();
+    }
   }
   stop_tick(pause_sampling);
 
   // Analyze samples
   start_tick(analyze_samples);
   __analyze_sampling(&sm, ACCESS_READ);
-  __analyze_sampling(&sm_wr, ACCESS_WRITE);
+  if (numap_sampling_write_supported()) {
+    __analyze_sampling(&sm_wr, ACCESS_WRITE);
+  }
   debug_printf("analyze done\n");
   stop_tick(analyze_samples);
 
@@ -417,14 +434,14 @@ static void __analyze_buffer(struct sample_list* samples,
 	  block->counters[samples->access_type].remote_cache_count++;
 	}
       } else {
-#if 0
-	printf("\nNo match for addr %p between %lx - %lx\n", sample->addr,
+#if 1
+	printf("\nNo match for addr %p between %lx - %lx\n", (void*)sample->addr,
 	       DATE(samples->start_date),
 	       DATE(samples->stop_date));
-	printf("here's the list of past buffers:\n");
-	ma_print_past_buffers();
-	printf("\n\nAnd the list of current buffers:\n");
-	ma_print_current_buffers();
+	/* printf("here's the list of past buffers:\n"); */
+	/* ma_print_past_buffers(); */
+	/* printf("\n\nAnd the list of current buffers:\n"); */
+	/* ma_print_current_buffers(); */
 #endif
       }
 
@@ -468,7 +485,7 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
   }
 
   if(nb_samples>0) {
-    debug_printf("[%lf] \tnb_samples = %d (including %d mem blocks)\n", get_cur_date(), nb_samples, found_samples);
+    debug_printf("[%lf] \tnb_samples = %d (including %d in mem blocks)\n", get_cur_date(), nb_samples, found_samples);
     nb_samples_total += nb_samples;
     nb_found_samples_total += found_samples;
   }

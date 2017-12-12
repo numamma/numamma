@@ -104,7 +104,7 @@ void ma_thread_finalize() {
 
   pid_t tid = syscall(SYS_gettid);
 #if  ENABLE_TICKS
-  printf("End of thread %s %x\n", __FUNCTION__, tid);
+  printf("End of thread %s %d\n", __FUNCTION__, tid);
   for(int i=0; i<NTICKS; i++) {
     if(tick_array[i].nb_calls>0) {
       double total_duration = tick_array[i].total_duration;
@@ -674,9 +674,10 @@ void ma_record_malloc(struct mem_block_info* info) {
     __init_counters(mem_info);
   }
 
-  debug_printf("[%lu] [%lx] malloc(%lu bytes) -> u_ptr=%p\n",
+  debug_printf("in %s: [tid=%lx][rdtsc=%lu] malloc(%lu bytes) -> u_ptr=%p\n",
+	       __FUNCTION__,
+	       syscall(SYS_gettid),
 	       mem_info->alloc_date,
-	       pthread_self(),
 	       mem_info->initial_buffer_size,
 	       mem_info->buffer_addr);
 
