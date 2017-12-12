@@ -434,14 +434,14 @@ static void __analyze_buffer(struct sample_list* samples,
 	  block->counters[samples->access_type].remote_cache_count++;
 	}
       } else {
-#if 1
+#if 0
 	printf("\nNo match for addr %p between %lx - %lx\n", (void*)sample->addr,
 	       DATE(samples->start_date),
 	       DATE(samples->stop_date));
-	/* printf("here's the list of past buffers:\n"); */
-	/* ma_print_past_buffers(); */
-	/* printf("\n\nAnd the list of current buffers:\n"); */
-	/* ma_print_current_buffers(); */
+	printf("here's the list of past buffers:\n");
+	ma_print_past_buffers();
+	printf("\n\nAnd the list of current buffers:\n");
+	ma_print_current_buffers();
 #endif
       }
 
