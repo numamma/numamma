@@ -27,18 +27,19 @@ manipulate a has map.
 Includes:
 
 - ~mem_intercept.c~
-  + This  file contains overload  of ~pthread_create~ function  to log
-    something. The  thread ID  I guess  ? It  starts sampling  for the
-    thread created.
-  + This  file  contains  overload of  memory  allocation  functions,
-    ~malloc~ and co to log the accesses.
+  + This file contains overload  of ~pthread_create~ function to start
+    sampling  for the  thread  created.  This is  done  by  call  to
+    ~ma_thread_init~.
+  +  This  file  contains  overload of  memory  allocation  functions,
+    ~malloc~ and co to log the accesses by calls to ~ma_record_malloc~
+    and ~ma_update_buffer_address~ and ~ma_record_free~ functions;
 - ~mem_tools.c~
   + This  file contains  function to do  something with  the backtrace
-    lib. To print some useful info I guess.
+    lib. To retreive some information.
 - ~mem_sampling.c~
   + Provides functions to start / stop mem sampling.
 - ~mem_analyzer.c~
-  + 
+  + The main file gluing together all the other ones.
 - ~mem_intercept.in~ 
   + Shell  script parametric  file  used  to ld_preload  libnumama.so
     before running a program.
