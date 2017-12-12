@@ -23,6 +23,7 @@
 int _dump = 0;
 FILE* dump_file = NULL; // useless
 int _verbose = 0;
+int _bind_interleaved=0;
 __thread int is_recurse_unsafe = 0;
 
 /* set to 1 if thread binding is activated */
@@ -309,6 +310,14 @@ static void read_options() {
       printf("Verbose mode enabled\n");
     }
   }
+
+  char* interleaved_str = getenv("NUMAMMA_INTERLEAVED");
+  if(interleaved_str) {
+    if(strcmp(interleaved_str, "0")!=0) {
+      _bind_interleaved = 1;
+      printf("Memory binding (interleaved) enabled\n");
+    }
+  }
 }
 
 extern char**environ;
@@ -379,8 +388,8 @@ static void bind_buffer(void*buffer, size_t len,
   }
 
   uintptr_t base_addr=align_ptr((uintptr_t)buffer, page_size);
-
-  printf("Binding %d blocks. starting at %p\n", n_blocks, base_addr);
+  if(_verbose)
+    printf("[MemRun] Binding %d blocks. starting at %p\n", n_blocks, base_addr);
 
   for(int i=0; i<n_blocks; i++) {
     uintptr_t start_addr=base_addr + blocks[i].start_page*page_size;
@@ -395,7 +404,7 @@ static void bind_buffer(void*buffer, size_t len,
 }
 
 static void bind_interleaved(void* buffer, size_t len) {
-
+  if(!_bind_interleaved) return;
   int nblocks=(len/page_size)+1;
   struct block_bind blocks[nblocks];
   for(int i=0; i<nblocks; i++){
@@ -417,8 +426,9 @@ static void bind_current_thread(int cpu) {
 }
 
 static void get_thread_binding() {
-  char* str=getenv("NUMAMA_THREAD_BIND");
+  char* str=getenv("NUMAMMA_THREAD_BIND");
   if(str) {
+    printf("[MemRun] Thread binding activated: %s\n", str);
     char bindings[1024];
     strncpy(bindings, str, 1024);
     char* token = strtok(bindings, ",");
