@@ -57,7 +57,7 @@ void print_mat(double** C, int n) {
 #endif
 }
 int main(int argc, char** argv) {
-  int i, j;
+  int i;
   int n = 100;
   if(argc>1) {
     n = atoi(argv[1]);
