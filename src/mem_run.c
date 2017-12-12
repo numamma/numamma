@@ -15,6 +15,8 @@
 #include <sys/time.h>
 #include <pthread.h>
 #include <errno.h>
+#include <numaif.h>
+#include <numa.h>
 
 #include "numamma.h"
 
@@ -31,6 +33,10 @@ int thread_bindings[100];
 /* number of valid entries in the array */
 int nb_thread_max=0;
 
+
+int page_size=4096;		/* todo: detect this using sysconf */
+int nb_nodes=-1;
+
 /* set to 1 when all the hooks are set.
  * This is useful in order to avoid recursive calls
  */
@@ -43,6 +49,8 @@ void* (*librealloc)(void *ptr, size_t size) = NULL;
 int  (*libpthread_create) (pthread_t * thread, const pthread_attr_t * attr,
 			   void *(*start_routine) (void *), void *arg) = NULL;
 void (*libpthread_exit) (void *thread_return) = NULL;
+
+static void bind_interleaved(void* buffer, size_t len);
 
 
 /* Custom malloc function. It is used when libmalloc=NULL (e.g. during startup)
@@ -110,7 +118,9 @@ void* malloc(size_t size) {
 
   /* allocate a buffer */
   void* pptr = libmalloc(size);
-
+  if(size > page_size) {
+    bind_interleaved(pptr, size);
+  }
   return pptr;
 }
 
@@ -274,8 +284,6 @@ pthread_create (pthread_t *__restrict thread,
     }
   }
 
-  /* TODO: change the attr so that the thread is bound to the correct cpu */
-
   /* We do not call directly start_routine since we want to initialize stuff at the thread startup.
    * Instead, let's invoke __pthread_new_thread that initialize the thread-specific things and call
    * start_routine.
@@ -351,6 +359,53 @@ void reset_ld_preload() {
   }
 }
 
+struct block_bind {
+  int start_page;
+  int end_page;
+  int numa_node;
+};
+
+uintptr_t align_ptr(uintptr_t ptr, int align) {
+  uintptr_t mask = ~(uintptr_t)(align - 1);
+  uintptr_t res = ptr & mask;
+  return ptr & mask;
+}
+
+static void bind_buffer(void*buffer, size_t len,
+			int n_blocks, struct block_bind* blocks) {
+  if(n_blocks*page_size > len+page_size) {
+    /* too many blocks ! */
+    abort();
+  }
+
+  uintptr_t base_addr=align_ptr((uintptr_t)buffer, page_size);
+
+  printf("Binding %d blocks. starting at %p\n", n_blocks, base_addr);
+
+  for(int i=0; i<n_blocks; i++) {
+    uintptr_t start_addr=base_addr + blocks[i].start_page*page_size;
+    size_t block_len=((blocks[i].end_page - blocks[i].start_page)+1)*page_size;
+    const unsigned long nodeMask = 1UL << blocks[i].numa_node;
+    int ret = mbind((void*)start_addr, block_len, MPOL_BIND, &nodeMask, sizeof(nodeMask), MPOL_MF_MOVE | MPOL_MF_STRICT);
+    if(ret < 0) {
+      perror("mbind failed");
+      abort();
+    }
+  }
+}
+
+static void bind_interleaved(void* buffer, size_t len) {
+
+  int nblocks=(len/page_size)+1;
+  struct block_bind blocks[nblocks];
+  for(int i=0; i<nblocks; i++){
+    blocks[i].start_page=i;
+    blocks[i].end_page=i+1;
+    blocks[i].numa_node = i%nb_nodes;
+  }
+  bind_buffer(buffer, len, nblocks, blocks);
+}
+
 /* bind the current thread on a cpu */
 static void bind_current_thread(int cpu) {
   cpu_set_t cpuset;
@@ -401,7 +456,8 @@ static void __memory_init(void) {
   libpthread_exit = dlsym(RTLD_NEXT, "pthread_exit");
 
   read_options();
-
+  nb_nodes = numa_num_configured_nodes();
+  printf("There are %d nodes\n", nb_nodes);
   get_thread_binding();
   //  ma_get_global_variables();
 
