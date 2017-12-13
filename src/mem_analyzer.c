@@ -1005,11 +1005,11 @@ void print_call_site_summary() {
 	avg_read_weight = (double)site->cumulated_counters.counters[ACCESS_READ].total_weight / site->cumulated_counters.counters[ACCESS_READ].total_count;
       }
 
-      printf("%d\t%s (size=%zu) - %d buffers. %d read access (total weight: %f, avg weight: %u). %d wr_access\n",
+      printf("%d\t%s (size=%zu) - %d buffers. %d read access (total weight: %u, avg weight: %f). %d wr_access\n",
 	     site_no, site->caller, site->buffer_size, site->nb_mallocs,
 	     site->cumulated_counters.counters[ACCESS_READ].total_count,
-	     avg_read_weight,
 	     site->cumulated_counters.counters[ACCESS_READ].total_weight,
+	     avg_read_weight,
 	     site->cumulated_counters.counters[ACCESS_WRITE].total_count);
 
       char filename[1024];
