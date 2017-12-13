@@ -58,7 +58,7 @@ static int nb_sample_buffers = 0;
  * end of the application. -> low overlead, high memory consumption
  * if set to 0, samples are analyzed at runtime. -> high overhead, low memory consumption.
  */
-int offline_analysis = 0;
+int offline_analysis = 1;
 
 static void __analyze_sampling(struct numap_sampling_measure *sm,
 			       enum access_type access_type);
