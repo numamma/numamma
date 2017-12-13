@@ -15,6 +15,7 @@
 #include "mem_sampling.h"
 
 //#define USE_HASHTABLE
+//#define WARN_NON_FREED 1
 
 //static __thread  int  __record_infos = 0;
 
@@ -133,7 +134,7 @@ void ma_print_mem_info(struct memory_info *mem) {
       mem->caller = get_caller_function_from_rip(mem->caller_rip);
     }
 
-    printf("mem %p = {.alloc=%" PRIu64 ", .free=%" PRIu64 ", size=%ld, alloc_site=%p / %s}\n",
+    printf("mem %p = {.alloc_date=%" PRIu64 ", .free_date=%" PRIu64 ", size=%ld, alloc_site=%p / %s}\n",
 	   mem->buffer_addr, mem->alloc_date?DATE(mem->alloc_date):0, mem->free_date?DATE(mem->free_date):0,
 	   mem->buffer_size, mem->caller_rip, mem->caller?mem->caller:"");
   }
@@ -1064,7 +1065,7 @@ void warn_non_freed_buffers() {
     mem_info = mem_list->value;
 #if WARN_NON_FREED
     printf("Warning: buffer %p (size=%lu bytes) was not freed\n",
-	   p_node->mem_info.buffer_addr, p_node->mem_info.buffer_size);
+	   mem_info->buffer_addr, mem_info->buffer_size);
 #endif
     mem_info->free_date = new_date();
     /* remove the record from the list of malloc'd buffers */
@@ -1078,7 +1079,7 @@ void warn_non_freed_buffers() {
 
 #if WARN_NON_FREED
     printf("Warning: buffer %p (size=%lu bytes) was not freed\n",
-	   p_node->mem_info.buffer_addr, p_node->mem_info.buffer_size);
+	   mem_info->buffer_addr, mem_info->buffer_size);
 #endif
 
     mem_info->free_date = new_date();
