@@ -871,6 +871,8 @@ void update_call_sites(struct memory_info* mem_info) {
   struct call_site* site = find_call_site(mem_info);
   if(!site) {
     site = new_call_site(mem_info);
+  } else {
+    mem_info->caller = site->caller;
   }
 
   site->nb_mallocs++;
@@ -1159,12 +1161,12 @@ void ma_finalize() {
 	else
 	  w_access_frequency = 0;
 
-	debug_printf("buffer %p (%lu bytes) duration =%lu ticks. %d write accesses, %d read accesses. allocated : %s. read operation every %lf ticks\n",
+	debug_printf("buffer %p (%lu bytes), duration =%lu ticks, %d write accesses, %d read accesses, allocated : %s, read operation every %lf ticks\n",
 		     mem_info->buffer_addr,
 		     mem_info->initial_buffer_size,
 		     duration,
-		     total_read_count,
 		     total_write_count,
+		     total_read_count,
 		     mem_info->caller,
 		     r_access_frequency);
       }
