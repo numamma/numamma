@@ -15,7 +15,7 @@
 #include "mem_sampling.h"
 
 //#define USE_HASHTABLE
-//#define WARN_NON_FREED 1
+#define WARN_NON_FREED 1
 
 //static __thread  int  __record_infos = 0;
 
@@ -1144,8 +1144,12 @@ void ma_finalize() {
       unsigned total_read_count = 0;
       unsigned total_write_count = 0;
       for(int i=0; i<nb_threads; i++) {
-	total_read_count += mem_info->blocks[i]->counters[ACCESS_READ].total_count;
-	total_write_count += mem_info->blocks[i]->counters[ACCESS_WRITE].total_count;
+	struct block_info* block = mem_info->blocks[i];
+	while (block) {
+	  total_read_count += block->counters[ACCESS_READ].total_count;
+	  total_write_count += block->counters[ACCESS_WRITE].total_count;
+	  block = block->next;
+	}
       }
 
       if(total_read_count > 0 ||
@@ -1162,7 +1166,7 @@ void ma_finalize() {
 	else
 	  w_access_frequency = 0;
 
-	debug_printf("buffer %p (%lu bytes), duration =%lu ticks, %d write accesses, %d read accesses, allocated : %s, read operation every %lf ticks\n",
+	debug_printf("buffer %p (%lu bytes), duration = %lu ticks, %d write accesses, %d read accesses, allocated : %s, read operation every %lf ticks\n",
 		     mem_info->buffer_addr,
 		     mem_info->initial_buffer_size,
 		     duration,
