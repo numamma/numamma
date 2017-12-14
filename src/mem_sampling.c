@@ -123,14 +123,14 @@ void mem_sampling_finalize() {
     //    ma_print_current_buffers();
     //    ma_print_past_buffers();
 
-    printf("Analyzing %d blocks\n", nb_sample_buffers);
+    printf("Analyzing %d sample buffers\n", nb_sample_buffers);
     start_tick(offline_sample_analysis);
     int nb_blocks = 0;
     size_t total_buffer_size = 0;
     while(samples) {
       int nb_samples = 0;
       int found_samples = 0;
-      printf("\rAnalyzing block %d/%d", nb_blocks, nb_sample_buffers);
+      printf("\rAnalyzing sample buffer %d/%d", nb_blocks, nb_sample_buffers);
       if(nb_blocks % 10 == 0) {
 	fflush(stdout);
       }
