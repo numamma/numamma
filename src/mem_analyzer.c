@@ -967,6 +967,7 @@ static void __plot_counters(struct memory_info *mem_info,
 
   FILE* file = fopen(filename, "w");
   assert(file);
+
   int nb_pages = (mem_info->buffer_size / PAGE_SIZE)+1;
   for(int i=0; i<nb_pages; i++) {
     /* the block was accessed by at least one thread */
@@ -996,6 +997,9 @@ void print_call_site_summary() {
   struct call_site* site = call_sites;
   int nb_threads = next_thread_rank;
   int site_no=0;
+  mkdir("/tmp/counters/", S_IRWXU);
+  FILE* summary_file=fopen("/tmp/counters/summary.log", "w");
+  assert(summary_file != NULL);
   while(site) {
     if(site->cumulated_counters.counters[ACCESS_READ].total_count ||
        site->cumulated_counters.counters[ACCESS_WRITE].total_count) {
@@ -1012,9 +1016,10 @@ void print_call_site_summary() {
 	     avg_read_weight,
 	     site->cumulated_counters.counters[ACCESS_WRITE].total_count);
 
+      fprintf(summary_file, "%d\t%s\t%zu\n", site_no, site->caller, site->buffer_size);
+
       char filename[1024];
       sprintf(filename, "/tmp/counters/counters_%d.dat", site_no);
-      mkdir("/tmp/counters/", S_IRWXU);
       site_no++;
       __plot_counters(&site->mem_info, nb_threads, filename);
 
@@ -1052,6 +1057,7 @@ void print_call_site_summary() {
     }
     site = site->next;
   }
+  fclose(summary_file);
 }
 
 /* browse the list of malloc'd buffers that were not freed */

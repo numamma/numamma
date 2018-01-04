@@ -24,6 +24,7 @@ configure_file (
 list(APPEND SCRIPTS
   ${PROJECT_BINARY_DIR}/src/mem_intercept
   ${PROJECT_BINARY_DIR}/src/mem_run
+  ${PROJECT_SOURCE_DIR}/src/counters_to_binding.py
   )
 
 install(PROGRAMS ${SCRIPTS} DESTINATION bin)

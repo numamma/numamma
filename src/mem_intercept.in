@@ -12,6 +12,7 @@ OPTIONS:
    -?                               Show this message
    -d                               Run mem_intercept with gdb
    -o                               Dump all the collected memory information to a file
+   -b 				    Create "block" files
    -v                               Verbose mode
 EOF
 }
@@ -19,13 +20,18 @@ EOF
 debug=n
 dump=n
 verbose=n
-while getopts 'dvo' OPTION; do
+create_blocks=n
+
+while getopts 'dvob' OPTION; do
   case $OPTION in
   d)
 	debug=y
        	;;
   o)
 	dump=y
+       	;;
+  b)
+	create_blocks=y
        	;;
   v)
 	verbose=y
@@ -71,5 +77,20 @@ else
 	export NUMAMMA_DUMP=1
     fi
     LD_PRELOAD=$ld_preload LD_LIBRARY_PATH=$ld_library_path $prog_name $*
+    if [ x$create_blocks = xy ]; then
+	count_dir=/tmp/counters
+	if [ -f $count_dir/summary.log ]; then
+	    echo "counters in $count_dir"
+	    nb_nodes=4
+	    rm -f $count_dir/blocks.dat 2>/dev/null
+	    while read index name size other ;do
+		if [ "$name" != "[stack]" ]; then
+		    echo "Running counters_to_binding.py $count_dir/counters_$index.dat $nb_nodes $size >> $count_dir/blocks.dat"
+		    counters_to_binding.py $count_dir/counters_$index.dat $nb_nodes $name $size >> $count_dir/blocks.dat
+		fi
+	    done< $count_dir/summary.log
+
+	fi
+    fi
     exit 0
 fi
