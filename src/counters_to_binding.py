@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 import sys;
 input_file=open(sys.argv[1], "r")
@@ -46,8 +46,8 @@ for line in counters:
         blocks[nblocks]["node"]=cur_node;
         blocks[nblocks]["start_page"]=cur_block;
 
-	block_counters=0;
-	prev_node=cur_node;
+        block_counters=0;
+        prev_node=cur_node;
 
     block_counters=block_counters + cur_node_counter;
     cur_block=cur_block+1;
@@ -56,8 +56,8 @@ for line in counters:
 blocks[nblocks]["end_page"]=cur_block;
 blocks[nblocks]["counters"]=block_counters;
 
-print "begin_block"
+print "begin_block";
 print name+" "+buffer_size+" "+str(nblocks);
 for b in blocks:
     print str(b["node"])+" "+str(b["start_page"])+" "+str(b["end_page"])+" "+str(b["counters"]);
-print "end_block"
+print "end_block";
