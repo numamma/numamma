@@ -400,6 +400,10 @@ static void load_custom_block(FILE*f) {
     if(nread == 3) {
       if(_verbose)
 	printf("->%d, [%d-%d]\n", block->numa_node, block->start_page, block->end_page);
+      if(block->numa_node > nb_nodes-1) {
+	fprintf(stderr, "Warning: trying to bind %s[page %d] on node %d, but there are only %d nodes on this machine\n",
+		dir->block_identifier, block->start_page, block->numa_node, nb_nodes);
+      }
       block_id++;
     }
   }
@@ -454,7 +458,7 @@ static void read_options() {
     } 
   } else {
     printf("[MemRun] No memory binding policy selected.\n");
-    printf("[MemRun] \tYou can use NUMAMMA_MBIND_POLICY=interleaved|block\n");
+    printf("[MemRun] \tYou can use NUMAMMA_MBIND_POLICY=interleaved|block|custom\n");
   }
 
   get_thread_binding();

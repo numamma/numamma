@@ -593,7 +593,8 @@ void ma_get_global_variables() {
 	sscanf(addr, "%lx", &offset);
 	mem_info->buffer_addr = offset + (uint8_t*)base_addr;
 	mem_info->caller = mem_allocator_alloc(string_allocator);
-	snprintf(mem_info->caller, 1024, "%s in %s", symbol, file);
+	//	snprintf(mem_info->caller, 1024, "%s in %s", symbol, file);
+		snprintf(mem_info->caller, 1024, "%s", symbol);
 	if(! offline_analysis) {
 	  __allocate_counters(mem_info);
 	  __init_counters(mem_info);
