@@ -19,6 +19,7 @@
 #include <numa.h>
 
 #include "numamma.h"
+#include "mem_intercept.h"
 
 int _dump = 0;
 FILE* dump_file = NULL; // useless
@@ -99,15 +100,18 @@ static void* hand_made_malloc(size_t size) {
 
   debug_printf("%s(size=%lu) ", __FUNCTION__, size);
 
+  struct mem_block_info *p_block = NULL;
+  INIT_MEM_INFO(p_block, next_slot, size, 1);
+  p_block->mem_type = MEM_TYPE_HAND_MADE_MALLOC;
 
   /* if you want to make this function thread-safe, these instructions should be protected
    * by a mutex:
    */
+  p_block->mem_type = MEM_TYPE_HAND_MADE_MALLOC;
   total_alloc += size;
-  void* buffer=next_slot;
-  next_slot = next_slot + size;
+  next_slot = next_slot + p_block->total_size;
 
-  return buffer;
+  return p_block->u_ptr;
 }
 
 void* malloc(size_t size) {
@@ -142,11 +146,25 @@ void* malloc(size_t size) {
 
 
   /* allocate a buffer */
-  void* pptr = libmalloc(size);
-  /* TODO: use the callsite to generate a buffer_id */
-  bind_buffer(pptr, size, NULL);
+  void* pptr = libmalloc(size + HEADER_SIZE + TAIL_SIZE);
+  struct mem_block_info *p_block = NULL;
+  INIT_MEM_INFO(p_block, pptr, size, 1);
 
-  return pptr;
+  if(__memory_initialized && IS_RECURSE_SAFE) {
+    PROTECT_FROM_RECURSION;
+    p_block->mem_type = MEM_TYPE_MALLOC;
+    /* TODO: use the callsite to generate a buffer_id */
+    bind_buffer(pptr, size, NULL);
+    UNPROTECT_FROM_RECURSION;
+    //    return p_block->u_ptr;
+  } else {
+    /* we are already processing a malloc/free function, so don't try to record information,
+     * just call the function
+     */
+    p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
+  }
+
+  return p_block->u_ptr;
 }
 
 void* realloc(void *ptr, size_t size) {
@@ -171,8 +189,47 @@ void* realloc(void *ptr, size_t size) {
     }
   }
 
-  void *pptr = librealloc(ptr, size);
-  return pptr;
+  if (!CANARY_OK(ptr)) {
+    /* we didn't malloc'ed this buffer */
+    fprintf(stderr,"%s(%p). I can't find this pointer !\n", __FUNCTION__, ptr);
+    abort();
+    void* retval = librealloc(ptr, size);
+    debug_printf("--> %p\n", retval);
+    return retval;
+  }
+
+    struct mem_block_info *p_block;
+  USER_PTR_TO_BLOCK_INFO(ptr, p_block);
+  size_t old_size = p_block->size;
+  size_t header_size = p_block->total_size - p_block->size;
+
+  if (p_block->mem_type != MEM_TYPE_MALLOC) {
+    fprintf(stderr, "Warning: realloc a ptr that was allocated by hand_made_malloc\n");
+  }
+  void *old_addr= p_block->u_ptr;
+  void *pptr = librealloc(p_block->p_ptr, size + header_size);
+  INIT_MEM_INFO(p_block, pptr, size, 1);
+
+  if(__memory_initialized && IS_RECURSE_SAFE) {
+    PROTECT_FROM_RECURSION;
+    /* retrieve the malloc information from the pointer */
+
+    if (!pptr) {
+      /* realloc failed */
+      UNPROTECT_FROM_RECURSION;
+      debug_printf("--> %p\n", NULL);
+      return NULL;
+    }
+
+    p_block->mem_type = MEM_TYPE_MALLOC;
+    UNPROTECT_FROM_RECURSION;
+  } else {
+    /* it is not safe to record information */
+    p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
+  }
+
+  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
+  return p_block->u_ptr;
 }
 
 void* calloc(size_t nmemb, size_t size) {
@@ -184,13 +241,33 @@ void* calloc(size_t nmemb, size_t size) {
     return ret;
   }
 
+  debug_printf("calloc(nmemb=%zu, size=%zu) ", nmemb, size);
+
+  /* compute the number of blocks for header */
+  int nb_memb_header = (HEADER_SIZE  + TAIL_SIZE)/ size;
+  if (size * nb_memb_header < HEADER_SIZE + TAIL_SIZE)
+    nb_memb_header++;
+
   /* allocate buffer + header */
-  void* p_ptr = libcalloc(nmemb, size);
-  return p_ptr;
+  void* p_ptr = libcalloc(nmemb + nb_memb_header, size);
+
+  struct mem_block_info *p_block = NULL;
+  INIT_MEM_INFO(p_block, p_ptr, nmemb, size);
+
+
+  if(__memory_initialized && IS_RECURSE_SAFE) {
+    PROTECT_FROM_RECURSION;
+    p_block->mem_type = MEM_TYPE_MALLOC;
+    /* todo: call mbind ? */
+    UNPROTECT_FROM_RECURSION;
+  } else {
+    p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
+  }
+  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
+  return p_block->u_ptr;
 }
 
 void free(void* ptr) {
-
   if (!libfree) {
     libfree = dlsym(RTLD_NEXT, "free");
     char* error;
@@ -203,7 +280,20 @@ void free(void* ptr) {
     libfree(ptr);
     return;
   }
-  libfree(ptr);
+
+  /* first, check wether we malloc'ed the buffer */
+  if (!CANARY_OK(ptr)) {
+    /* we didn't malloc this buffer */
+    fprintf(stderr, "%s(%p). I don't know this malloc !\n", __FUNCTION__, ptr);
+    abort();
+    libfree(ptr);
+    return;
+  }
+
+  struct mem_block_info *p_block;
+  USER_PTR_TO_BLOCK_INFO(ptr, p_block);
+
+  libfree(p_block->p_ptr);
 }
 
 /* Internal structure used for transmitting the function and argument
