@@ -20,6 +20,9 @@
 
 #include "numamma.h"
 #include "mem_intercept.h"
+#include "mem_tools.h"
+
+//#define INTERCEPT_MALLOC 1
 
 int _dump = 0;
 FILE* dump_file = NULL; // useless
@@ -85,7 +88,7 @@ static void bind_buffer(void* buffer, size_t len, char* buffer_id);
  */
 static void* hand_made_malloc(size_t size) {
   /* allocate a 1MB buffer */
-#define POOL_SIZE (1024 * 1024)
+#define POOL_SIZE (1024 * 1024 * 10)
   static char mem[POOL_SIZE] = {'\0'};
 
   /* since this function is only used before we found libmalloc, there's no
@@ -98,8 +101,7 @@ static void* hand_made_malloc(size_t size) {
     /* let's use the real malloc */
     return malloc(size);
 
-  debug_printf("%s(size=%lu) ", __FUNCTION__, size);
-
+  debug_printf("%s(size=%lu)\n", __FUNCTION__, size);
   struct mem_block_info *p_block = NULL;
   INIT_MEM_INFO(p_block, next_slot, size, 1);
   p_block->mem_type = MEM_TYPE_HAND_MADE_MALLOC;
@@ -110,11 +112,20 @@ static void* hand_made_malloc(size_t size) {
   p_block->mem_type = MEM_TYPE_HAND_MADE_MALLOC;
   total_alloc += size;
   next_slot = next_slot + p_block->total_size;
-
+  debug_printf("%s returns: --> %p (p_block=%p)\n", __FUNCTION__, p_block->u_ptr, p_block);
   return p_block->u_ptr;
 }
 
+static int nb_malloc=0;
+static int nb_free=0;
+static int nb_realloc=0;
+static int nb_calloc=0;
+
+#if INTERCEPT_MALLOC
+
 void* malloc(size_t size) {
+  nb_malloc++;
+  static int total_alloced=0;
   /* if memory_init hasn't been called yet, we need to get libc's malloc
    * address
    */
@@ -144,9 +155,14 @@ void* malloc(size_t size) {
     UNPROTECT_FROM_RECURSION;
   }
 
-
   /* allocate a buffer */
+  debug_printf("%s(size=%lu) \n", __FUNCTION__, size);
   void* pptr = libmalloc(size + HEADER_SIZE + TAIL_SIZE);
+  total_alloced+=size + HEADER_SIZE + TAIL_SIZE;
+
+  if(!pptr){
+    return NULL;
+  }
   struct mem_block_info *p_block = NULL;
   INIT_MEM_INFO(p_block, pptr, size, 1);
 
@@ -163,12 +179,13 @@ void* malloc(size_t size) {
      */
     p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
   }
+  debug_printf("%s returns: --> %p (p_block=%p)\n", __FUNCTION__, p_block->u_ptr, p_block);
 
   return p_block->u_ptr;
 }
 
 void* realloc(void *ptr, size_t size) {
-
+  nb_realloc++;
   /* if ptr is NULL, realloc behaves like malloc */
   if (!ptr)
     return malloc(size);
@@ -189,16 +206,17 @@ void* realloc(void *ptr, size_t size) {
     }
   }
 
+  debug_printf("%s(ptr=%p, size=%lu)\n", __FUNCTION__, ptr, size);
   if (!CANARY_OK(ptr)) {
     /* we didn't malloc'ed this buffer */
     fprintf(stderr,"%s(%p). I can't find this pointer !\n", __FUNCTION__, ptr);
     abort();
     void* retval = librealloc(ptr, size);
-    debug_printf("--> %p\n", retval);
+    debug_printf("%s returns --> %p\n", retval, __FUNCTION__);
     return retval;
   }
 
-    struct mem_block_info *p_block;
+  struct mem_block_info *p_block;
   USER_PTR_TO_BLOCK_INFO(ptr, p_block);
   size_t old_size = p_block->size;
   size_t header_size = p_block->total_size - p_block->size;
@@ -217,7 +235,7 @@ void* realloc(void *ptr, size_t size) {
     if (!pptr) {
       /* realloc failed */
       UNPROTECT_FROM_RECURSION;
-      debug_printf("--> %p\n", NULL);
+      debug_printf("%s returns --> %p\n", __FUNCTION__, NULL);
       return NULL;
     }
 
@@ -228,11 +246,12 @@ void* realloc(void *ptr, size_t size) {
     p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
   }
 
-  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
+  debug_printf("%s returns --> %p (p_block=%p)\n", __FUNCTION__, p_block->u_ptr, p_block);
   return p_block->u_ptr;
 }
 
 void* calloc(size_t nmemb, size_t size) {
+  nb_calloc++;
   if (!libcalloc) {
     void* ret = hand_made_malloc(nmemb * size);
     if (ret) {
@@ -241,14 +260,14 @@ void* calloc(size_t nmemb, size_t size) {
     return ret;
   }
 
-  debug_printf("calloc(nmemb=%zu, size=%zu) ", nmemb, size);
+  debug_printf("calloc(nmemb=%zu, size=%zu)\n", nmemb, size);
 
   /* compute the number of blocks for header */
   int nb_memb_header = (HEADER_SIZE  + TAIL_SIZE)/ size;
   if (size * nb_memb_header < HEADER_SIZE + TAIL_SIZE)
     nb_memb_header++;
 
-  /* allocate buffer + header */
+    /* allocate buffer + header */
   void* p_ptr = libcalloc(nmemb + nb_memb_header, size);
 
   struct mem_block_info *p_block = NULL;
@@ -263,11 +282,12 @@ void* calloc(size_t nmemb, size_t size) {
   } else {
     p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
   }
-  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
+  debug_printf("%s returns --> %p (p_block=%p)\n", __FUNCTION__, p_block->u_ptr, p_block);
   return p_block->u_ptr;
 }
 
 void free(void* ptr) {
+  nb_free++;
   if (!libfree) {
     libfree = dlsym(RTLD_NEXT, "free");
     char* error;
@@ -281,6 +301,7 @@ void free(void* ptr) {
     return;
   }
 
+  debug_printf("%s(%p)\n", __FUNCTION__, ptr);
   /* first, check wether we malloc'ed the buffer */
   if (!CANARY_OK(ptr)) {
     /* we didn't malloc this buffer */
@@ -293,8 +314,12 @@ void free(void* ptr) {
   struct mem_block_info *p_block;
   USER_PTR_TO_BLOCK_INFO(ptr, p_block);
 
-  libfree(p_block->p_ptr);
+  void* start_ptr = p_block->p_ptr;
+  ERASE_CANARY(ptr);
+  //  memset(start_ptr, 0x00, p_block->total_size);
+  libfree(start_ptr);
 }
+#endif	/* INTERCEPT_MALLOC */
 
 /* Internal structure used for transmitting the function and argument
  * during pthread_create.
@@ -337,7 +362,7 @@ __pthread_new_thread(void *arg) {
   void *(*f)(void *) = p_arg->func;
   void *__arg = p_arg->arg;
   int thread_rank = p_arg->thread_rank;
-  libfree(p_arg);
+  free(p_arg);
 
   UNPROTECT_FROM_RECURSION;
   int oldtype;
@@ -368,10 +393,11 @@ pthread_create (pthread_t *__restrict thread,
 		void *(*start_routine) (void *),
 		void *__restrict arg) {
   FUNCTION_ENTRY;
+  PROTECT_FROM_RECURSION;
   int thread_rank = __sync_fetch_and_add( &nb_threads, 1 );
   thread_array[thread_rank].status = thread_status_created;
   struct __pthread_create_info_t * __args =
-    (struct __pthread_create_info_t*) libmalloc(sizeof(struct __pthread_create_info_t));
+    (struct __pthread_create_info_t*) malloc(sizeof(struct __pthread_create_info_t));
   __args->func = start_routine;
   __args->arg = arg;
   __args->thread_rank= thread_rank;
@@ -400,6 +426,7 @@ pthread_create (pthread_t *__restrict thread,
       abort();
     }
   }
+  UNPROTECT_FROM_RECURSION;
 
   /* We do not call directly start_routine since we want to initialize stuff at the thread startup.
    * Instead, let's invoke __pthread_new_thread that initialize the thread-specific things and call
@@ -432,6 +459,13 @@ static void get_thread_binding() {
   char* str=getenv("NUMAMMA_THREAD_BIND");
   if(str) {
     printf("[MemRun] Thread binding activated: %s\n", str);
+
+    if(getenv("GOMP_CPU_AFFINITY")) {
+      fprintf(stderr, "Error: NUMAMMA_THREAD_BIND conflicts with GOMP_CPU_AFFINITY\n");
+      fprintf(stderr, "  Please unset GOMP_CPU_AFFINITY\n");
+      abort();
+    }
+
     char bindings[1024];
     strncpy(bindings, str, 1024);
     char* token = strtok(bindings, ",");
@@ -472,9 +506,9 @@ static void load_custom_block(FILE*f) {
   int nread=fscanf(f, "%s\t%d\t%d", dir->block_identifier, &dir->buffer_len, &dir->nb_blocks);
   assert(nread==3);
   if(_verbose)
-    printf("read: '%s' '%d' '%d'\n", dir->block_identifier, dir->buffer_len, dir->nb_blocks);
+    printf("New custom block(id=%s, len=%d, nblocks=%d)\n", dir->block_identifier, dir->buffer_len, dir->nb_blocks);
+  
   dir->blocks = malloc(sizeof(struct block_bind)* dir->nb_blocks);
-
   char* line_buffer=NULL;
   size_t line_size;
   int block_id=0;
@@ -482,19 +516,21 @@ static void load_custom_block(FILE*f) {
   directives = dir;
 
   while((nread=getline(&line_buffer, &line_size, f)) != -1) {
-    if(strncmp(line_buffer, "end_block", 9) == 0)
+    if(strncmp(line_buffer, "end_block", 9) == 0)  {     
+      dir->nb_blocks=block_id;
       return;
+    }
     struct block_bind*block = &dir->blocks[block_id];
     int numa_node, start_page, end_page;
     nread=sscanf(line_buffer, "%d\t%d\t%d", &block->numa_node, &block->start_page, &block->end_page);
     if(nread == 3) {
-      if(_verbose)
-	printf("->%d, [%d-%d]\n", block->numa_node, block->start_page, block->end_page);
       if(block->numa_node > nb_nodes-1) {
 	fprintf(stderr, "Warning: trying to bind %s[page %d] on node %d, but there are only %d nodes on this machine\n",
 		dir->block_identifier, block->start_page, block->numa_node, nb_nodes);
       }
       block_id++;
+      if(block_id > dir->nb_blocks)
+	break;
     }
   }
 }
@@ -536,6 +572,9 @@ static void read_options() {
     } else if(strcmp(mbind_policy_str, "block")==0) {
       _mbind_policy= POLICY_BLOCK;
       printf("Memory binding (block) enabled\n");
+    } else if(strcmp(mbind_policy_str, "none")==0) {
+      _mbind_policy= POLICY_NONE;
+      printf("Memory binding (none) enabled\n");
     } else if(strcmp(mbind_policy_str, "custom")==0) {
       _mbind_policy= POLICY_CUSTOM;
       char* mbind_file=getenv("NUMAMMA_MBIND_FILE");
@@ -915,7 +954,15 @@ symbol_name |addr| section | type |symbol_size| [line]    |section    [file:line
 static void __memory_init(void) __attribute__ ((constructor));
 static void __memory_init(void) {
   PROTECT_FROM_RECURSION;
-
+  /* TODO: there's a race condition here: if I remove the printf, then mem_run
+   * fails while loading the custom mbind policy file. This should be investigated !
+   */
+  printf("[Mem_run] initializing stuff\n");
+#if INTERCEPT_MALLOC
+  printf("[Mem_run] malloc interception is enabled\n");
+#else
+    printf("[Mem_run] malloc interception is disabled\n");
+#endif
   libmalloc = dlsym(RTLD_NEXT, "malloc");
   libcalloc = dlsym(RTLD_NEXT, "calloc");
   librealloc = dlsym(RTLD_NEXT, "realloc");
@@ -925,10 +972,11 @@ static void __memory_init(void) {
 
   nb_nodes = numa_num_configured_nodes();
   read_options();
-
+  
   bind_global_variables();
 
   __memory_initialized = 1;
+  printf("[Mem_run] initialization done\n");
   UNPROTECT_FROM_RECURSION;
 }
 
@@ -936,4 +984,8 @@ static void __memory_conclude(void) __attribute__ ((destructor));
 static void __memory_conclude(void) {
 
   __memory_initialized = 0;
+  printf("Nb malloc: %d\n", nb_malloc);
+  printf("Nb realloc: %d\n", nb_realloc);
+  printf("Nb calloc: %d\n", nb_calloc);
+  printf("Nb free: %d\n", nb_free);
 }

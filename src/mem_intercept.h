@@ -66,6 +66,7 @@ struct mem_block_info {
 #define CANARY_OK(u_ptr) (((struct mem_block_info*)((u_ptr) - (void*)sizeof(struct mem_block_info)))->canary == CANARY_PATTERN)
 #define TAIL_CANARY_OK(b_info) ((b_info)->tail_block->canary == CANARY_PATTERN)
 
+#define ERASE_CANARY(u_ptr) (memset(&((struct mem_block_info*)((u_ptr) - (void*)sizeof(struct mem_block_info)))->canary, 0x00, sizeof(CANARY_PATTERN)))
 
 
 /* converts a pointer to a user_block into a pointer to the block info */

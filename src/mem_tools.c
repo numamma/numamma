@@ -13,6 +13,10 @@
 #endif
 
 void print_backtrace(int backtrace_max_depth) {
+  if(!IS_RECURSE_SAFE)
+    return;
+
+  PROTECT_FROM_RECURSION;
   int j, nptrs;
   void *buffer[backtrace_max_depth];
   char **strings;
@@ -34,6 +38,7 @@ void print_backtrace(int backtrace_max_depth) {
   printf("-------------------\n");
 
   free(strings);
+  UNPROTECT_FROM_RECURSION;
 }
 
 
