@@ -32,39 +32,54 @@ block_str=""
 blocks=[];
 nblocks=-1
 
+# each block should have at least density_threshold access per page
+density_threshold=10
+
+#print "Start creating blocks"
+
 # create "blocks"
 for line in counters:
     cur_node_counter=max(line);
     cur_node=line.index(cur_node_counter);
 
-    if cur_node_counter != 0 and cur_node != prev_node and cur_node_counter > threshold:
-        if prev_node != -1:
+    if cur_node_counter > density_threshold:
+        # the current block has many accesses
+        if prev_node != cur_node:
+            # start a new block
+            blocks.append({});
+            nblocks=nblocks+1;
+            b=blocks[nblocks];
+            b["node"]=cur_node;
+            b["start_page"]=cur_block;
+            b["end_page"]=cur_block;
+            b["counters"]=cur_node_counter;
+            b["density"]=b["counters"]/(1+b["end_page"]-b["start_page"]);
+            prev_node=cur_node;
+#            print "New block"+str(nblocks)+": " +str(b["node"])+" "+str(b["start_page"])+" "+str(b["end_page"])+" "+str(b["counters"])+" -- density:"+str(b["density"]);
+        else:
+        # add the current page with the current block
             b=blocks[nblocks];
             b["end_page"]=cur_block;
-            b["counters"]=block_counters;
-            density=b["counters"]/(b["end_page"]-b["start_page"]);
-            if density <= 1:
-                nblocks=nblocks -1;
+            b["counters"]=cur_node_counter+b["counters"];
+            b["density"]=b["counters"]/(1+b["end_page"]-b["start_page"]);
+ #           print "Update block "+str(nblocks)+": " +str(b["node"])+" "+str(b["start_page"])+" "+str(b["end_page"])+" "+str(b["counters"])+" -- density:"+str(b["density"]);
 
+#    else: # cur_node_counter > density_threshold
+#        if cur_node_counter == 0 or cur_node == prev_node:
+#            # the current page has few accesses, but maybe we can merge it with the current block ?
+#            density=(b["counters"]+cur_node_counter)/(1+cur_block-b["start_page"]);
+#            if density > density_threshold:
+#                # add the current page to the current block
+#                b=blocks[nblocks];
+#                b["end_page"]=cur_block;
+#                b["counters"]=cur_node_counter;
+#                b["density"]=b["counters"]/(1+b["end_page"]-b["start_page"]);
+        cur_block=cur_block+1;
 
-        blocks.append({});
-        nblocks=nblocks+1;
-        blocks[nblocks]["node"]=cur_node;
-        blocks[nblocks]["start_page"]=cur_block;
-
-        block_counters=0;
-        prev_node=cur_node;
-
-    block_counters=block_counters + cur_node_counter;
-    cur_block=cur_block+1;
-
-# finish the last block
-blocks[nblocks]["end_page"]=cur_block;
-blocks[nblocks]["counters"]=block_counters;
-
-print "begin_block";
-print name+" "+buffer_size+" "+str(nblocks+1);
-for b in blocks:
-    if b :
-        print str(b["node"])+" "+str(b["start_page"])+" "+str(b["end_page"])+" "+str(b["counters"]);
-print "end_block";
+if nblocks > 0:
+    print "begin_block";
+    print name+" "+buffer_size+" "+str(nblocks+1);
+    for b in blocks:
+        if b :
+            print str(b["node"])+" "+str(b["start_page"])+" "+str(b["end_page"])+" "+str(b["counters"]);
+    print "end_block";
