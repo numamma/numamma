@@ -290,6 +290,7 @@ void free(void* ptr) {
 struct __pthread_create_info_t {
   void *(*func)(void *);
   void *arg;
+  int thread_rank;
 };
 
 enum thread_status_t {
@@ -305,15 +306,6 @@ struct thread_info {
 struct thread_info thread_array[MAX_THREADS];
 int nb_threads = 0;
 
-static int __get_thread_rank(pthread_t thread_id) {
-  int i;
-  for(i=0; i< nb_threads; i++) {
-    if(thread_array[i].tid == thread_id)
-      return i;
-  }
-  return -1;
-}
-
 static void __thread_cleanup_function(void* arg);
 /* Invoked by pthread_create on the new thread */
 static void *
@@ -323,20 +315,22 @@ __pthread_new_thread(void *arg) {
   struct __pthread_create_info_t *p_arg = (struct __pthread_create_info_t*) arg;
   void *(*f)(void *) = p_arg->func;
   void *__arg = p_arg->arg;
+  int thread_rank = p_arg->thread_rank;
   libfree(p_arg);
   ma_thread_init();
+  thread_array[thread_rank].status = thread_status_created;
+
   UNPROTECT_FROM_RECURSION;
   int oldtype;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, &oldtype);
 
-  int thread_rank = __get_thread_rank(pthread_self());
   pthread_cleanup_push(__thread_cleanup_function,
 		       &thread_array[thread_rank]);
 
   res = (*f)(__arg);
 
   pthread_cleanup_pop(0);
-  fprintf(stderr, "End of thread %lu\n", thread_array[thread_rank].tid);
+  fprintf(stderr, "End of thread [%d] %lu\n", thread_rank, thread_array[thread_rank].tid);
   __thread_cleanup_function(&thread_array[thread_rank]);
   return res;
 }
@@ -366,7 +360,7 @@ pthread_create (pthread_t *__restrict thread,
   }
 
   int thread_rank = __sync_fetch_and_add( &nb_threads, 1 );
-  thread_array[thread_rank].status = thread_status_created;
+  __args->thread_rank = thread_rank;
 
   /* We do not call directly start_routine since we want to initialize stuff at the thread startup.
    * Instead, let's invoke __pthread_new_thread that initialize the thread-specific things and call
