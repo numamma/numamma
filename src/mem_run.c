@@ -503,7 +503,7 @@ static void load_custom_block(FILE*f) {
 
   struct mbind_directive *dir=malloc(sizeof(struct mbind_directive));
   
-  int nread=fscanf(f, "%s\t%d\t%d", dir->block_identifier, &dir->buffer_len, &dir->nb_blocks);
+  int nread=fscanf(f, "%s\t%zu\t%d", dir->block_identifier, &dir->buffer_len, &dir->nb_blocks);
   assert(nread==3);
   if(_verbose)
     printf("New custom block(id=%s, len=%d, nblocks=%d)\n", dir->block_identifier, dir->buffer_len, dir->nb_blocks);
@@ -661,7 +661,7 @@ static void bind_buffer_blocks(void*buffer, size_t len,
 
 
   for(int i=0; i<n_blocks; i++) {
-    uintptr_t start_addr=base_addr + blocks[i].start_page*page_size;
+    uintptr_t start_addr=base_addr + ((uintptr_t)blocks[i].start_page*page_size);
     start_addr+=page_size;
     size_t block_len=((blocks[i].end_page - blocks[i].start_page))*page_size;
     const uint64_t nodeMask = 1UL << blocks[i].numa_node;
@@ -736,13 +736,14 @@ static void bind_custom(void* buffer, size_t len, char* buffer_id) {
   struct mbind_directive *dir = directives;
   while(dir) {
     if(strcmp(dir->block_identifier, buffer_id)==0) {
-      if(dir->buffer_len != len) {
-	fprintf(stderr, "Warning: I found variable %s, but its length (%d) is different from the specified length (%d)\n",
-		buffer_id, len, dir->buffer_len);
-      }
 
-      printf("Binding %s\n", buffer_id);
-      bind_buffer_blocks(buffer, len, dir->nb_blocks, dir->blocks);
+      if(dir->buffer_len != len) {
+	fprintf(stderr, "Warning: I found variable %s, but its length (%zu) is different from the specified length (%zu)\n",
+		buffer_id, len, dir->buffer_len);
+      } else {
+	printf("Binding %s\n", buffer_id);
+	bind_buffer_blocks(buffer, len, dir->nb_blocks, dir->blocks);
+      }
       return;
     }
     dir = dir->next;
