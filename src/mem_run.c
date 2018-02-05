@@ -23,6 +23,7 @@
 #include "mem_tools.h"
 
 //#define INTERCEPT_MALLOC 1
+//#define CHECK_PLACEMENT 1
 
 int _dump = 0;
 FILE* dump_file = NULL; // useless
@@ -55,6 +56,7 @@ struct mbind_directive {
   char block_identifier[4096]; // name of the variable to move
   size_t buffer_len;
   size_t nb_blocks;
+  void* base_addr;
   struct block_bind *blocks;
   struct mbind_directive *next;
 };
@@ -647,6 +649,23 @@ uintptr_t align_ptr(uintptr_t ptr, int align) {
   return ptr & mask;
 }
 
+int get_numa_node(void* address) {
+  void * ptr_to_check = address;
+  /*here you should align ptr_to_check to page boundary */
+  int status=-1;
+  int ret_code;
+  ret_code = move_pages(0 /*self memory */, 1, &ptr_to_check,
+			NULL, &status, 0);
+  if(ret_code != 0) {
+    perror("move_pages failed");
+    abort();
+  }
+  if(status < 0){
+    printf("move_pages failed: %s\n", strerror(-status));
+  }
+  return status;
+}
+
 static void bind_buffer_blocks(void*buffer, size_t len,
 			       int n_blocks, struct block_bind* blocks) {
   if(n_blocks*page_size > len+page_size) {
@@ -655,7 +674,7 @@ static void bind_buffer_blocks(void*buffer, size_t len,
   }
 
   uintptr_t base_addr=align_ptr((uintptr_t)buffer, page_size);
-  
+
   if(_verbose)
     printf("[MemRun] Binding %d blocks. starting at %p\n", n_blocks, base_addr);
 
@@ -663,17 +682,15 @@ static void bind_buffer_blocks(void*buffer, size_t len,
   for(int i=0; i<n_blocks; i++) {
     uintptr_t start_addr=base_addr + ((uintptr_t)blocks[i].start_page*page_size);
     start_addr+=page_size;
-    size_t block_len=((blocks[i].end_page - blocks[i].start_page))*page_size;
+    size_t block_len=((blocks[i].end_page+1 - blocks[i].start_page))*page_size;
     const uint64_t nodeMask = 1UL << blocks[i].numa_node;
 
     if(blocks[i].numa_node>nb_nodes) {
       fprintf(stderr, "Bad binding: binding on node %d requested, but only %d nodes are available\n", blocks[i].numa_node, nb_nodes);
       abort();
     }
-#if 1
     if(_verbose)
       printf("\t[MemRun] Binding pages %d-%d to node %d\n", blocks[i].start_page, blocks[i].end_page, blocks[i].numa_node);
-#endif
 
     if(start_addr+block_len > (uintptr_t)buffer+len) {
       /* make sure there's no overflow */
@@ -685,6 +702,17 @@ static void bind_buffer_blocks(void*buffer, size_t len,
       perror("mbind failed");
       abort();
     }
+    
+#if CHECK_PLACEMENT
+    int effective_node=get_numa_node((void*)start_addr);
+    if(effective_node != blocks[i].numa_node ){
+      printf("Warning: when binding %p to node %d: page is actually on node %d\n",
+	     start_addr, blocks[i].numa_node, effective_node);
+    } else {
+      printf("When binding %p to node %d: page is indeed on node %d\n",
+	     start_addr, blocks[i].numa_node, effective_node);
+    }
+#endif
   }
 }
 
@@ -727,6 +755,40 @@ static void bind_interleaved(void* buffer, size_t len) {
   bind_buffer_blocks(buffer, len, nblocks, blocks);
 }
 
+static void check_buffer_placement(struct mbind_directive *dir) {
+  assert(dir->base_addr);
+  uintptr_t base_addr=align_ptr((uintptr_t)dir->base_addr, page_size);
+
+  for(int i=0; i<dir->nb_blocks; i++) {
+    uintptr_t start_addr=base_addr + dir->blocks[i].start_page*page_size;
+    start_addr+=page_size;
+    size_t block_len=((dir->blocks[i].end_page - dir->blocks[i].start_page))*page_size;
+    const uint64_t nodeMask = 1UL << dir->blocks[i].numa_node;
+
+    if(start_addr+block_len > (uintptr_t)dir->base_addr+dir->buffer_len) {
+      /* make sure there's no overflow */
+      block_len=(uintptr_t)dir->base_addr+dir->buffer_len-start_addr;
+    }
+
+#if CHECK_PLACEMENT
+    int effective_node=get_numa_node((void*)start_addr);
+    if(effective_node != dir->blocks[i].numa_node ){
+      printf("Warning: %p/%d should be on node %d: page is actually on node %d\n",
+	     start_addr, dir->blocks[i].start_page, dir->blocks[i].numa_node, effective_node);
+    }
+#endif
+  }
+}
+
+static void check_placement() {
+  struct mbind_directive *dir = directives;
+  while(dir) {
+    if( dir->base_addr)
+      check_buffer_placement(dir);
+    dir = dir->next;
+  }
+}
+
 static void bind_custom(void* buffer, size_t len, char* buffer_id) {
   if(_mbind_policy != POLICY_CUSTOM || buffer_id == NULL)
     return;
@@ -742,6 +804,7 @@ static void bind_custom(void* buffer, size_t len, char* buffer_id) {
 		buffer_id, len, dir->buffer_len);
       } else {
 	printf("Binding %s\n", buffer_id);
+	dir->base_addr = buffer;
 	bind_buffer_blocks(buffer, len, dir->nb_blocks, dir->blocks);
       }
       return;
@@ -973,7 +1036,7 @@ static void __memory_init(void) {
 
   nb_nodes = numa_num_configured_nodes();
   read_options();
-  
+
   bind_global_variables();
 
   __memory_initialized = 1;
@@ -983,7 +1046,7 @@ static void __memory_init(void) {
 
 static void __memory_conclude(void) __attribute__ ((destructor));
 static void __memory_conclude(void) {
-
+  check_placement();
   __memory_initialized = 0;
   printf("Nb malloc: %d\n", nb_malloc);
   printf("Nb realloc: %d\n", nb_realloc);
