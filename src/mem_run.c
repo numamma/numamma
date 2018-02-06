@@ -17,6 +17,8 @@
 #include <errno.h>
 #include <numaif.h>
 #include <numa.h>
+#include <sys/types.h>
+#include <sys/syscall.h>
 
 #include "numamma.h"
 #include "mem_intercept.h"
@@ -43,7 +45,7 @@ enum mbind_policy{
 enum mbind_policy _mbind_policy;
 
 /* array describing the binding of each thread */
-int thread_bindings[100];
+int thread_bindings[MAX_THREADS];
 /* number of valid entries in the array */
 int nb_thread_max=0;
 
@@ -57,6 +59,7 @@ struct mbind_directive {
   size_t buffer_len;
   size_t nb_blocks;
   void* base_addr;
+  enum {type_global, type_malloc} buffer_type;
   struct block_bind *blocks;
   struct mbind_directive *next;
 };
@@ -82,7 +85,7 @@ int  (*libpthread_create) (pthread_t * thread, const pthread_attr_t * attr,
 void (*libpthread_exit) (void *thread_return) = NULL;
 
 static void bind_buffer(void* buffer, size_t len, char* buffer_id);
-
+static void bind_malloced_buffer(void* buffer, size_t len, char* buffer_id);
 
 /* Custom malloc function. It is used when libmalloc=NULL (e.g. during startup)
  * This function is not thread-safe and is very likely to be bogus, so use with
@@ -172,7 +175,7 @@ void* malloc(size_t size) {
     PROTECT_FROM_RECURSION;
     p_block->mem_type = MEM_TYPE_MALLOC;
     /* TODO: use the callsite to generate a buffer_id */
-    bind_buffer(pptr, size, NULL);
+    bind_malloced_buffer(p_block->u_ptr, size, NULL);
     UNPROTECT_FROM_RECURSION;
     //    return p_block->u_ptr;
   } else {
@@ -233,7 +236,6 @@ void* realloc(void *ptr, size_t size) {
   if(__memory_initialized && IS_RECURSE_SAFE) {
     PROTECT_FROM_RECURSION;
     /* retrieve the malloc information from the pointer */
-
     if (!pptr) {
       /* realloc failed */
       UNPROTECT_FROM_RECURSION;
@@ -280,6 +282,7 @@ void* calloc(size_t nmemb, size_t size) {
     PROTECT_FROM_RECURSION;
     p_block->mem_type = MEM_TYPE_MALLOC;
     /* todo: call mbind ? */
+    bind_malloced_buffer(p_block->u_ptr, size*nmemb, NULL);
     UNPROTECT_FROM_RECURSION;
   } else {
     p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
@@ -373,10 +376,17 @@ __pthread_new_thread(void *arg) {
   pthread_cleanup_push(__thread_cleanup_function,
 		       &thread_array[thread_rank]);
 
+  FUNCTION_ENTRY;
+  if(_verbose) {
+    pid_t tid = syscall(__NR_gettid);
+    printf("I'm thread %d (tid=%d) bound on cpu %d\n", thread_rank, tid, thread_bindings[thread_rank]);
+  }
+
   res = (*f)(__arg);
 
   pthread_cleanup_pop(0);
-  fprintf(stderr, "End of thread %lu\n", thread_array[thread_rank].tid);
+  if(_verbose)
+    fprintf(stderr, "End of thread %lu\n", thread_array[thread_rank].tid);
   __thread_cleanup_function(&thread_array[thread_rank]);
   return res;
 }
@@ -411,21 +421,25 @@ pthread_create (pthread_t *__restrict thread,
   pthread_attr_t local_attr;
   if(attr) {
     memcpy(&local_attr, attr, sizeof(local_attr));
+  } else {
+    pthread_attr_init(&local_attr);
   }
   if(bind_threads && thread_rank < nb_thread_max) {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(thread_bindings[thread_rank], &cpuset);
+    if(thread_bindings[thread_rank] >= 0) {
+      cpu_set_t cpuset;
+      CPU_ZERO(&cpuset);
+      CPU_SET(thread_bindings[thread_rank], &cpuset);
 #if 0
-    if(_verbose)
-      printf("[MemRun] Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
+      if(_verbose)
+	printf("[MemRun] Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
 #endif
-    int ret = pthread_attr_setaffinity_np(&local_attr,
-					  sizeof(cpuset),
-					  &cpuset);
-    if(ret != 0){
-      perror("pthread_attr_setaffinity_np failed");
-      abort();
+      int ret = pthread_attr_setaffinity_np(&local_attr,
+					    sizeof(cpuset),
+					    &cpuset);
+      if(ret != 0){
+	perror("pthread_attr_setaffinity_np failed");
+	abort();
+      }
     }
   }
   UNPROTECT_FROM_RECURSION;
@@ -468,8 +482,11 @@ static void get_thread_binding() {
       abort();
     }
 
-    char bindings[1024];
-    strncpy(bindings, str, 1024);
+    for(int i = 0; i<MAX_THREADS; i++) {
+      thread_bindings[i] = -1;
+    }
+    char bindings[10*MAX_THREADS];
+    strncpy(bindings, str, 10*MAX_THREADS);
     char* token = strtok(bindings, ",");
     while(token) {
       thread_bindings[nb_thread_max] = atoi(token);
@@ -509,7 +526,12 @@ static void load_custom_block(FILE*f) {
   assert(nread==3);
   if(_verbose)
     printf("New custom block(id=%s, len=%d, nblocks=%d)\n", dir->block_identifier, dir->buffer_len, dir->nb_blocks);
-  
+
+  if(strcmp(dir->block_identifier, "malloc") == 0) {
+    dir->buffer_type=type_malloc;
+  } else {
+    dir->buffer_type=type_global;
+  }
   dir->blocks = malloc(sizeof(struct block_bind)* dir->nb_blocks);
   char* line_buffer=NULL;
   size_t line_size;
@@ -719,17 +741,17 @@ static void bind_buffer_blocks(void*buffer, size_t len,
 static void bind_block(void*buffer, size_t len) {
   if(_mbind_policy != POLICY_BLOCK)
     return;
-  int nb_pages=((len/page_size)); // 1
+  int nb_pages=((len/page_size));
   int nb_pages_per_node=1;
   if(nb_pages > nb_nodes) {
-    nb_pages_per_node=nb_pages/nb_nodes; // 1
+    nb_pages_per_node=nb_pages/nb_nodes;
   }
 
   int nb_blocks=0;
   struct block_bind blocks[nb_nodes];
   for(int i=0; i<nb_nodes; i++){
-    blocks[i].start_page = i * nb_pages_per_node; // 0
-    blocks[i].end_page   = (i+1) * nb_pages_per_node; // 1
+    blocks[i].start_page = i * nb_pages_per_node;
+    blocks[i].end_page   = (i+1) * nb_pages_per_node;
     blocks[i].numa_node = i;
     nb_blocks++;
     if(blocks[i].end_page > nb_pages) {
@@ -812,6 +834,30 @@ static void bind_custom(void* buffer, size_t len, char* buffer_id) {
     dir = dir->next;
   }
   printf("\t%s not found\n", buffer_id);
+}
+
+static void bind_malloced_buffer(void* buffer, size_t len, char* buffer_id) {
+  struct mbind_directive* dir = directives;
+  while(dir) {
+    /* search for the directive corresponding to this malloc */
+
+    /* todo:
+     * - take the buffer_id into account
+     * - don't apply a directive several times
+     */
+    if(dir->buffer_type == type_malloc &&
+       dir->buffer_len == len) {
+
+      dir->base_addr = buffer;
+      if(_verbose) {
+	printf("Binding malloced buffer(len=%d)\n", len);
+      }
+      bind_buffer_blocks(buffer, len, dir->nb_blocks, dir->blocks);
+      return;
+    }
+
+    dir = dir->next;
+  }
 }
 
 static void bind_buffer(void* buffer, size_t len, char* buffer_id) {

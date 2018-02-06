@@ -33,7 +33,7 @@ blocks=[];
 nblocks=-1
 
 # each block should have at least density_threshold access per page
-density_threshold=10
+density_threshold=8
 
 #print "Start creating blocks"
 

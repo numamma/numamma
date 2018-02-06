@@ -5,7 +5,7 @@
 #include <string.h>
 
 #define INSTALL_PREFIX @CMAKE_INSTALL_PREFIX@
-#define MAX_THREADS 128
+#define MAX_THREADS 1024
 
 extern int _verbose;
 extern int _dump;
