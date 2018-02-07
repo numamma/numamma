@@ -40,9 +40,6 @@ extern __thread int is_recurse_unsafe;
     if(_verbose) {							\
       printf(format, ##__VA_ARGS__);					\
     }									\
-    if(_dump) {								\
-      fprintf(dump_file, format, ##__VA_ARGS__);				\
-    }									\
   }while(0)
 
 #endif	/* NUMMA_H */

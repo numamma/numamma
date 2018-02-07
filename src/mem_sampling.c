@@ -446,9 +446,13 @@ static void __analyze_buffer(struct sample_list* samples,
       }
 
       if(_dump) {
-	fprintf(dump_file, "[%lx]  pc=%" PRIx64 ", @=%" PRIx64 ", src level=%s, latency=%" PRIu64 " -- node=%p\n",
-		syscall(SYS_gettid), sample->ip, sample->addr, get_data_src_level(sample->data_src),
-		sample->weight, mem_info);
+	uintptr_t offset=0;
+	if(mem_info) {
+	  offset=(uintptr_t)sample->addr - (uintptr_t)mem_info->buffer_addr;
+	}
+	fprintf(dump_file, "%d  0x%" PRIx64 " 0x%" PRIx64 " %" PRId64 " %s %" PRIu64 " %s\n",
+		samples->thread_rank, sample->ip, sample->addr, offset, get_data_src_level(sample->data_src),
+		sample->weight, mem_info?mem_info->caller:"");
       }
     }
 
