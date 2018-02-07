@@ -105,14 +105,16 @@ void ma_thread_finalize() {
 
   pid_t tid = syscall(SYS_gettid);
 #if  ENABLE_TICKS
-  printf("End of thread %s %d\n", __FUNCTION__, tid);
-  for(int i=0; i<NTICKS; i++) {
-    if(tick_array[i].nb_calls>0) {
-      double total_duration = tick_array[i].total_duration;
-      double avg_duration = total_duration / tick_array[i].nb_calls;
-      printf("tick[%d] : %s -- %d calls. %lf us per call (total: %lf ms)\n",
-	     i, tick_array[i].tick_name, tick_array[i].nb_calls,
-	     avg_duration/1e3, total_duration/1e6);
+  if(_verbose) {
+    printf("End of thread %s %d\n", __FUNCTION__, tid);
+    for(int i=0; i<NTICKS; i++) {
+      if(tick_array[i].nb_calls>0) {
+	double total_duration = tick_array[i].total_duration;
+	double avg_duration = total_duration / tick_array[i].nb_calls;
+	printf("tick[%d] : %s -- %d calls. %lf us per call (total: %lf ms)\n",
+	       i, tick_array[i].tick_name, tick_array[i].nb_calls,
+	       avg_duration/1e3, total_duration/1e6);
+      }
     }
   }
 #endif

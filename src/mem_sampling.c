@@ -155,6 +155,8 @@ void mem_sampling_finalize() {
 
 void mem_sampling_thread_finalize() {
   mem_sampling_collect_samples();
+  numap_sampling_end(&sm);
+  numap_sampling_end(&sm_wr);
   status_finalized = 1;
 }
 
