@@ -51,7 +51,7 @@ static __thread int is_record_safe = 1;
     is_record_safe = 1;				\
   } while(0)
 
-struct mem_allocator* mem_info_allocator = NULL;
+__thread struct mem_allocator* mem_info_allocator = NULL;
 struct mem_allocator* string_allocator = NULL;
 
 __thread struct tick tick_array[NTICKS];
@@ -69,16 +69,6 @@ void ma_init() {
   pthread_mutex_init(&mem_list_lock, NULL);
   origin_date = new_date();
 
-#ifdef USE_HASHTABLE
-  mem_allocator_init(&mem_info_allocator,
-		     sizeof(struct memory_info),
-		     16*1024);
-#else
-  mem_allocator_init(&mem_info_allocator,
-		     sizeof(struct memory_info_list),
-		     16*1024);
-#endif
-
   mem_allocator_init(&string_allocator,
 		     sizeof(char)*1024,
 		     16*1024);
@@ -90,6 +80,16 @@ void ma_init() {
 
 void ma_thread_init() {
   thread_rank = __sync_fetch_and_add( &next_thread_rank, 1 );
+
+#ifdef USE_HASHTABLE
+  mem_allocator_init(&mem_info_allocator,
+		     sizeof(struct memory_info),
+		     16*1024);
+#else
+  mem_allocator_init(&mem_info_allocator,
+		     sizeof(struct memory_info_list),
+		     16*1024);
+#endif
 
   for(int i=0; i<NTICKS; i++) {
     init_tick(i);
