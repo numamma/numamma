@@ -132,7 +132,7 @@ void mem_sampling_finalize() {
       int found_samples = 0;
       if(nb_blocks % 10 == 0) {
 	fflush(stdout);
-	printf("\rAnalyzing sample buffer %d/%d. Total samples so far: %d",
+	printf("\rAnalyzing sample buffer %d/%d. Total samples so far: %d\n",
 	       nb_blocks, nb_sample_buffers, nb_samples_total);
      }
       __analyze_buffer(samples, &nb_samples, &found_samples);
@@ -456,8 +456,7 @@ static void __analyze_buffer(struct sample_list* samples,
 	    mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
 	  }
 	  if((uintptr_t)mem_info->buffer_addr<(uintptr_t)0x700000000000) {
-	    //	  fprintf(dump_file, "%d  0x%" PRIx64 " 0x%" PRIx64 " %" PRId64 " %s %" PRIu64 " %s\n",
-	    printf( "%d  0x%" PRIx64 " 0x%" PRIx64 " %" PRId64 " %s %" PRIu64 " %s. buffer_addr= %"PRIx64"\n",
+	    fprintf(dump_file, "%d  0x%" PRIx64 " 0x%" PRIx64 " %" PRId64 " %s %" PRIu64 " %s\n",
 		    samples->thread_rank, sample->ip, sample->addr, offset, get_data_src_level(sample->data_src),
 		    sample->weight, mem_info?mem_info->caller:"", mem_info->buffer_addr);
 	  }
