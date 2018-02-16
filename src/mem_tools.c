@@ -5,12 +5,16 @@
 #include "numamma.h"
 #include "mem_tools.h"
 #include "mem_intercept.h"
+#include "hash.h"
 
 #define HAVE_LIBBACKTRACE 1
 #if HAVE_LIBBACKTRACE
 #include <libbacktrace/backtrace.h>
 #include <libbacktrace/backtrace-supported.h>
 #endif
+
+
+struct ht_node* symbols=NULL;
 
 void print_backtrace(int backtrace_max_depth) {
   if(!IS_RECURSE_SAFE)
@@ -80,9 +84,16 @@ void* get_caller_rip(int depth) {
 
 char* get_caller_function_from_rip(void* rip) {
   char* retval = NULL;
+
+  /* check if the function corresponding to rip is already known */
+  retval = ht_get_value(symbols, (uint64_t) rip);
+  if(retval)
+    return retval;
+
   if(!rip) {
     retval = libmalloc(sizeof(char)*16);
     sprintf(retval, "???");
+    symbols = ht_insert(symbols, (uint64_t) rip, retval);
     return retval;
   }
 
@@ -99,6 +110,7 @@ char* get_caller_function_from_rip(void* rip) {
   if(current_frame[0] != '\0') {
     retval = libmalloc(sizeof(char)*4096);
     sprintf(retval, "%s", current_frame);
+    symbols = ht_insert(symbols, (uint64_t) rip, retval);
     return retval;
   }
 #endif
@@ -108,7 +120,7 @@ char* get_caller_function_from_rip(void* rip) {
   retval = libmalloc(sizeof(char)*4096);
   sprintf(retval, "%s", functions[0]);
   free(functions);
-
+  symbols = ht_insert(symbols, (uint64_t) rip, retval);
   return retval;
 }
 
