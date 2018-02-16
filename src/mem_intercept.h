@@ -24,7 +24,7 @@ typedef uint64_t canary_t;
  * (if not aligned, some weird bugs may happen when using -O3)
  */
 enum __memory_type {
-  MEM_TYPE_MALLOC, MEM_TYPE_HAND_MADE_MALLOC, MEM_TYPE_INTERNAL_MALLOC
+  MEM_TYPE_MALLOC, MEM_TYPE_NEW, MEM_TYPE_HAND_MADE_MALLOC, MEM_TYPE_INTERNAL_MALLOC
 };
 
 

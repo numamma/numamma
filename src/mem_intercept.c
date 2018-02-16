@@ -34,7 +34,8 @@ void* (*librealloc)(void *ptr, size_t size) = NULL;
 int  (*libpthread_create) (pthread_t * thread, const pthread_attr_t * attr,
 			   void *(*start_routine) (void *), void *arg) = NULL;
 void (*libpthread_exit) (void *thread_return) = NULL;
-
+void* (*lib_Znwm)(size_t size) = NULL; /* the "new" operator in c++ 64bits  */
+void* (*lib_Znwj)(size_t size) = NULL; /* the "new" operator in c++ 32bits  */
 
 /* Custom malloc function. It is used when libmalloc=NULL (e.g. during startup)
  * This function is not thread-safe and is very likely to be bogus, so use with
@@ -67,64 +68,66 @@ static void* hand_made_malloc(size_t size) {
   return p_block->u_ptr;
 }
 
-void* malloc(size_t size) {
-  /* if memory_init hasn't been called yet, we need to get libc's malloc
-   * address
-   */
-  if (!libmalloc) {
-    if( !IS_RECURSE_SAFE) {
-      /* protection flag says that malloc is already trying to retrieve the
-       * address of malloc.
-       * If we call dlsym now, there will be an infinite recursion, so let's
-       * allocate memory 'by hand'
-       */
-      return hand_made_malloc(size);
-    }
 
-    /* set the protection flag and retrieve the address of malloc.
-     * If dlsym calls malloc, memory will be allocated 'by hand'
-     */
-    PROTECT_FROM_RECURSION;
-    {
-      libmalloc = dlsym(RTLD_NEXT, "malloc");
-      char* error;
-      if ((error = dlerror()) != NULL) {
-	fputs(error, stderr);
-	exit(1);
-      }
-    }
-    /* it is now safe to call libmalloc */
-    UNPROTECT_FROM_RECURSION;
-  }
+#define STRINGIFY(x) #x
+#define GENERIC_MALLOC(FNAME, MALLOC_TYPE, CALLBACK)			\
+  void* FNAME(size_t size) {						\
+    /* if memory_init hasn't been called yet, we need to get libc's malloc \
+     * address								\
+     */									\
+    if (!CALLBACK) {							\
+      if( !IS_RECURSE_SAFE) {						\
+	/* protection flag says that malloc is already trying to retrieve the \
+	 * address of malloc.						\
+	 * If we call dlsym now, there will be an infinite recursion, so let's \
+	 * allocate memory 'by hand'					\
+	 */								\
+	return hand_made_malloc(size);					\
+      }									\
+									\
+      /* set the protection flag and retrieve the address of malloc.	\
+       * If dlsym calls malloc, memory will be allocated 'by hand'	\
+       */								\
+      PROTECT_FROM_RECURSION;						\
+      {									\
+	CALLBACK = dlsym(RTLD_NEXT, STRINGIFY(FNAME));			\
+	char* error;							\
+	if ((error = dlerror()) != NULL) {				\
+	  fputs(error, stderr);						\
+	  exit(1);							\
+	}								\
+      }									\
+      /* it is now safe to call libmalloc */				\
+      UNPROTECT_FROM_RECURSION;						\
+    }									\
+									\
+    /* allocate a buffer */						\
+    void* pptr = CALLBACK(size + HEADER_SIZE + TAIL_SIZE);		\
+    /* fill the information on the malloc'd buffer */			\
+    struct mem_block_info *p_block = NULL;				\
+    INIT_MEM_INFO(p_block, pptr, size, 1);				\
+									\
+    if(__memory_initialized && IS_RECURSE_SAFE) {			\
+      PROTECT_FROM_RECURSION;						\
+									\
+      p_block->mem_type = MALLOC_TYPE;					\
+									\
+      /* let the analysis module record information on the malloc */	\
+      ma_record_malloc(p_block);					\
+									\
+      UNPROTECT_FROM_RECURSION;						\
+    } else {								\
+      /* we are already processing a malloc/free function, so don't try to record information, \
+       * just call the function						\
+       */								\
+      p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;			\
+    }									\
+    return p_block->u_ptr;		\
+  }									\
 
-  //debug_printf("%s(size=%lu) ", __FUNCTION__, size);
-  /* allocate a buffer */
-  void* pptr = libmalloc(size + HEADER_SIZE + TAIL_SIZE);
-  /* fill the information on the malloc'd buffer */
-  struct mem_block_info *p_block = NULL;
-  INIT_MEM_INFO(p_block, pptr, size, 1);
-
-  if(__memory_initialized && IS_RECURSE_SAFE) {
-    PROTECT_FROM_RECURSION;
-
-    p_block->mem_type = MEM_TYPE_MALLOC;
-
-    /* let the analysis module record information on the malloc */
-    ma_record_malloc(p_block);
-    //    debug_printf("-> %p (p_block=%p)\n", p_block->u_ptr, p_block);
-
-    UNPROTECT_FROM_RECURSION;
-    //    return p_block->u_ptr;
-  } else {
-    /* we are already processing a malloc/free function, so don't try to record information,
-     * just call the function
-     */
-    p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
-  }
-
-  //  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
-  return p_block->u_ptr;//  return pptr;
-}
+GENERIC_MALLOC(malloc, MEM_TYPE_MALLOC, libmalloc);
+GENERIC_MALLOC(_Znwj, MEM_TYPE_NEW, libmalloc);
+GENERIC_MALLOC(_Znwm, MEM_TYPE_NEW, libmalloc);
 
 void* realloc(void *ptr, size_t size) {
 
@@ -253,7 +256,7 @@ void free(void* ptr) {
   if (!CANARY_OK(ptr)) {
     /* we didn't malloc this buffer */
     fprintf(stderr, "%s(%p). I don't know this malloc !\n", __FUNCTION__, ptr);
-    abort();
+    //    abort();
     libfree(ptr);
     return;
   }
@@ -262,7 +265,8 @@ void free(void* ptr) {
   USER_PTR_TO_BLOCK_INFO(ptr, p_block);
 
   /* retrieve the block information and free it */
-  if(__memory_initialized && IS_RECURSE_SAFE &&p_block->mem_type == MEM_TYPE_MALLOC) {
+  if(__memory_initialized && IS_RECURSE_SAFE &&
+     (p_block->mem_type == MEM_TYPE_MALLOC || p_block->mem_type == MEM_TYPE_NEW) ) {
     PROTECT_FROM_RECURSION;
 
     //    debug_printf("free(%p)\n", ptr);
@@ -272,11 +276,7 @@ void free(void* ptr) {
       abort();
     }
 
-    if (p_block->mem_type == MEM_TYPE_MALLOC) {
-      ma_record_free(p_block);
-    } else {
-      /* the buffer was allocated by hand_made_malloc, there's nothing to free */
-    }
+    ma_record_free(p_block);
     UNPROTECT_FROM_RECURSION;
   } else {
     /* internal malloc or hand made malloc, nothing to do */

@@ -14,7 +14,7 @@
 #include "mem_tools.h"
 #include "mem_sampling.h"
 
-//#define USE_HASHTABLE
+#define USE_HASHTABLE
 #define WARN_NON_FREED 1
 
 //static __thread  int  __record_infos = 0;
@@ -218,7 +218,7 @@ __ma_find_mem_info_in_list(mem_info_node_t *list,
 #ifdef USE_HASHTABLE
   fprintf(stderr, "%s not implemented\n", __FUNCTION__);
   return NULL;
-#endif
+#else
   mem_info_node_t retval = NULL;
   int n=0;
   pthread_mutex_lock(&mem_list_lock);
@@ -263,6 +263,7 @@ __ma_find_mem_info_in_list(mem_info_node_t *list,
   pthread_mutex_unlock(&mem_list_lock);
   avg_pos += pos;
   return retval;
+#endif
 }
 
 /* search for a buffer that contains address ptr
