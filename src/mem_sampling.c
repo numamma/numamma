@@ -120,9 +120,6 @@ void mem_sampling_finalize() {
   if(offline_analysis) {
     /* analyze the samples that were copied at runtime */
 
-    //    ma_print_current_buffers();
-    //    ma_print_past_buffers();
-
     printf("Analyzing %d sample buffers\n", nb_sample_buffers);
     start_tick(offline_sample_analysis);
     int nb_blocks = 0;
@@ -246,7 +243,7 @@ void mem_sampling_start() {
   /* TODO: implement numap_sampling_read_resume(&sm)
    * this function would only call ioctl (there's no need to call perf_event_open, mmap, etc. again
    */
-  int res = numap_sampling_read_start(&sm);
+  int res = numap_sampling_read_start_generic(&sm, SAMPLING_TYPE);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_read_start error : %s\n", numap_error_message(res));
     if(res ==  ERROR_PERF_EVENT_OPEN && errno == EACCES) {
@@ -257,7 +254,7 @@ void mem_sampling_start() {
 
   // Start write sampling only if supported
   if (numap_sampling_write_supported()) {
-    res = numap_sampling_write_start(&sm_wr);
+    res = numap_sampling_write_start_generic(&sm_wr, SAMPLING_TYPE);
     if(res < 0) {
       fprintf(stderr, "numap_sampling_write_start error : %s\n", numap_error_message(res));
       abort();
@@ -348,14 +345,8 @@ static void __copy_samples(struct numap_sampling_measure *sm,
     new_sample_buffer->access_type = access_type;
     new_sample_buffer->buffer_size = sample_size;
 
-    start_tick(memcpy_samples);
-
+    start_tick(memcpy_samples);    
     memcpy(new_sample_buffer->buffer, start_addr, sample_size);
-
-    /* todo: when analyzing, take timestamps into account  */
-    //new_sample_buffer->start_date.tv_sec = start_date.tv_sec;
-    //new_sample_buffer->start_date.tv_nsec = start_date.tv_nsec;
-    //clock_gettime(CLOCK_MONOTONIC, &new_sample_buffer->stop_date);
 
     new_sample_buffer->start_date = start_date;
     new_sample_buffer->stop_date = new_date();
@@ -367,8 +358,6 @@ static void __copy_samples(struct numap_sampling_measure *sm,
     nb_sample_buffers++;
 
     stop_tick(memcpy_samples);
-
-    //    metadata_page->data_tail = metadata_page->data_head;
 
     debug_printf("[%d] copied %zu bytes\n", thread_rank, sample_size);
     stop_tick(rmb);
@@ -391,16 +380,11 @@ static void __analyze_buffer(struct sample_list* samples,
       abort();
     }
     if (event->type == PERF_RECORD_SAMPLE) {
-      struct sample *sample = (struct sample *)((char *)(event) + 8); /* todo: remplacer 8 par sizeof(ptr) ? */
+      struct mem_sample *sample = (struct mem_sample *)((char *)(event) + 8); /* todo: remplacer 8 par sizeof(ptr) ? */
       (*nb_samples)++;
-
-      /* todo: add a parameter for specifying if we should search through pending or past buffers */
-      //struct memory_info* mem_info = ma_find_mem_info_from_addr(sample->addr);
-      struct memory_info* mem_info = ma_find_past_mem_info_from_addr(sample->addr,
-								     samples->start_date,
-								     samples->stop_date);
-
-      if(mem_info) {
+      struct memory_info* mem_info = ma_find_mem_info_from_sample(sample);
+     
+      if(mem_info) {      
 	if(!mem_info->blocks) {
 	  ma_allocate_counters(mem_info);
 	  ma_init_counters(mem_info);
@@ -436,16 +420,6 @@ static void __analyze_buffer(struct sample_list* samples,
 	if (is_served_by_remote_cache_or_local_memory(sample->data_src)) {
 	  block->counters[samples->access_type].remote_cache_count++;
 	}
-      } else {
-#if 0
-	printf("\nNo match for addr %p between %lx - %lx\n", (void*)sample->addr,
-	       DATE(samples->start_date),
-	       DATE(samples->stop_date));
-	printf("here's the list of past buffers:\n");
-	ma_print_past_buffers();
-	printf("\n\nAnd the list of current buffers:\n");
-	ma_print_current_buffers();
-#endif
       }
 
       if(_dump) {
@@ -455,10 +429,11 @@ static void __analyze_buffer(struct sample_list* samples,
 	  if(!mem_info->caller) {
 	    mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
 	  }
-	  if((uintptr_t)mem_info->buffer_addr<(uintptr_t)0x700000000000) {
-	    fprintf(dump_file, "%d  0x%" PRIx64 " 0x%" PRIx64 " %" PRId64 " %s %" PRIu64 " %s\n",
-		    samples->thread_rank, sample->ip, sample->addr, offset, get_data_src_level(sample->data_src),
+	  if((uintptr_t)mem_info->buffer_addr<(uintptr_t)0x7fff00000000) {
+	    fprintf(dump_file, "%d 0x%" PRIx64 " 0x%" PRIx64 " %" PRId64 " %s %" PRIu64 " %s\n",
+		    samples->thread_rank, sample->timestamp, sample->addr, offset, get_data_src_level(sample->data_src),
 		    sample->weight, mem_info?mem_info->caller:"", mem_info->buffer_addr);
+	    memset(sample, 0x00, sizeof(struct mem_sample));
 	  }
 	}
       }

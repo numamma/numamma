@@ -61,7 +61,7 @@ static int backtrace_callback (void *data, uintptr_t pc,
     /* symbol can't be resolved */
     current_frame[0]='\0';
   } else {
-    snprintf(current_frame, 4096, "%s:%d %s", filename, lineno, function);
+    snprintf(current_frame, 4096, "%s:%d(%s)", filename, lineno, function);
   }
   return 0;
 }

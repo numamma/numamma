@@ -1,5 +1,6 @@
 #ifndef MEM_TOOLS_H
 #define MEM_TOOLS_H
+#include <time.h>
 #include "mem_intercept.h"
 
 #define  ENABLE_TICKS 1
@@ -13,10 +14,14 @@ char* get_caller_function(int depth);
 /* return the name (function name +line) of the instruction located at address rip */
 char* get_caller_function_from_rip(void* rip);
 
-void print_backtrace(int backtrace_max_depth);
+void print_backtraceo(int backtrace_max_depth);
 
 
 static inline uint64_t new_date() {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &t);
+  return t.tv_sec*1e9+t.tv_nsec;
+
 #ifdef __x86_64__
   // This is a copy of rdtscll function from asm/msr.h
 #define ticks(val) do {					\

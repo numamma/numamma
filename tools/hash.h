@@ -6,14 +6,20 @@
 #include <string.h>
 #include <stdint.h>
 
+
+struct ht_entry {
+  void* value;
+  struct ht_entry*next;
+};
+
 struct ht_node {
-  /* todo: make this parametric */
   uint64_t key;
   struct ht_node *parent;
   struct ht_node *left;
   struct ht_node *right;
   int height;
-  void *value;
+  /* each key is associated with a list of entries */
+  struct ht_entry *entries;
 };
 
 
@@ -82,11 +88,21 @@ struct ht_node* ht_insert(struct ht_node* node, uint64_t key, void* value);
 struct ht_node* ht_remove_key(struct ht_node* node, uint64_t key);
 
 
+/* remove a (key,value) set from the hashtable
+ * return the new root of this tree
+ */
+struct ht_node* ht_remove_key_value(struct ht_node* node, uint64_t key, void* value);
+
+
+
 /* Free a subtree */
 void ht_release(struct ht_node *node);
 
 
-/* return the value associated with key */
+/* return the entry associated with key */
+struct ht_entry *ht_get_entry(struct ht_node *node, uint64_t key);
+
+/* return a value associated with key */
 void *ht_get_value(struct ht_node *node, uint64_t key);
 
 /* return 1 if the hash table contains the key */
@@ -100,7 +116,7 @@ struct ht_node* ht_lower_key(struct ht_node* node, uint64_t key);
 
 
 
-/* return the number of values stored in the hashtable */
+/* return the number of keys stored in the hashtable */
 int ht_size(struct ht_node* node);
 
 /* return the height of a node */

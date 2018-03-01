@@ -130,13 +130,29 @@ int is_address_in_buffer(uint64_t addr, struct memory_info *buffer){
   return 0;
 }
 
+static
+int is_sample_in_buffer(struct mem_sample *sample, struct memory_info *buffer){
+  void* addr_ptr = (void*)sample->addr;
+  if(buffer->buffer_addr <= addr_ptr &&
+     addr_ptr < buffer->buffer_addr + buffer->buffer_size) {
+    /* address matches */
+    return 1;
+    if(buffer->alloc_date <=sample->timestamp &&
+       sample->timestamp <= buffer->free_date) {
+      /* timestamp matches */
+      return 1;
+    }
+  }
+  return 0;
+}
+
 void ma_print_mem_info(struct memory_info *mem) {
   if(mem) {
     if(!mem->caller) {
       mem->caller = get_caller_function_from_rip(mem->caller_rip);
     }
 
-    printf("mem %p = {.alloc_date=%" PRIu64 ", .free_date=%" PRIu64 ", size=%ld, alloc_site=%p / %s}\n",
+    printf("mem %p = {.addr=0x%"PRIx64", .alloc_date=%" PRIu64 ", .free_date=%" PRIu64 ", size=%ld, alloc_site=%p / %s}\n", mem,
 	   mem->buffer_addr, mem->alloc_date?DATE(mem->alloc_date):0, mem->free_date?DATE(mem->free_date):0,
 	   mem->buffer_size, mem->caller_rip, mem->caller?mem->caller:"");
   }
@@ -145,7 +161,16 @@ void ma_print_mem_info(struct memory_info *mem) {
 static void __ma_print_buffers_generic(mem_info_node_t list) {
 #ifdef USE_HASHTABLE
   /* todo */
-  fprintf(stderr, "%s not implemented\n", __FUNCTION__);
+  struct ht_node*p_node = NULL;
+  FOREACH_HASH(mem_list, p_node) {
+    struct ht_entry*e = p_node->entries;
+    while(e) {
+      struct memory_info* mem_info = e->value;
+      ma_print_mem_info(mem_info);
+      e = e->next;
+    }
+
+  }
 #else
   struct memory_info_list * p_node = list;
   while(p_node) {
@@ -171,8 +196,14 @@ __ma_find_mem_info_from_addr_generic(mem_info_node_t list,
   pthread_mutex_lock(&mem_list_lock);
 #ifdef USE_HASHTABLE
   mem_info_node_t p_node =  ht_lower_key(list, ptr);
-  if(p_node && is_address_in_buffer(ptr, p_node->value)) {
-    retval = p_node;
+  if(p_node) {
+    struct ht_entry*e = p_node->entries;
+    while(e) {
+      if(is_address_in_buffer(ptr, e->value)) {
+	retval = p_node;
+      }
+      e = e->next;
+    }
   }
 #else
   struct memory_info_list * p_node = list;
@@ -194,18 +225,63 @@ __ma_find_mem_info_from_addr_generic(mem_info_node_t list,
   return retval;
 }
 
+static struct memory_info*
+__ma_find_mem_info_from_sample_generic(mem_info_node_t list,
+				       struct mem_sample *sample) {
+  struct memory_info* retval = NULL;
+  int n=0;
+  pthread_mutex_lock(&mem_list_lock);
+#ifdef USE_HASHTABLE
+  mem_info_node_t p_node =  ht_lower_key(list, sample->addr);
+  if(p_node) {
+    struct ht_entry*e = p_node->entries;
+    while(e) {
+      struct memory_info*val = e->value;   
+      if(is_sample_in_buffer(sample, e->value)) {
+	retval = e->value;
+	goto out;
+      }
+      e = e->next;
+    }
+  }
+#else
+  struct memory_info_list * p_node = list;
+  while(p_node) {
+    if(is_sample_in_buffer(sample, &p_node->mem_info)) {
+      retval = p_node->value;
+      goto out;
+    }
+    n++;
+    p_node = p_node->next;
+  }
+#endif
+
+ out:
+  if(n > 100) {
+    printf("%s: %d buffers\n", __FUNCTION__, n);
+  }
+  pthread_mutex_unlock(&mem_list_lock);
+  return retval;
+}
+
 
 struct memory_info*
 ma_find_mem_info_from_addr(uint64_t ptr) {
+  /* todo: a virer */
   mem_info_node_t ret = __ma_find_mem_info_from_addr_generic(mem_list, ptr);
   if(ret) {
 #ifdef USE_HASHTABLE
-    return ret->value;
+    return ret->entries->value;
 #else
     return &ret->mem_info;
 #endif
   }
   return NULL;
+}
+
+struct memory_info*
+ma_find_mem_info_from_sample(struct mem_sample* sample) {
+  return __ma_find_mem_info_from_sample_generic(mem_list, sample);
 }
 
 uint64_t avg_pos = 0;
@@ -273,6 +349,7 @@ struct memory_info*
 ma_find_past_mem_info_from_addr(uint64_t ptr,
 				date_t start_date,
 				date_t stop_date) {
+  /* todo: a virer */
 #ifdef USE_HASHTABLE
   mem_info_node_t ret = __ma_find_mem_info_from_addr_generic(past_mem_list, ptr);
 #else
@@ -282,7 +359,7 @@ ma_find_past_mem_info_from_addr(uint64_t ptr,
   if(ret) {
     struct memory_info* retval = NULL;
 #ifdef USE_HASHTABLE
-    retval = ret->value;
+    retval = ret->entries->value;
     if((retval->alloc_date >= start_date &&
 	retval->alloc_date <= stop_date) ||
        (retval->free_date >= start_date &&
@@ -603,7 +680,7 @@ void ma_get_global_variables() {
 	  __init_counters(mem_info);
 	}
 
-	debug_printf("Found a global variable: %s (defined at %s). base addr=%p, size=%zu\n",
+	printf("Found a global variable: %s (defined at %s). base addr=%p, size=%zu\n",
 		     symbol, file, mem_info->buffer_addr, mem_info->buffer_size);
 	pthread_mutex_lock(&mem_list_lock);
 #ifdef USE_HASHTABLE
@@ -739,9 +816,10 @@ void ma_update_buffer_address(struct mem_block_info* info, void *old_addr, void 
 void set_buffer_free(struct mem_block_info* p_block) {
   pthread_mutex_lock(&mem_list_lock);
 #ifdef USE_HASHTABLE
+  /* nothing to do here: we keep all buffers in the same hashmap. We'll use the timestamps to differenciate them  */
   struct memory_info* mem_info = p_block->record_info;
-  mem_list = ht_remove_key(mem_list, (uint64_t)mem_info->buffer_addr);
-  past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
+  //  mem_list = ht_remove_key(mem_list, (uint64_t)mem_info->buffer_addr);
+  //  past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
 
 #else
   struct memory_info_list * p_node = mem_list;
@@ -1071,16 +1149,24 @@ void warn_non_freed_buffers() {
 
   struct memory_info* mem_info = NULL;
 #ifdef USE_HASHTABLE
-  while(mem_list) {
-    mem_info = mem_list->value;
+  struct ht_node*p_node = NULL;
+  FOREACH_HASH(mem_list, p_node) {
+    struct ht_entry*e = p_node->entries;
+    while(e) {
+      mem_info = e->value;
+      if(! mem_info->free_date) {
 #if WARN_NON_FREED
-    printf("Warning: buffer %p (size=%lu bytes) was not freed\n",
-	   mem_info->buffer_addr, mem_info->buffer_size);
+	printf("Warning: buffer %p (size=%lu bytes) was not freed\n",
+	       mem_info->buffer_addr, mem_info->buffer_size);
 #endif
-    mem_info->free_date = new_date();
-    /* remove the record from the list of malloc'd buffers */
-    mem_list = ht_remove_key(mem_list, mem_list->key);
-    past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
+	mem_info->free_date = new_date();
+      }
+      /* remove the record from the list of malloc'd buffers */
+      //      mem_list = ht_remove_key_value(mem_list, mem_list->key, e->value);
+      //      past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
+
+      e=e->next;
+    }
   }
 
 #else
@@ -1112,6 +1198,7 @@ void warn_non_freed_buffers() {
 
 
 void ma_finalize() {
+
   ma_thread_finalize();
   PROTECT_RECORD;
   warn_non_freed_buffers();
@@ -1130,8 +1217,10 @@ void ma_finalize() {
 
   /* browse the list of memory buffers  */
 #ifdef USE_HASHTABLE
-  FOREACH_HASH(past_mem_list, p_node) {
-    mem_info = p_node->value;
+  FOREACH_HASH(mem_list, p_node) {
+    struct ht_entry*e = p_node->entries;
+    while(e) {
+      mem_info = e->value;
 #else
     for(p_node = past_mem_list;
 	p_node;
@@ -1191,7 +1280,10 @@ void ma_finalize() {
 		     mem_info->caller,
 		     r_access_frequency);
       }
-
+#ifdef USE_HASHTABLE
+      e = e->next;
+    }
+#endif
     }
 
     print_call_site_summary();
@@ -1202,5 +1294,6 @@ void ma_finalize() {
     }
     pthread_mutex_unlock(&mem_list_lock);
     UNPROTECT_RECORD;
+    ma_print_current_buffers();
   }
 

@@ -1,6 +1,7 @@
 #ifndef MEM_ANALYZER_H
 #define MEM_ANALYZER_H
 
+#include <perfmon/pfmlib_perf_event.h>
 #include <stdint.h>
 #include "mem_intercept.h"
 
@@ -59,6 +60,14 @@ struct mem_sampling_stat {
   uint64_t consumed;
 };
 
+struct __attribute__ ((__packed__)) mem_sample {
+  uint64_t timestamp;
+  uint64_t addr;
+  uint64_t weight;
+  union perf_mem_data_src data_src;
+};
+
+#define SAMPLING_TYPE (PERF_SAMPLE_TIME | PERF_SAMPLE_ADDR | PERF_SAMPLE_WEIGHT | PERF_SAMPLE_DATA_SRC)
 
 void ma_init();
 void ma_get_global_variables();
@@ -75,6 +84,9 @@ void ma_init_counters(struct memory_info* mem_info);
 
 /* return the block that contains ptr in a mem_info */
 struct block_info* ma_get_block(struct memory_info* mem_info, int thread_rank, uintptr_t ptr);
+
+/* find the mem_info that corresponds to a sample or NULL if not found  */
+struct memory_info* ma_find_mem_info_from_sample(struct mem_sample* sample);
 
 struct memory_info* ma_find_mem_info_from_addr(uint64_t ptr);
 struct memory_info* ma_find_past_mem_info_from_addr(uint64_t ptr,
