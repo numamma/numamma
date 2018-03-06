@@ -16,6 +16,16 @@ SET(PKG_CONFIG_CFLAGS  "-I\${includedir}"  )
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
+find_package (numactl)
+if (NUMACTL_FOUND)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${NUMACTL_INCLUDE_DIRS}")
+  set(PKG_CONFIG_CFLAGS "${PKG_CONFIG_CFLAGS} -I${NUMACTL_INCLUDE_DIRS}")
+  set(PKG_CONFIG_LIBS "${PKG_CONFIG_LIBS} ${NUMACTL_LIBRARIES}")
+  link_directories(${NUMACTL_LIB_DIR})
+else (NUMACTL_FOUND)
+  message(FATAL_ERROR "numactl not found")
+endif (NUMACTL_FOUND)
+
 find_package (numap)
 if (NUMAP_FOUND)
 

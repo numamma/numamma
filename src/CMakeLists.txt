@@ -10,7 +10,7 @@ add_library(numa_run SHARED
   mem_run.c
   mem_tools.c
   )
-target_link_libraries(numa_run ${NUMAP_LIBRARY} -ldl -lpthread)
+target_link_libraries(numa_run ${NUMAP_LIBRARY} -lnuma -ldl -lpthread)
 
 configure_file (
   "${PROJECT_SOURCE_DIR}/src/mem_intercept.in"
