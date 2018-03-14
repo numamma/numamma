@@ -1,6 +1,10 @@
-* tools folder
+# NumaMMa: Numa Memory Manager 
 
-** count_events
+## Content of this repository
+
+### tools folder
+
+#### count_events
 
 The  two  files ~count_events.c~  and  ~count_events.in~  are used  to
 generate  a dynamic  library, ~libcount_events.so~  and an  executable
@@ -14,15 +18,16 @@ constructor  function starts  the counting  of 28  events through  the
 ~perf_event_open~  system call.   The  destructor  function stops  the
 counting and prints the count of each event on stdout.
 
-** libnumamma-tools
+#### libnumamma-tools
 
 The   file    ~hash.c~   is    compiled   into   a    shared   library
 ~libnumamma-tools.so~.  This file  provides  functions  to create  and
 manipulate a has map.
 
  
-* src folder
-** libnumama
+### src folder
+
+#### libnumama
 
 Includes:
 
@@ -44,7 +49,7 @@ Includes:
   + Shell  script parametric  file  used  to ld_preload  libnumama.so
     before running a program.
 
-** libnuma_run
+#### libnuma_run
 
 Something new  by François  which is  just as  ~mem_intercept.c~ whith
 control of threads location.
