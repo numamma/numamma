@@ -76,6 +76,14 @@ cd ../..
 
 ```
 
+## Profile an application
+
+To profile your application with NumaMMa, just laucnh it through the `mem_intercept` script installed when NumaMMa has been built:
+
+```bash
+mem_intercept myappli      
+```
+
 ## Content of this repository
 
 ### src folder
