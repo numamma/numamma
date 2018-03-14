@@ -62,7 +62,7 @@ mv backtrace.h  backtrace-supported.h libbacktrace
 cd ../../..
 
 # numamma
-git clone git@github.com:numamma/numamma.git numamma
+git clone git@github.com:numamma/numamma.git
 cd numamma
 mkdir build
 cd build
