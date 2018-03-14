@@ -12,7 +12,7 @@ NumaMMa relies on the folowing libraries:
 
 ## Build
 
-The above dependencies must be installed first. Then NumaMMa itself can be built. The following commands can be used to download and build NumaMMa with all its dependencies. If you do not have a github account with an SSH key properly configured, the git clone commands should be changed to use https.
+The above dependencies must be installed first. Then NumaMMa itself can be built. The following commands can be used to download and build NumaMMa with all its dependencies. If you do not have a github account with an SSH key properly configured, the git clone commands targeting github.com should be changed to use https.
 
 ```bash
 
