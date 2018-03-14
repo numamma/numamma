@@ -84,6 +84,8 @@ To profile your application with NumaMMa, just laucnh it through the `mem_interc
 mem_intercept myappli      
 ```
 
+At the end of the execution, NumaMMa will report information about the memory accesses of the application. The `-o` option can be used to tell NumaMMa to record raw memory samples in a file.
+
 ## Content of this repository
 
 ### src folder
