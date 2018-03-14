@@ -1,6 +1,6 @@
 # NumaMMa: Numa Memory Manager 
 
-## Content of this repository
+## Content of this repository
 
 ### tools folder
 
