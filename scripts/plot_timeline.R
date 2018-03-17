@@ -30,7 +30,7 @@ labels=graduations/(2097152/2)
 limx=c(range(data["timestamp"])[1], range(data["timestamp"])[2])
 # extract partx % of the data on the x axis
 xrange=(limx[2]-limx[1])
-xrange=xrange*partx/100
+xrange=xrange*partx
 limx[2]=limx[1]+xrange
 
 labels=lapply(labels, function(x) {paste(x, " MB");})
