@@ -211,8 +211,9 @@ void mem_sampling_finalize() {
       int found_samples = 0;
       if(nb_blocks % 10 == 0) {
 	fflush(stdout);
-	printf("\rAnalyzing sample buffer %d/%d. Total samples so far: %d\n",
-	       nb_blocks, nb_sample_buffers, nb_samples_total);
+	printf("\rAnalyzing sample buffer %d/%d [%lx - %lx]. Total samples so far: %d",
+	       nb_blocks, nb_sample_buffers,
+	       samples->start_date, samples->stop_date, nb_samples_total);
      }
       __analyze_buffer(samples, &nb_samples, &found_samples);
       nb_samples_total += nb_samples;
@@ -274,6 +275,8 @@ void mem_sampling_resume() {
   if(setting_sampling_stuff)
     return;
   setting_sampling_stuff=1;
+
+  start_date = new_date();
 
   // Resume read sampling
   int res = numap_sampling_resume(&sm);
@@ -427,9 +430,8 @@ static void __copy_samples(struct numap_sampling_measure *sm,
     new_sample_buffer->access_type = access_type;
     new_sample_buffer->buffer_size = sample_size;
 
-    start_tick(memcpy_samples);    
+    start_tick(memcpy_samples);
     memcpy(new_sample_buffer->buffer, start_addr, sample_size);
-
     new_sample_buffer->start_date = start_date;
     new_sample_buffer->stop_date = new_date();
     new_sample_buffer->thread_rank = thread_rank;
@@ -456,6 +458,8 @@ static void __analyze_buffer(struct sample_list* samples,
   size_t consumed = 0;
   struct perf_event_header *event = samples->buffer; /* todo: devrait etre metadata+sm->page_size ? */
 
+  fprintf(dump_file, "%d Analyze samples %p (size=%d), start: %lu stop: %lu -- duration: %llu\n",
+	  samples->thread_rank, samples, samples->buffer_size, samples->start_date, samples->stop_date, samples->stop_date-samples->start_date);
   while(consumed < samples->buffer_size) {
     if(event->size == 0) {
       fprintf(stderr, "Error: invalid header size = 0\n");
@@ -519,7 +523,7 @@ static void __analyze_buffer(struct sample_list* samples,
 	    mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
 	  }
 	  if(mem_info->mem_type != stack) {
-	    fprintf(dump_file, "%d 0x%" PRIx64 " 0x%" PRIx64 " %" PRId64 " %s %" PRIu64 " %s\n",
+	    fprintf(dump_file, "%d %" PRIu64 " %" PRIu64 " %" PRId64 " %s %" PRIu64 " %s\n",
 		    samples->thread_rank, sample->timestamp, sample->addr, offset, get_data_src_level(sample->data_src),
 		    sample->weight, mem_info?mem_info->caller:"", mem_info->buffer_addr);
 	  }

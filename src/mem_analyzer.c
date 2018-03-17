@@ -1190,7 +1190,7 @@ void print_call_site_summary() {
   }
   fclose(summary_file);
   fclose(callsite_file);
-  print_buffer_list();
+  //  print_buffer_list();
 }
 
 /* browse the list of malloc'd buffers that were not freed */
@@ -1342,6 +1342,6 @@ void ma_finalize() {
     }
     pthread_mutex_unlock(&mem_list_lock);
     UNPROTECT_RECORD;
-    ma_print_current_buffers();
+    //    ma_print_current_buffers();
   }
 
