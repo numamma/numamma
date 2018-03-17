@@ -340,10 +340,10 @@ __pthread_new_thread(void *arg) {
 
 static void __thread_cleanup_function(void* arg) {
   struct thread_info* me = arg;
-  PROTECT_FROM_RECURSION;
+  is_recurse_unsafe ++;
   ma_thread_finalize();
   me->status = thread_status_finalized;
-  UNPROTECT_FROM_RECURSION;
+  is_recurse_unsafe --;
 }
 
 int
