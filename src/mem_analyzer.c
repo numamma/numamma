@@ -642,6 +642,8 @@ void ma_get_global_variables() {
 
   while(!feof(f)) {
     if( ! fgets(line, 4096, f) ) {
+      if(errno == EINTR)
+	continue;
       goto out;
     }
 
@@ -1077,7 +1079,6 @@ static void __sort_sites() {
 static void __plot_counters(struct memory_info *mem_info,
 			    int nb_threads,
 			    const char*filename) {
-  printf("Writing file %s\n", filename);
   FILE* file = fopen(filename, "w");
   assert(file);
 
