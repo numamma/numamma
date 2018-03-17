@@ -17,8 +17,6 @@
 #define USE_HASHTABLE
 #define WARN_NON_FREED 1
 
-//static __thread  int  __record_infos = 0;
-
 #ifdef USE_HASHTABLE
 #include "hash.h"
 typedef struct ht_node* mem_info_node_t;
@@ -37,6 +35,7 @@ static pthread_mutex_t mem_list_lock;
 
 __thread unsigned thread_rank;
 unsigned next_thread_rank = 0;
+static char program_file[4096];
 
 static __thread int is_record_safe = 1;
 #define IS_RECORD_SAFE (is_record_safe)
@@ -146,19 +145,19 @@ int is_sample_in_buffer(struct mem_sample *sample, struct memory_info *buffer){
   return 0;
 }
 
-void ma_print_mem_info(struct memory_info *mem) {
+void ma_print_mem_info(FILE*f, struct memory_info *mem) {
   if(mem) {
     if(!mem->caller) {
       mem->caller = get_caller_function_from_rip(mem->caller_rip);
     }
 
-    printf("mem %p = {.addr=0x%"PRIx64", .alloc_date=%" PRIu64 ", .free_date=%" PRIu64 ", size=%ld, alloc_site=%p / %s}\n", mem,
+    fprintf(f, "mem %p = {.addr=0x%"PRIx64", .alloc_date=%" PRIu64 ", .free_date=%" PRIu64 ", size=%ld, alloc_site=%p / %s}\n", mem,
 	   mem->buffer_addr, mem->alloc_date?DATE(mem->alloc_date):0, mem->free_date?DATE(mem->free_date):0,
 	   mem->buffer_size, mem->caller_rip, mem->caller?mem->caller:"");
   }
 }
 
-static void __ma_print_buffers_generic(mem_info_node_t list) {
+static void __ma_print_buffers_generic(FILE*f, mem_info_node_t list) {
 #ifdef USE_HASHTABLE
   /* todo */
   struct ht_node*p_node = NULL;
@@ -166,7 +165,7 @@ static void __ma_print_buffers_generic(mem_info_node_t list) {
     struct ht_entry*e = p_node->entries;
     while(e) {
       struct memory_info* mem_info = e->value;
-      ma_print_mem_info(mem_info);
+      ma_print_mem_info(f, mem_info);
       e = e->next;
     }
 
@@ -174,18 +173,18 @@ static void __ma_print_buffers_generic(mem_info_node_t list) {
 #else
   struct memory_info_list * p_node = list;
   while(p_node) {
-    ma_print_mem_info(&p_node->mem_info);
+    ma_print_mem_info(f, &p_node->mem_info);
     p_node = p_node->next;
   }
 #endif
 }
 
 void ma_print_current_buffers() {
-  __ma_print_buffers_generic(mem_list);
+  __ma_print_buffers_generic(stdout, mem_list);
 }
 
 void ma_print_past_buffers() {
-  __ma_print_buffers_generic(past_mem_list);
+  __ma_print_buffers_generic(stdout, past_mem_list);
 }
 
 static mem_info_node_t
@@ -497,26 +496,9 @@ extern void unset_ld_preload();
  */
 extern void reset_ld_preload();
 
-
 /* find the address range of the stack and add a mem_info record */
-static void __ma_get_stack_range(const char* program_file) {
-  char cmd[4096];
-  char line[4096];
-  void *stack_base_addr = NULL;
-  void *stack_end_addr = NULL;
-
-  /* find the address range of the stack */
-  sprintf(cmd, "cat /proc/%d/maps |grep \"\\[stack\\]\"", getpid());
-  FILE* f = popen(cmd, "r");
-  fgets(line, 4096, f);
-  fclose(f);
-  /* extract start/end addresses */
-  sscanf(line, "%p-%p", &stack_base_addr, &stack_end_addr);
-
-  //ack_base_addr = 0x500000000000;
-  stack_base_addr = (void*)0x700000000000;
-  stack_end_addr = (void*)0x7fffffffffff;
-
+static void __ma_register_stack_range(uintptr_t stack_base_addr,
+				      uintptr_t stack_end_addr) {
   size_t stack_size = stack_end_addr - stack_base_addr;
 
   debug_printf("Stack address range: %p-%p (stack size: %lu bytes)\n",
@@ -531,11 +513,12 @@ static void __ma_get_stack_range(const char* program_file) {
   mem_info = &p_node->mem_info;
 #endif
 
+  mem_info->mem_type=stack;
   mem_info->alloc_date = 0;
   mem_info->free_date = 0;
   mem_info->initial_buffer_size = stack_size;
   mem_info->buffer_size = stack_size;
-  mem_info->buffer_addr = stack_base_addr;
+  mem_info->buffer_addr = (void*)stack_base_addr;
   mem_info->caller = mem_allocator_alloc(string_allocator);
   snprintf(mem_info->caller, 1024, "[stack]");
   if(! offline_analysis) {
@@ -555,6 +538,49 @@ static void __ma_get_stack_range(const char* program_file) {
   pthread_mutex_unlock(&mem_list_lock);
 }
 
+void ma_register_stack() {
+  char cmd[4096];
+  char line[4096];
+
+  uintptr_t stack_base_addr= (uintptr_t)0x7fa000000000;
+  uintptr_t stack_end_addr= (uintptr_t)0x7fffffffffff;
+  __ma_register_stack_range(stack_base_addr, stack_end_addr);
+  return;
+  
+  FILE* f=fopen("/proc/self/maps", "r");
+  if(!f) {
+    perror("fopen failed");
+    abort();
+  }
+  while(fgets(line, 4096, f) != NULL) {
+    /* extract start/end addresses */
+    // each line is in the form:
+    // <start_addr>-<end_addr> <permission> <offset> <device> <inode> <file>
+
+    void *stack_base_addr = NULL;
+    void *stack_end_addr = NULL;
+    char permission[10];
+    size_t offset=0;
+    int device1;
+    int device2;
+    int inode;
+    char file[4096];
+      
+    int nfields = sscanf(line, "%p-%p %s %x %x:%x %d %s",
+		     &stack_base_addr, &stack_end_addr, permission, &offset,
+		     &device1, &device2, &inode, file);
+    if(nfields == 7 || (inode == 0 && strcmp(file, "[stack]")==0)) {
+      if((uintptr_t)stack_base_addr > (uintptr_t)0x7f0000000000) {
+	/* let's assume this is a stack region */
+	printf("While reading '%s', found %d fields. inode=%d, file='%s'\n", line, nfields, inode, file);
+
+	__ma_register_stack_range((uintptr_t)stack_base_addr, (uintptr_t)stack_end_addr);
+      }
+    }
+  }
+  fclose(f);
+}  
+
 /* get the list of global/static variables with their address and size */
 void ma_get_global_variables() {
   /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
@@ -565,10 +591,19 @@ void ma_get_global_variables() {
   char readlink_cmd[1024];
   sprintf(readlink_cmd, "readlink /proc/%d/exe", getpid());
   FILE* f = popen(readlink_cmd, "r");
-  char program_file[4096];
-  fgets(program_file, 4096, f);
+  if(!f) {
+    perror("failed to get the program filename");
+    abort();
+  }
+  while(fgets(program_file, 4096, f) == NULL) {
+    /* fgets may be interrupted if we set an alarm */
+    if(errno != EINTR ) {
+      perror("fgets failed");
+      abort();
+    }
+  }
   strtok(program_file, "\n"); // remove trailing newline
-  fclose(f);
+  pclose(f);
 
   debug_printf("  The program file is %s\n", program_file);
   /* get the address at which the program is mapped in memory */
@@ -584,11 +619,10 @@ void ma_get_global_variables() {
     int exit_status= WEXITSTATUS(ret);
     if(exit_status == EXIT_SUCCESS) {
       /* process is compiled with -fPIE, thus, the addresses in the ELF are to be relocated */
-      //      sprintf(cmd, "cat /proc/%d/maps |grep \"%s\" | grep  \" rw-p \"", getpid(), program_file);
       sprintf(cmd, "cat /proc/%d/maps |grep \"[heap]\"", getpid());
       f = popen(cmd, "r");
       fgets(line, 4096, f);
-      fclose(f);
+      pclose(f);
       sscanf(line, "%p-%p", &base_addr, &end_addr);
       debug_printf("  This program was compiled with -fPIE. It is mapped at address %p\n", base_addr);
     } else {
@@ -597,11 +631,11 @@ void ma_get_global_variables() {
       end_addr= NULL;
       debug_printf("  This program was not compiled with -fPIE. It is mapped at address %p\n", base_addr);
     }
-
-    __ma_get_stack_range(program_file);
   }
 
   /* get the list of global variables in the current binary */
+  if(strcmp(program_file, "/usr/bin/bash")==0)
+    exit(EXIT_SUCCESS);
   char nm_cmd[1024];
   sprintf(nm_cmd, "nm --defined-only -l -S %s", program_file);
   f = popen(nm_cmd, "r");
@@ -660,7 +694,7 @@ void ma_get_global_variables() {
 	struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
 	mem_info = &p_node->mem_info;
 #endif
-
+	mem_info->mem_type = global_symbol;
 	mem_info->alloc_date = 0;
 	mem_info->free_date = 0;
 	mem_info->initial_buffer_size = size;
@@ -673,8 +707,7 @@ void ma_get_global_variables() {
 	sscanf(addr, "%lx", &offset);
 	mem_info->buffer_addr = offset + (uint8_t*)base_addr;
 	mem_info->caller = mem_allocator_alloc(string_allocator);
-	//	snprintf(mem_info->caller, 1024, "%s in %s", symbol, file);
-		snprintf(mem_info->caller, 1024, "%s", symbol);
+	snprintf(mem_info->caller, 1024, "%s", symbol);
 	if(! offline_analysis) {
 	  __allocate_counters(mem_info);
 	  __init_counters(mem_info);
@@ -701,6 +734,7 @@ void ma_get_global_variables() {
     }
   }
  out:
+  pclose(f);
   /* Restore LD_PRELOAD.
    * This is usefull when the program is run with gdb. gdb creates a process than runs bash -e prog arg1
    * Thus, the ld_preload affects bash. bash then calls execvp to execute the program.
@@ -731,6 +765,7 @@ void ma_record_malloc(struct mem_block_info* info) {
   stop_tick(fast_alloc);
   start_tick(init_block);
 
+  mem_info->mem_type = dynamic_allocation;
   mem_info->alloc_date = new_date();
   mem_info->free_date = 0;
   mem_info->initial_buffer_size = info->size;
@@ -818,9 +853,6 @@ void set_buffer_free(struct mem_block_info* p_block) {
 #ifdef USE_HASHTABLE
   /* nothing to do here: we keep all buffers in the same hashmap. We'll use the timestamps to differenciate them  */
   struct memory_info* mem_info = p_block->record_info;
-  //  mem_list = ht_remove_key(mem_list, (uint64_t)mem_info->buffer_addr);
-  //  past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
-
 #else
   struct memory_info_list * p_node = mem_list;
   if(p_block->record_info == &p_node->mem_info) {
@@ -898,7 +930,6 @@ struct call_site {
   size_t buffer_size;
   unsigned nb_mallocs;
   struct memory_info mem_info;
-  //  struct mem_counters cumulated_counters[ACCESS_MAX];
   struct block_info cumulated_counters;
   struct call_site *next;
 };
@@ -927,6 +958,7 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
   site->buffer_size =  mem_info->initial_buffer_size;
   site->nb_mallocs = 0;
 
+  site->mem_info.mem_type = mem_info->mem_type;
   site->mem_info.alloc_date = 0;
   site->mem_info.free_date = 0;
   site->mem_info.initial_buffer_size = mem_info->initial_buffer_size;
@@ -964,7 +996,6 @@ void update_call_sites(struct memory_info* mem_info) {
     struct block_info *block = mem_info->blocks[i];
     while(block) {
       struct block_info* mem_block = __ma_get_block(site->mem_info.blocks[i], block->block_id);
-      //      struct block_info* site_block = __ma_get_block(&site->cumulated_counters, block->block_id);
       struct block_info* site_block = __ma_get_block(&site->cumulated_counters, 0);
 
       for(j = 0; j<ACCESS_MAX; j++) {
@@ -1046,7 +1077,7 @@ static void __sort_sites() {
 static void __plot_counters(struct memory_info *mem_info,
 			    int nb_threads,
 			    const char*filename) {
-
+  printf("Writing file %s\n", filename);
   FILE* file = fopen(filename, "w");
   assert(file);
 
@@ -1055,7 +1086,6 @@ static void __plot_counters(struct memory_info *mem_info,
     /* the block was accessed by at least one thread */
       size_t start_offset = i*PAGE_SIZE;
       size_t stop_offset = (i+1)*PAGE_SIZE;
-      //      fprintf(file, "%d", i);
       for(int th=0; th< nb_threads; th++) {
 	struct block_info* block =  __ma_search_block(mem_info->blocks[th], i);
 	int total_access = 0;
@@ -1064,12 +1094,21 @@ static void __plot_counters(struct memory_info *mem_info,
 	  total_access += block->counters[ACCESS_WRITE].total_count;
 	}
 	fprintf(file, "\t%d", total_access);
-	//	fprintf(file, "%d\t%d\t%d\n", i, th, total_access);
       }
       fprintf(file, "\n");
 
   }
   fclose(file);
+}
+
+void print_buffer_list() {
+  FILE* f=fopen("/tmp/counters/buffers.log", "w");
+  if(!f) {
+    perror("failed to open buffer.log for writing");
+    return;
+  }
+  __ma_print_buffers_generic(f, mem_list);
+  fclose(f);
 }
 
 void print_call_site_summary() {
@@ -1082,6 +1121,8 @@ void print_call_site_summary() {
   mkdir("/tmp/counters/", S_IRWXU);
   FILE* summary_file=fopen("/tmp/counters/summary.log", "w");
   assert(summary_file != NULL);
+  FILE* callsite_file=fopen("/tmp/counters/call_sites.log", "w");
+  assert(callsite_file!=NULL);
   while(site) {
     if(site->cumulated_counters.counters[ACCESS_READ].total_count ||
        site->cumulated_counters.counters[ACCESS_WRITE].total_count) {
@@ -1091,6 +1132,12 @@ void print_call_site_summary() {
 	avg_read_weight = (double)site->cumulated_counters.counters[ACCESS_READ].total_weight / site->cumulated_counters.counters[ACCESS_READ].total_count;
       }
 
+      fprintf(callsite_file, "%d\t%s (size=%zu) - %d buffers. %d read access (total weight: %u, avg weight: %f). %d wr_access\n",
+	      site_no, site->caller, site->buffer_size, site->nb_mallocs,
+	      site->cumulated_counters.counters[ACCESS_READ].total_count,
+	      site->cumulated_counters.counters[ACCESS_READ].total_weight,
+	      avg_read_weight,
+	      site->cumulated_counters.counters[ACCESS_WRITE].total_count);
       printf("%d\t%s (size=%zu) - %d buffers. %d read access (total weight: %u, avg weight: %f). %d wr_access\n",
 	     site_no, site->caller, site->buffer_size, site->nb_mallocs,
 	     site->cumulated_counters.counters[ACCESS_READ].total_count,
@@ -1100,11 +1147,12 @@ void print_call_site_summary() {
 
       fprintf(summary_file, "%d\t%s\t%zu\n", site_no, site->caller, site->buffer_size);
 
-      char filename[1024];
-      sprintf(filename, "/tmp/counters/counters_%d.dat", site_no);
-      site_no++;
-      __plot_counters(&site->mem_info, nb_threads, filename);
-
+      if(site->mem_info.mem_type != stack) {
+	char filename[1024];
+	sprintf(filename, "/tmp/counters/counters_%d.dat", site_no);
+	site_no++;
+	__plot_counters(&site->mem_info, nb_threads, filename);
+      }
 #if 0
 #define PRINT_COUNTERS(access_type, counter) do {			\
 	if(site->cumulated_counters.counters[access_type].counter) {	\
@@ -1140,6 +1188,8 @@ void print_call_site_summary() {
     site = site->next;
   }
   fclose(summary_file);
+  fclose(callsite_file);
+  print_buffer_list();
 }
 
 /* browse the list of malloc'd buffers that were not freed */
@@ -1161,9 +1211,6 @@ void warn_non_freed_buffers() {
 #endif
 	mem_info->free_date = new_date();
       }
-      /* remove the record from the list of malloc'd buffers */
-      //      mem_list = ht_remove_key_value(mem_list, mem_list->key, e->value);
-      //      past_mem_list =  ht_insert(past_mem_list, (uint64_t)mem_info->buffer_addr, mem_info);
 
       e=e->next;
     }

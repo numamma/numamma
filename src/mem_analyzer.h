@@ -35,7 +35,15 @@ struct block_info {
   struct block_info *next;
 };
 
+enum mem_type {
+  none,
+  global_symbol,
+  stack,
+  dynamic_allocation,
+};
+
 struct memory_info {
+  enum mem_type mem_type;
   date_t alloc_date;
   date_t free_date;
 
@@ -78,6 +86,7 @@ void ma_record_free(struct mem_block_info* info);
 void ma_thread_init();
 void ma_thread_finalize();
 void ma_finalize();
+void ma_register_stack();
 
 void ma_allocate_counters(struct memory_info* mem_info);
 void ma_init_counters(struct memory_info* mem_info);
@@ -96,6 +105,6 @@ struct memory_info* ma_find_past_mem_info_from_addr(uint64_t ptr,
 
 void ma_print_current_buffers();
 void ma_print_past_buffers();
-void ma_print_mem_info(struct memory_info*mem);
+void ma_print_mem_info(FILE*f, struct memory_info*mem);
 
 #endif	/* MEM_ANALYZER */

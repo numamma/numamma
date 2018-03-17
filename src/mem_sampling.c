@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <time.h>
+#include <signal.h>
 
 #include "mem_sampling.h"
 #include "mem_analyzer.h"
@@ -8,11 +9,14 @@
 
 int sampling_rate = 10000;
 
+/* if set to one, numamma won't search for the buffer that match a sample */
+int drop_samples=0;
+
 unsigned nb_samples_total = 0;
 unsigned nb_found_samples_total = 0;
 
 /* set to 1 if we are currently sampling memory accesses */
-static __thread int is_sampling = 0;
+static __thread volatile int is_sampling = 0;
 
 /* set to 1 once the thread was finalized */
 static __thread int status_finalized = 0;
@@ -73,6 +77,55 @@ static void __print_samples(struct sample_list* samples,
 			    int *nb_samples,
 			    int *found_samples);
 
+void sig_handler(int signal) {
+  if(IS_RECURSE_SAFE) {
+    PROTECT_FROM_RECURSION;
+    if(is_sampling) {
+      mem_sampling_collect_samples();
+      mem_sampling_resume();
+    }
+    UNPROTECT_FROM_RECURSION;
+  }
+}
+
+/*  in ns */
+long __alarm_interval = 10 * 1000000;
+int alarm_enabled = 0;
+__thread int alarm_set = 0;
+
+void __set_alarm() {
+  if(__alarm_interval>=0 && alarm_enabled && (! alarm_set)) {
+    alarm_set = 1;
+    struct sigevent sevp;
+    sevp.sigev_notify=SIGEV_THREAD_ID | SIGEV_SIGNAL;
+    sevp.sigev_signo=SIGALRM;
+    sevp.sigev_value.sival_int=0;
+    sevp.sigev_notify_function = NULL;
+    sevp.sigev_notify_attributes=NULL;
+    sevp._sigev_un._tid = syscall(SYS_gettid);
+    
+    timer_t *t = malloc(sizeof(timer_t));
+    int ret = timer_create(CLOCK_REALTIME, &sevp, t);      
+    if(ret != 0){
+      perror("timer create failed");
+      abort();
+    }
+    struct itimerspec new_value, old_value;
+    new_value.it_interval.tv_sec=0;
+    new_value.it_interval.tv_nsec=__alarm_interval;
+    
+    new_value.it_value.tv_sec=0;
+    new_value.it_value.tv_nsec=__alarm_interval;
+    
+    ret = timer_settime(*t,0, &new_value, &old_value);
+      
+    if(ret != 0){
+      perror("timer settime failed");
+      abort();
+    }
+  }
+}
+
 void mem_sampling_init() {
 
 #if USE_NUMAP
@@ -83,11 +136,27 @@ void mem_sampling_init() {
     sampling_rate=atoi(sampling_rate_str);
   printf("Sampling rate: %d\n", sampling_rate);
 
+  char* drop_samples_str=getenv("DROP_SAMPLES");
+  if(drop_samples_str) {
+    drop_samples=1;
+  }
+
   numap_init();
 
   char* str=getenv("OFFLINE_ANALYSIS");
   if(str) {
     printf("Memory access will be analyzed offline\n");
+    offline_analysis = 1;
+    mem_allocator_init(&sample_mem, sizeof(struct sample_list), 1024);
+  }
+
+  str=getenv("NUMAMMA_ALARM");
+  if(str) {
+    long interval=atol(str);
+    printf("Setting an alarm every %ld ms\n", interval);
+    
+    __alarm_interval = interval* 1000000;
+    alarm_enabled=1;
     offline_analysis = 1;
     mem_allocator_init(&sample_mem, sizeof(struct sample_list), 1024);
   }
@@ -110,6 +179,18 @@ void mem_sampling_thread_init() {
 
   /* for now, only collect info on the current thread */
   sm.tids[0] = tid;
+
+
+  struct sigaction s;  
+  s.sa_handler = sig_handler;  
+  int signo=SIGALRM;
+  int ret = sigaction(signo, &s, NULL);
+  if(ret<0) {  
+    perror("sigaction failed");  
+    abort();  
+  }
+
+  __set_alarm();
   mem_sampling_start();
 }
 
@@ -119,6 +200,7 @@ void mem_sampling_finalize() {
   printf("%s offline_analysis=%s\n", __FUNCTION__, offline_analysis ? "true" : "false");
   if(offline_analysis) {
     /* analyze the samples that were copied at runtime */
+    ma_register_stack();
 
     printf("Analyzing %d sample buffers\n", nb_sample_buffers);
     start_tick(offline_sample_analysis);
@@ -382,15 +464,22 @@ static void __analyze_buffer(struct sample_list* samples,
     if (event->type == PERF_RECORD_SAMPLE) {
       struct mem_sample *sample = (struct mem_sample *)((char *)(event) + 8); /* todo: remplacer 8 par sizeof(ptr) ? */
       (*nb_samples)++;
+      if(drop_samples) {
+	/* no need to search for a match */
+	goto next_sample;
+      }
       struct memory_info* mem_info = ma_find_mem_info_from_sample(sample);
-     
-      if(mem_info) {      
+
+      if(!mem_info) {
+	/* no buffer matches sample->addr */
+      } else {
 	if(!mem_info->blocks) {
 	  ma_allocate_counters(mem_info);
 	  ma_init_counters(mem_info);
 	}
 
 	(*found_samples)++;
+
 	struct block_info *block = ma_get_block(mem_info, samples->thread_rank, sample->addr);
 
 	block->counters[samples->access_type].total_count++;
@@ -429,16 +518,15 @@ static void __analyze_buffer(struct sample_list* samples,
 	  if(!mem_info->caller) {
 	    mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
 	  }
-	  if((uintptr_t)mem_info->buffer_addr<(uintptr_t)0x7fff00000000) {
+	  if(mem_info->mem_type != stack) {
 	    fprintf(dump_file, "%d 0x%" PRIx64 " 0x%" PRIx64 " %" PRId64 " %s %" PRIu64 " %s\n",
 		    samples->thread_rank, sample->timestamp, sample->addr, offset, get_data_src_level(sample->data_src),
 		    sample->weight, mem_info?mem_info->caller:"", mem_info->buffer_addr);
-	    memset(sample, 0x00, sizeof(struct mem_sample));
 	  }
 	}
       }
     }
-
+  next_sample:
     consumed += event->size;
     event = (struct perf_event_header *)((uint8_t *)event + event->size);
   }

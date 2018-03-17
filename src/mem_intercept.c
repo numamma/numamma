@@ -11,6 +11,8 @@
 #include <sys/time.h>
 #include <pthread.h>
 #include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include "numamma.h"
 #include "mem_intercept.h"
@@ -398,9 +400,10 @@ static void read_options() {
   if(dump_str) {
     if(strcmp(dump_str, "0")!=0) {
       _dump = 1;
-      dump_filename="/tmp/memory_dump.log";
+      mkdir("/tmp/counters/", S_IRWXU);
+      dump_filename="/tmp/counters/memory_dump.log";
       dump_file = fopen(dump_filename, "w");
-      printf("Dump mode enabled. Data will be dumped to %s\n", dump_filename);
+      printf("[%d] Dump mode enabled. Data will be dumped to %s\n", getpid(), dump_filename);
     }
   }
 }
@@ -503,6 +506,7 @@ static void __memory_conclude(void) {
 
   wait_for_other_threads();
   __memory_initialized = 0;
+
   ma_finalize();
   if(dump_filename) {
     printf("Samples were written to %s\n", dump_filename);

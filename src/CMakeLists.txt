@@ -4,7 +4,7 @@ add_library(numamma SHARED
   mem_sampling.c
   mem_analyzer.c
   )
-target_link_libraries(numamma ${NUMAP_LIBRARY} -lbacktrace -lnumap -ldl -lpthread numamma-tools)
+target_link_libraries(numamma ${NUMAP_LIBRARY} -lbacktrace -lnumap -ldl -lpthread numamma-tools -lrt)
 
 add_library(numa_run SHARED
   mem_run.c
@@ -21,7 +21,6 @@ configure_file (
   "${PROJECT_SOURCE_DIR}/src/mem_run.in"
   "${PROJECT_BINARY_DIR}/src/mem_run"
   )
-
 
 list(APPEND SCRIPTS
   ${PROJECT_BINARY_DIR}/src/mem_intercept
