@@ -42,7 +42,7 @@ require(ggplot2)
 #library(scales)
 
 p1<-qplot(data=data, x=timestamp, y=offset, colour=cpu, size=I(0.5), xlab="timestamp", xlim=limx)+
-#		     theme(axis.text.x = element_blank(), legend.position="none") +
+		     theme(axis.text.x = element_blank(), legend.position="none") +
 		     scale_y_continuous(breaks=graduations, labels=labels)+
 		     geom_hline(yintercept = graduations)
 
