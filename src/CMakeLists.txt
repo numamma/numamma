@@ -22,16 +22,10 @@ configure_file (
   "${PROJECT_BINARY_DIR}/src/mem_run"
   )
 
-configure_file (
-  "${PROJECT_SOURCE_DIR}/src/create_blocks.in"
-  "${PROJECT_BINARY_DIR}/src/create_blocks"
-  )
 
 list(APPEND SCRIPTS
   ${PROJECT_BINARY_DIR}/src/mem_intercept
   ${PROJECT_BINARY_DIR}/src/mem_run
-  ${PROJECT_BINARY_DIR}/src/create_blocks
-  ${PROJECT_SOURCE_DIR}/src/counters_to_binding.py
   )
 
 install(PROGRAMS ${SCRIPTS} DESTINATION bin)

@@ -90,6 +90,7 @@ include_directories("${PROJECT_SOURCE_DIR}/src")
 include_directories("${PROJECT_BINARY_DIR}/tools")
 include_directories("${PROJECT_SOURCE_DIR}/tools")
 
+add_subdirectory ("scripts")
 add_subdirectory ("tools")
 add_subdirectory ("src")
 
