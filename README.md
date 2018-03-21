@@ -1,6 +1,10 @@
 # NumaMMa: Numa MeMory Analyzer 
 
-NumaMMa is both a NUMA memory profiler and a NUMA application execution engine. The profiler allows to run an application while gathering information about memory accesses. Based on the results of the profiler, the execution engine is capable of executing the application in an efficient way by allocating memory pages in a clever way.
+NumaMMa is both a NUMA memory profiler/analyzer and a NUMA application execution engine. The profiler allows to run an application while gathering information about memory accesses. The analyzer visually reports information about the memory behavior of the application allowing to identify memory access patterns. Based on the results of the analyzer, the execution engine is capable of executing the application in an efficient way by allocating memory pages in a clever way.
+
+![NPB CG Per pages accesses made by threads](https://github.com/numamma/numamma/blob/master/doc/screenshots/numamma-npb-cg-pages-threads.png)
+
+*Number of memory accesses, by each thread, to the pages of main_flt_mem in NPB CG*
 
 ## Dependencies
 
