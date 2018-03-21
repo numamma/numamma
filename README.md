@@ -6,6 +6,11 @@ NumaMMa is both a NUMA memory profiler/analyzer and a NUMA application execution
 
 *Number of memory accesses, by each thread, to the pages of main_flt_mem in NPB CG*
 
+![NPB LU Per pages accesses made by threads over time](https://github.com/numamma/numamma/blob/master/doc/screenshots/numamma-npb-lu-pages-threads-time.png)
+
+*Memory accesses, by each thread, to the pages of cvar_ in NPB LU*
+
+
 ## Dependencies
 
 NumaMMa relies on the folowing libraries:
