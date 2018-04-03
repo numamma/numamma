@@ -1,14 +1,16 @@
 #!/usr/bin/R
 
+require(ggplot2)
+
 # Input file parameter
 args<-commandArgs(TRUE)
 input_file=args[1]
 
 # Read input file, rename columns, change type
-data<-read.table(input_file, sep=" ", colClasses="character")
-names(data)<-c("Thread", "timestamp", "addr", "offset")
-data["offset"]=lapply(data["offset"], function(x) {as.numeric(x);})
-data["timestamp"]=lapply(data["timestamp"], function(x) {as.numeric(x);})
+data <- read.table(input_file, sep=" ", colClasses="character")
+names(data)< -c ("Thread", "timestamp", "addr", "offset")
+data["offset"] = lapply(data["offset"], function(x) {as.numeric(x);})
+data["timestamp"] = lapply(data["timestamp"], function(x) {as.numeric(x);})
 
 # Output file parameter
 if(length(args)>1){
@@ -63,8 +65,7 @@ customTimeLabels = timeGraduations / oneSec
 print(customTimeLabels)
 
 # Plot the data and save into file
-require(ggplot2)
-p1<-qplot(data = data,
+p1 <- qplot(data = data,
           x = timestamp,
           y = offset,
           colour = Thread,
