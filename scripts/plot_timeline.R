@@ -8,7 +8,7 @@ input_file=args[1]
 
 # Read input file, rename columns, change type
 data <- read.table(input_file, sep=" ", colClasses="character")
-names(data)< -c ("Thread", "timestamp", "addr", "offset")
+names(data) <- c("Thread", "timestamp", "addr", "offset")
 data["offset"] = lapply(data["offset"], function(x) {as.numeric(x);})
 data["timestamp"] = lapply(data["timestamp"], function(x) {as.numeric(x);})
 
@@ -57,12 +57,9 @@ newMaxTs = tsRangeLength * partx
 newTsRange = c(tsRange[1], tsRange[1] + newMaxTs)
 
 # Set time ticks and ticks labels
-print(newTsRange[2])
 oneSec = 1E9
 timeGraduations = seq(newTsRange[1], newTsRange[2], vlinesP)
-print(timeGraduations)
 customTimeLabels = timeGraduations / oneSec
-print(customTimeLabels)
 
 # Plot the data and save into file
 p1 <- qplot(data = data,
@@ -71,9 +68,11 @@ p1 <- qplot(data = data,
           colour = Thread,
           size = I(0.5), # size of the dots
           ylab = "Offset (MiB)",
-          xlab = "Time (second)")#,
-          #xlim = newTsRange)
-p1 = p1 + scale_x_continuous(breaks=timeGraduations, labels=customTimeLabels)
+          xlab = "Time (second)")
+threadAsNum <- lapply(data["Thread"], function(x) {as.numeric(x);})
+maxThread = range(threadAsNum)[2]
+p1 = p1 + scale_color_discrete(breaks=seq(0, as.integer(maxThread), 1))
+p1 = p1 + scale_x_continuous(breaks=timeGraduations, labels=customTimeLabels, lim=newTsRange)
 if (exists("customLabels")) {
     p1 = p1 + scale_y_continuous(breaks=graduations, labels=customLabels)
 }
