@@ -458,8 +458,10 @@ static void __analyze_buffer(struct sample_list* samples,
   size_t consumed = 0;
   struct perf_event_header *event = samples->buffer; /* todo: devrait etre metadata+sm->page_size ? */
 
-  fprintf(dump_file, "%d Analyze samples %p (size=%d), start: %lu stop: %lu -- duration: %llu\n",
-	  samples->thread_rank, samples, samples->buffer_size, samples->start_date, samples->stop_date, samples->stop_date-samples->start_date);
+  if(_dump) {
+    fprintf(dump_file, "%d Analyze samples %p (size=%d), start: %lu stop: %lu -- duration: %llu\n",
+	    samples->thread_rank, samples, samples->buffer_size, samples->start_date, samples->stop_date, samples->stop_date-samples->start_date);
+  }
   while(consumed < samples->buffer_size) {
     if(event->size == 0) {
       fprintf(stderr, "Error: invalid header size = 0\n");
