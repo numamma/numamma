@@ -40,7 +40,7 @@ cd numamma-build
 # numactl for numap
 git clone git@github.com:numactl/numactl.git
 cd numactl
-git co v2.0.11
+git checkout v2.0.11
 ./autogen.sh
 ./configure --prefix=/tmp/numamma-build/numactl/install-release
 make -j4 install
@@ -49,7 +49,7 @@ cd ..
 # libpfm for numap
 git clone https://git.code.sf.net/p/perfmon2/libpfm4 libpfm4
 cd libpfm4
-git co v4.9.0
+git checkout v4.9.0
 make PREFIX=/tmp/numamma-build/libpfm4/install-release -j4 install
 cd ..
 
@@ -68,7 +68,7 @@ cd ../..
 # backtrace for numamma
 git clone git@github.com:ianlancetaylor/libbacktrace.git
 cd libbacktrace
-git co 177940370e4a6b2509e92a0aaa9749184e64af43
+git checkout 177940370e4a6b2509e92a0aaa9749184e64af43
 ./configure --prefix=/tmp/numamma-build/libbacktrace/install-release
 make -j4 install
 cd install-release/include
