@@ -44,6 +44,20 @@ if(length(args)>4){
   partx=as.numeric(args[5]);
 }
 
+# Divide timestamp by parameter
+div = 1
+if(length(args)>5){
+    div = as.numeric(args[6]);
+    data["timestamp"] = lapply(data["timestamp"], function(x) {x/div;})
+}
+
+# Do modulo on thread ids
+if(length(args)>6){
+    modulo = as.numeric(args[7]);
+    data["Thread"]=lapply(data["Thread"], function(x) {as.integer(x)%%modulo;})
+    data["Thread"]=lapply(data["Thread"], function(x) {as.character(x);})
+}
+
 # Update timestamp values such that it starts at 0
 tsRange = range(data["timestamp"]) 
 minTs = tsRange[1]
@@ -53,13 +67,15 @@ stopifnot(tsRange[1] == 0)
 
 # Extract partx % of the data on the x axis
 tsRangeLength = tsRange[2] - tsRange[1]
+print(paste0("Total execution time in seconds = ", tsRange[2] * div / 1E9))
 newMaxTs = tsRangeLength * partx
 newTsRange = c(tsRange[1], tsRange[1] + newMaxTs)
+print(paste0("View execution time in seconds = ", newTsRange[2] * div / 1E9))
 
 # Set time ticks and ticks labels
-oneSec = 1E9
 timeGraduations = seq(newTsRange[1], newTsRange[2], vlinesP)
-customTimeLabels = timeGraduations / oneSec
+print(timeGraduations)
+customTimeLabels = timeGraduations / oneSec * div
 
 # Plot the data and save into file
 p1 <- qplot(data = data,
@@ -72,6 +88,7 @@ p1 <- qplot(data = data,
 threadAsNum <- lapply(data["Thread"], function(x) {as.numeric(x);})
 maxThread = range(threadAsNum)[2]
 p1 = p1 + scale_color_discrete(breaks=seq(0, as.integer(maxThread), 1))
+#p1 = p1 + theme(legend.position="none")
 p1 = p1 + scale_x_continuous(breaks=timeGraduations, labels=customTimeLabels, lim=newTsRange)
 if (exists("customLabels")) {
     p1 = p1 + scale_y_continuous(breaks=graduations, labels=customLabels)
