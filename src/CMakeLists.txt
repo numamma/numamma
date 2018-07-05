@@ -4,6 +4,15 @@ add_library(numamma SHARED
   mem_sampling.c
   mem_analyzer.c
   )
+
+
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -I${NUMACTL_INCLUDE_DIRS}  ${NUMAP_CFLAGS} ${NUMAP_CFLAGS_OTHER} -I${BACKTRACE_INCLUDE_DIR}")
+
+set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${NUMACTL_LIBRARIES}   ${NUMAP_LDFLAGS} ${NUMAP_LDFLAGS_OTHER}  -L${BACKTRACE_DIR}/lib -lbacktrace")
+
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  ${NUMACTL_LIBRARIES}   ${NUMAP_LDFLAGS} ${NUMAP_LDFLAGS_OTHER}  -L${BACKTRACE_DIR}/lib -lbacktrace")
+
+
 target_link_libraries(numamma ${NUMAP_LIBRARY} -lbacktrace -lnumap -ldl -lpthread numamma-tools -lrt)
 
 add_library(numa_run SHARED

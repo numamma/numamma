@@ -127,7 +127,6 @@ void __set_alarm() {
 }
 
 void mem_sampling_init() {
-
 #if USE_NUMAP
   clock_gettime(CLOCK_REALTIME, &t_init);
 
@@ -141,7 +140,11 @@ void mem_sampling_init() {
     drop_samples=1;
   }
 
-  numap_init();
+  int err = numap_init();
+  if(err != 0) {
+    fprintf(stderr, "Error while initializing numap: %s\n", numap_error_message(err));
+    abort();
+  }
 
   char* str=getenv("OFFLINE_ANALYSIS");
   if(str) {
