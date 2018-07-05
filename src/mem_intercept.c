@@ -388,14 +388,17 @@ void pthread_exit(void *thread_return) {
 static char dump_filename[1024];
 char *counters_dir=NULL;
 
-void create_log_filename(char* basename, char *filename, int length) {
+char* get_log_dir() {
   if(!counters_dir) {
     counters_dir = malloc(sizeof(char)*1024);
     sprintf(counters_dir, "/tmp/counters_%s", getenv("USER"));
     mkdir(counters_dir, S_IRWXU);
   }
+  return counters_dir;
+}
 
-  snprintf(filename, length, "%s/%s", counters_dir, basename);
+void create_log_filename(char* basename, char *filename, int length) {
+  snprintf(filename, length, "%s/%s", get_log_dir(), basename);
 }
 
 static void read_options() {

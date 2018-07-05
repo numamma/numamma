@@ -10,6 +10,8 @@
 extern int _verbose;
 extern int _dump;
 extern FILE* dump_file;
+void create_log_filename(char* basename, char *filename, int length);
+char* get_log_dir();
 
 /* This variable is used to avoiding recursive calls to memory functions.
  *
