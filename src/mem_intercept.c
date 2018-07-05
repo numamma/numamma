@@ -385,7 +385,7 @@ void pthread_exit(void *thread_return) {
   __builtin_unreachable();
 }
 
-static char* dump_filename = NULL;
+static char dump_filename[1024];
 
 static void read_options() {
   char* verbose_str = getenv("NUMAMMA_VERBOSE");
@@ -400,8 +400,10 @@ static void read_options() {
   if(dump_str) {
     if(strcmp(dump_str, "0")!=0) {
       _dump = 1;
-      mkdir("/tmp/counters/", S_IRWXU);
-      dump_filename="/tmp/counters/memory_dump.log";
+      char counters_dir[1024];
+      sprintf(counters_dir, "/tmp/counters_%s", getenv("USER"));
+      mkdir(counters_dir, S_IRWXU);
+      sprintf(dump_filename, "%s/memory_dump.log", counters_dir);
       dump_file = fopen(dump_filename, "w");
       printf("[%d] Dump mode enabled. Data will be dumped to %s\n", getpid(), dump_filename);
     }
