@@ -386,6 +386,17 @@ void pthread_exit(void *thread_return) {
 }
 
 static char dump_filename[1024];
+char *counters_dir=NULL;
+
+void create_log_filename(char* basename, char *filename, int length) {
+  if(!counters_dir) {
+    counters_dir = malloc(sizeof(char)*1024);
+    sprintf(counters_dir, "/tmp/counters_%s", getenv("USER"));
+    mkdir(counters_dir, S_IRWXU);
+  }
+
+  snprintf(filename, length, "%s/%s", counters_dir, basename);
+}
 
 static void read_options() {
   char* verbose_str = getenv("NUMAMMA_VERBOSE");
@@ -400,10 +411,8 @@ static void read_options() {
   if(dump_str) {
     if(strcmp(dump_str, "0")!=0) {
       _dump = 1;
-      char counters_dir[1024];
-      sprintf(counters_dir, "/tmp/counters_%s", getenv("USER"));
-      mkdir(counters_dir, S_IRWXU);
-      sprintf(dump_filename, "%s/memory_dump.log", counters_dir);
+
+      create_log_filename("memory_dump.log", dump_filename, 2096);
       dump_file = fopen(dump_filename, "w");
       printf("[%d] Dump mode enabled. Data will be dumped to %s\n", getpid(), dump_filename);
     }

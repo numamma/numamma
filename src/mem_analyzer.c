@@ -1103,7 +1103,9 @@ static void __plot_counters(struct memory_info *mem_info,
 }
 
 void print_buffer_list() {
-  FILE* f=fopen("/tmp/counters/buffers.log", "w");
+  char filename[4096];
+  create_log_filename("buffers.log", filename, 4096);
+  FILE* f=fopen(filename, "w");
   if(!f) {
     perror("failed to open buffer.log for writing");
     return;
@@ -1119,10 +1121,15 @@ void print_call_site_summary() {
   struct call_site* site = call_sites;
   int nb_threads = next_thread_rank;
   int site_no=0;
-  mkdir("/tmp/counters/", S_IRWXU);
-  FILE* summary_file=fopen("/tmp/counters/summary.log", "w");
+
+  char summary_filename[1024];
+  create_log_filename("summary.log", summary_filename, 1024);
+  FILE* summary_file=fopen(summary_filename, "w");
   assert(summary_file != NULL);
-  FILE* callsite_file=fopen("/tmp/counters/call_sites.log", "w");
+
+  char callsite_filename[1024];
+  create_log_filename("call_sites.log", callsite_filename, 1024);
+  FILE* callsite_file=fopen(callsite_filename, "w");
   assert(callsite_file!=NULL);
   while(site) {
     if(site->cumulated_counters.counters[ACCESS_READ].total_count ||
@@ -1150,7 +1157,7 @@ void print_call_site_summary() {
 
       if(site->mem_info.mem_type != stack) {
 	char filename[1024];
-	sprintf(filename, "/tmp/counters/counters_%d.dat", site_no);
+	sprintf(filename, "%s/counters_%d.dat", counters_dir, site_no);
 	site_no++;
 	__plot_counters(&site->mem_info, nb_threads, filename);
       }
