@@ -105,7 +105,7 @@ At the end of the execution, NumaMMa will report information about the memory ac
 
 ## Content of this repository
 
-### src folder
+### `src` folder
 
 #### libnumama
 
@@ -128,9 +128,6 @@ At the end of the execution, NumaMMa will report information about the memory ac
     before running a program.
 
 #### libnuma_run
-
-Something new  by François  which is  just as  `mem_intercept.c` whith
-control of threads location.
 
 - `mem_run.c`
 
