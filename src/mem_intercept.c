@@ -385,7 +385,7 @@ void pthread_exit(void *thread_return) {
   __builtin_unreachable();
 }
 
-static char dump_filename[1024];
+static char *dump_filename=NULL;
 char *counters_dir=NULL;
 
 char* get_log_dir() {
@@ -415,6 +415,7 @@ static void read_options() {
     if(strcmp(dump_str, "0")!=0) {
       _dump = 1;
 
+      dump_filename = malloc(sizeof(char)*1024);
       create_log_filename("memory_dump.log", dump_filename, 2096);
       dump_file = fopen(dump_filename, "w");
       printf("[%d] Dump mode enabled. Data will be dumped to %s\n", getpid(), dump_filename);
@@ -524,5 +525,6 @@ static void __memory_conclude(void) {
   ma_finalize();
   if(dump_filename) {
     printf("Samples were written to %s\n", dump_filename);
+    free(dump_filename);
   }
 }
