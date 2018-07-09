@@ -3,9 +3,20 @@
 # by default, build/install everything in the current directory
 ROOT_DIR=$PWD
 
+if [ "$1" == "-h" ]; then
+  echo "Usage: `basename $0` absolute/path/to/build_and_install/dir/"
+  exit 0
+fi
+
 if [ $# -ne 0 ]; then
-    # you can also pass a prefix
-    ROOT_DIR=$1
+
+    if [[ "$1" = /* ]]; then
+	# you can also pass a prefix
+	ROOT_DIR=$1
+    else
+	echo "Build and installation directory must be an absolute path"
+	exit 0
+    fi
 fi
 
 ROOT_INSTALL_DIR=$ROOT_DIR/install
