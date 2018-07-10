@@ -34,62 +34,62 @@ You can run the `install_everything.sh` script that installs NumaMMa and ints de
 ```bash
 
 # create folder where NumaMMa and its dependencies will be downloaded and built
-cd /tmp
-rm -rf numamma-build
-mkdir numamma-build
-cd numamma-build
+cd /tmp;
+rm -rf numamma-build;
+mkdir numamma-build;
+cd numamma-build;
 
 # numactl for numap
-git clone git@github.com:numactl/numactl.git
-cd numactl
-git checkout v2.0.11
-./autogen.sh
-./configure --prefix=/tmp/numamma-build/numactl/install-release
-make -j4 install
-cd ..
+git clone git@github.com:numactl/numactl.git;
+cd numactl;
+git checkout v2.0.11;
+./autogen.sh;
+./configure --prefix=/tmp/numamma-build/numactl/install-release;
+make -j4 install;
+cd ..;
 
 # libpfm for numap
-git clone https://git.code.sf.net/p/perfmon2/libpfm4 libpfm4
-cd libpfm4
-git checkout v4.9.0
-make PREFIX=/tmp/numamma-build/libpfm4/install-release -j4 install
-cd ..
+git clone https://git.code.sf.net/p/perfmon2/libpfm4;
+cd libpfm4;
+git checkout v4.9.0;
+make PREFIX=/tmp/numamma-build/libpfm4/install-release -j4 install;
+cd ..;
 
 # numap for numamma
-git clone git@github.com:numap-library/numap.git
-cd numap
-mkdir build
-cd build
+git clone git@github.com:numap-library/numap.git;
+cd numap;
+mkdir build;
+cd build;
 cmake -DCMAKE_INSTALL_PREFIX=/tmp/numamma-build/numap/install-release \
       -DNUMACTL_DIR=/tmp/numamma-build/numactl/install-release \
       -DPFM_DIR=/tmp/numamma-build/libpfm4/install-release \
-      ..
-make -j4 install
-cd ../..
+      ..;
+make -j4 install;
+cd ../..;
 
 # backtrace for numamma
-git clone git@github.com:ianlancetaylor/libbacktrace.git
-cd libbacktrace
-git checkout 177940370e4a6b2509e92a0aaa9749184e64af43
-./configure --prefix=/tmp/numamma-build/libbacktrace/install-release
-make -j4 install
-cd install-release/include
-mkdir libbacktrace
-mv backtrace.h  backtrace-supported.h libbacktrace
-cd ../../..
+git clone git@github.com:ianlancetaylor/libbacktrace.git;
+cd libbacktrace;
+git checkout 177940370e4a6b2509e92a0aaa9749184e64af43;
+./configure --prefix=/tmp/numamma-build/libbacktrace/install-release;
+make -j4 install;
+cd install-release/include;
+mkdir libbacktrace;
+mv backtrace.h  backtrace-supported.h libbacktrace;
+cd ../../..;
 
 # numamma
-git clone git@github.com:numamma/numamma.git
-cd numamma
-mkdir build
-cd build
+git clone git@github.com:numamma/numamma.git;
+cd numamma;
+mkdir build;
+cd build;
 export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/tmp/numamma-build/numap/install-release/lib/pkgconfig
 cmake -DCMAKE_INSTALL_PREFIX=/tmp/numamma-build/numamma/install-release \
       -DBACKTRACE_DIR=/tmp/numamma-build/libbacktrace/install-release \
       -DNUMACTL_DIR=/tmp/numamma-build/numactl/install-release \
-       ..
-make -j4 install
-cd ../..
+       ..;
+make -j4 install;
+cd ../..;
 
 ```
 
