@@ -612,7 +612,7 @@ void ma_get_global_variables() {
   void *base_addr = NULL;
   void *end_addr = NULL;
 
-  sprintf(cmd, "file \"%s\" |grep \"shared object\" > plop", program_file);
+  sprintf(cmd, "file \"%s\" |grep \"shared object\\|pie executable\" > plop", program_file);
   int ret = system(cmd);
   if(WIFEXITED(ret)) {
     /* find address range of the heap */
@@ -624,12 +624,12 @@ void ma_get_global_variables() {
       fgets(line, 4096, f);
       pclose(f);
       sscanf(line, "%p-%p", &base_addr, &end_addr);
-      debug_printf("  This program was compiled with -fPIE. It is mapped at address %p\n", base_addr);
+      printf("[NumaMMA]  This program was compiled with -fPIE. It is mapped at address %p\n", base_addr);
     } else {
       /* process is not compiled with -fPIE, thus, the addresses in the ELF are the addresses in the binary */
       base_addr= NULL;
       end_addr= NULL;
-      debug_printf("  This program was not compiled with -fPIE. It is mapped at address %p\n", base_addr);
+      printf("[NumaMMA]  This program was not compiled with -fPIE. It is mapped at address %p\n", base_addr);
     }
   }
 
