@@ -3,6 +3,11 @@ configure_file (
   "${PROJECT_BINARY_DIR}/scripts/create_blocks"
   )
 
+configure_file (
+  "${PROJECT_SOURCE_DIR}/scripts/plot_timeline.in"
+  "${PROJECT_BINARY_DIR}/scripts/plot_timeline"
+  )
+
 
 configure_file (
   "${PROJECT_SOURCE_DIR}/scripts/summary_to_plot.in"
@@ -11,6 +16,7 @@ configure_file (
 
 list(APPEND SCRIPTS
   ${PROJECT_BINARY_DIR}/scripts/create_blocks
+  ${PROJECT_BINARY_DIR}/scripts/plot_timeline
   ${PROJECT_SOURCE_DIR}/scripts/counters_to_binding.py
   ${PROJECT_SOURCE_DIR}/scripts/plot_counters.sh
   ${PROJECT_SOURCE_DIR}/scripts/plot_timeline.R

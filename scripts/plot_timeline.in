@@ -1,0 +1,88 @@
+#!/bin/sh
+
+prefix=@CMAKE_INSTALL_PREFIX@
+
+usage()
+{
+    cat <<EOF
+usage: $0 options
+OPTIONS:
+-i input_file
+-o output_file
+-z zoom
+-h hlines
+-v vlines
+-d div
+-s symbol
+EOF
+}
+
+zoom=1
+output_file=""
+input_file=""
+hlines=-1
+vlines=-1
+div=-1
+symbol=""
+modulo=-1
+
+while getopts 'o:i:z:h:v:d:s:' OPTION; do
+  case $OPTION in
+  o)
+	output_file=$OPTARG
+	;;
+
+  s)
+	symbol=$OPTARG
+	;;
+
+  i)
+	input_file=$OPTARG
+	;;
+
+  z)
+	zoom=$OPTARG
+	;;
+
+  h)
+        hlines=$OPTARG
+	;;
+
+  v)
+        vlines=$OPTARG
+	;;
+
+  d)
+        div=$OPTARG
+	;;
+
+  m)
+        modulo=$OPTARG
+	;;
+
+  ?)	usage
+	exit 2
+	;;
+  esac
+done
+# remove the options from the command line
+shift $(($OPTIND - 1))
+
+if [ -z "$input_file" ]; then
+   echo "Please provide an input file" >&2
+   exit 1
+fi
+
+if [ -z "$symbol" ]; then
+   echo "Please provide an symbol" >&2
+   exit 1
+fi
+
+if [ -z "$output_file" ]; then
+   output_file="${input_file}.png"
+fi
+
+tmp=$(mktemp)
+grep " fields_$" memory_dump.log  > $tmp
+Rscript $prefix/bin/plot_timeline.R "$tmp" "$output_file" "$hlines" "$vlines" "$zoom" "$div" "$modulo"
+rm $tmp

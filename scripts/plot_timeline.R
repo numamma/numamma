@@ -21,7 +21,7 @@ if(length(args)>1){
 
 # Horizontal lines parameter
 oneMiB=1024*1024
-if(length(args)>2){
+if(length(args)>2 && as.integer(args[3])>0){
     hlinesP = as.integer(args[3]);
     hlinesMiB = oneMiB * hlinesP
     max_offset = range(data["offset"])[2]
@@ -33,26 +33,26 @@ if(length(args)>2){
 # Vertical lines parameter
 oneSec = 1E9
 vlinesP = oneSec
-if(length(args)>3){
+if(length(args)>3 && as.integer(args[4])>0){
     vlinesP = as.integer(args[4]);
 } 
 
 # Part of the trace to plot parameter:
 # 1 is all, 0.5 is first half
 partx=1
-if(length(args)>4){
+if(length(args)>4 && as.integer(args[5])>0){
   partx=as.numeric(args[5]);
 }
 
 # Divide timestamp by parameter
 div = 1
-if(length(args)>5){
+if(length(args)>5 && as.integer(args[6])>0){
     div = as.numeric(args[6]);
     data["timestamp"] = lapply(data["timestamp"], function(x) {x/div;})
 }
 
 # Do modulo on thread ids
-if(length(args)>6){
+if(length(args)>6 && as.integer(args[7])>0){
     modulo = as.numeric(args[7]);
     data["Thread"]=lapply(data["Thread"], function(x) {as.integer(x)%%modulo;})
     data["Thread"]=lapply(data["Thread"], function(x) {as.character(x);})

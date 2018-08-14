@@ -95,13 +95,32 @@ cd ../..;
 
 ## Profile an application
 
-To profile your application with NumaMMa, just laucnh it through the `mem_intercept` script installed when NumaMMa has been built:
+To profile your application with NumaMMa, just launch it through the `mem_intercept` script installed when NumaMMa has been built:
 
 ```bash
 mem_intercept myappli      
 ```
 
-At the end of the execution, NumaMMa will report information about the memory accesses of the application. The `-o` option can be used to tell NumaMMa to record raw memory samples in a file.
+At the end of the execution, NumaMMa will report information about the memory accesses of the application, and write summary files in the /tmp/counters_$USER directory. The `-o` option can be used to tell NumaMMa to record raw memory samples in a file.
+
+The summary directory contains:
+
+- `callsites.log`
+  + this file contains the list of memory objects sorted by number of memory accesses. For each object, NumaMMA reports its index, symbol name (or call site is the object was dynamically allocated), size, number of read memory accesses, number of write memory accesses
+
+- `counters_X.dat`
+  + this file contains the number of memory accesses to an object. Each line contains the accesses to a page within the object (assuming 4KiB pages), and the columns corresponds to the differents threads.
+
+- `memory_dump.log` (if the `-o` option was passed to `mem_intercept`)
+  + this file contains all the samples that were collected. Each line corresponds to a sample, and contains the thread id, the timestamp, the address (in decimal, not hexadecimal), the offset (which part of the object was touched), the location in the memory hierarchy that contained the data, the access latency, and the memory object corresponding to the sample
+
+### Plotting data
+
+The data produced by NumaMMA at runtime can be plotted using R scripts:
+
+- `plot_pages_matrix.R`
+  + this script takes a `counter_X.dat` as a parameter and generates a matrix plot that represent the number of memory access that each thread issued to each pages of an object
+  Usage: `plot_pages_matrix.R counters_0.dat` generates `counters_0.dat.png`
 
 ## Content of this repository
 
