@@ -122,6 +122,10 @@ The data produced by NumaMMA at runtime can be plotted using R scripts:
   + this script takes a `counter_X.dat` as a parameter and generates a matrix plot that represent the number of memory access that each thread issued to each pages of an object
   Usage: `plot_pages_matrix.R counters_0.dat` generates `counters_0.dat.png`
 
+- `plot_timeline`
+  + this script takes the `memory_dump.log` file as a parameter and generates a timeline plot that corresponds to a symbol.
+  Example of usage: `plot_timeline -i memory_dump.log -o fields.png -s  "fields_"`
+
 ## Content of this repository
 
 ### `src` folder
