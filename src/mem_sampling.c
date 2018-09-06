@@ -454,43 +454,62 @@ static void __copy_samples(struct numap_sampling_measure *sm,
 extern date_t origin_date;
 #define DATE(d) ((d)-origin_date)
 
+/* This function analyzes a set of samples
+ * @param samples : a buffer that contains samples
+ * @return nb_samples : the number of samples that were in the buffer
+ * @return found_samples :  the number of samples that were matched to a memory object
+ */
 static void __analyze_buffer(struct sample_list* samples,
 			     int *nb_samples,
 			     int *found_samples) {
 
   size_t consumed = 0;
-  struct perf_event_header *event = samples->buffer; /* todo: devrait etre metadata+sm->page_size ? */
+  struct perf_event_header *event = samples->buffer;
 
   if(_dump) {
     fprintf(dump_file, "%d Analyze samples %p (size=%d), start: %lu stop: %lu -- duration: %llu\n",
-	    samples->thread_rank, samples, samples->buffer_size, samples->start_date, samples->stop_date, samples->stop_date-samples->start_date);
+	    samples->thread_rank,
+	    samples,
+	    samples->buffer_size,
+	    samples->start_date,
+	    samples->stop_date,
+	    samples->stop_date-samples->start_date);
   }
+
+  /* browse the buffer and process each sample */
   while(consumed < samples->buffer_size) {
     if(event->size == 0) {
       fprintf(stderr, "Error: invalid header size = 0\n");
       abort();
     }
     if (event->type == PERF_RECORD_SAMPLE) {
-      struct mem_sample *sample = (struct mem_sample *)((char *)(event) + 8); /* todo: remplacer 8 par sizeof(ptr) ? */
+      struct mem_sample *sample = (struct mem_sample *)((char *)(event) + 8); /* todo: remplace 8 with sizeof(ptr) ? */
       (*nb_samples)++;
       if(drop_samples) {
 	/* no need to search for a match */
 	goto next_sample;
       }
+
+      /* find the memory object that corresponds to the sample*/
       struct memory_info* mem_info = ma_find_mem_info_from_sample(sample);
 
       if(!mem_info) {
 	/* no buffer matches sample->addr */
       } else {
+
+	/* we found a memory object that corresponds to the sample */
 	if(!mem_info->blocks) {
+	  /* this is the first time a sample matches this object, initialize a few things */
 	  ma_allocate_counters(mem_info);
 	  ma_init_counters(mem_info);
 	}
 
 	(*found_samples)++;
 
+	/* find the memory pages in the object that corresponds to the sample address */
 	struct block_info *block = ma_get_block(mem_info, samples->thread_rank, sample->addr);
 
+	/* update counters */
 	block->counters[samples->access_type].total_count++;
 	block->counters[samples->access_type].total_weight += sample->weight;
 
@@ -521,21 +540,34 @@ static void __analyze_buffer(struct sample_list* samples,
       }
 
       if(_dump) {
-	uintptr_t offset=0;
+	/* dump mode is activated, write to content of the sample to a file */
+
 	if(mem_info) {
-	  offset=(uintptr_t)sample->addr - (uintptr_t)mem_info->buffer_addr;
+	  /* compute the offset of the sample adress in the memory object */
+	  uintptr_t offset=(uintptr_t)sample->addr - (uintptr_t)mem_info->buffer_addr;
+
 	  if(!mem_info->caller) {
+	    /* search for the function that allocated the memory object */
 	    mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
 	  }
+
 	  if(mem_info->mem_type != stack) {
-	    fprintf(dump_file, "%d %" PRIu64 " %" PRIu64 " %" PRId64 " %s %" PRIu64 " %s\n",
-		    samples->thread_rank, sample->timestamp, sample->addr, offset, get_data_src_level(sample->data_src),
-		    sample->weight, mem_info?mem_info->caller:"", mem_info->buffer_addr);
+	    /* write the content of the sample to a file */
+	    fprintf(dump_file,
+		    "%d %" PRIu64 " %" PRIu64 " %" PRId64 " %s %" PRIu64 " %s\n",
+		    samples->thread_rank,
+		    sample->timestamp,
+		    sample->addr,
+		    offset,
+		    get_data_src_level(sample->data_src),
+		    sample->weight,
+		    mem_info?mem_info->caller:"", mem_info->buffer_addr);
 	  }
 	}
       }
     }
   next_sample:
+    /* go to the next sample */
     consumed += event->size;
     event = (struct perf_event_header *)((uint8_t *)event + event->size);
   }
