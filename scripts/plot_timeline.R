@@ -40,7 +40,7 @@ if(length(args)>3 && as.integer(args[4])>0){
 # Part of the trace to plot parameter:
 # 1 is all, 0.5 is first half
 partx=1
-if(length(args)>4 && as.integer(args[5])>0){
+if(length(args)>4 && as.numeric(args[5])>0){
   partx=as.numeric(args[5]);
 }
 
