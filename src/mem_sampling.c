@@ -23,6 +23,7 @@ static __thread int status_finalized = 0;
 
 struct timespec t_init;
 
+struct mem_counters global_counters[2];
 double get_cur_date() {
   struct timespec t1;
   clock_gettime(CLOCK_REALTIME, &t1);
@@ -198,6 +199,42 @@ void mem_sampling_thread_init() {
 }
 
 extern uint64_t avg_pos;
+void print_counters(struct mem_counters* counters) {
+  for(int i=0; i< ACCESS_MAX; i++){
+    if(i==ACCESS_READ) {
+      printf("--------------------------------------\n");
+      printf("Summary of all the read memory access:\n");
+    } else {
+      printf("--------------------------------------\n");
+      printf("Summary of all the write memory access:\n");
+    }
+#define PERCENT(__c) (100.*counters[i].__c/counters[i].total_count)
+    printf("Total count          : \t %ld\n", counters[i].total_count);
+    printf("Total weigh          : \t %ld\n", counters[i].total_weight);
+    printf("N/A                  : \t %ld (%f %%)\n", counters[i].na_miss_count, PERCENT(na_miss_count));
+    printf("L1 Hit               : \t %ld (%f %%)\n", counters[i].cache1_hit_count, PERCENT(cache1_hit_count));	  
+    printf("L2 Hit               : \t %ld (%f %%)\n", counters[i].cache2_hit_count, PERCENT(cache2_hit_count));	  
+    printf("L3 Hit               : \t %ld (%f %%)\n", counters[i].cache3_hit_count, PERCENT(cache3_hit_count));	  
+    printf("LFB Hit              : \t %ld (%f %%)\n", counters[i].lfb_hit_count, PERCENT(lfb_hit_count));	     	  
+    printf("Local RAM Hit        : \t %ld (%f %%)\n", counters[i].local_ram_hit_count, PERCENT(local_ram_hit_count));	     
+    printf("Remote RAM Hit       : \t %ld (%f %%)\n", counters[i].remote_ram_hit_count, PERCENT(remote_ram_hit_count));     	  
+    printf("Remote cache Hit     : \t %ld (%f %%)\n", counters[i].remote_cache_hit_count, PERCENT(remote_cache_hit_count));   	  
+    printf("IO memory Hit        : \t %ld (%f %%)\n", counters[i].io_memory_hit_count, PERCENT(io_memory_hit_count));	     
+    printf("Uncached memory Hit  : \t %ld (%f %%)\n", counters[i].uncached_memory_hit_count, PERCENT(uncached_memory_hit_count));
+
+    printf("\n");
+
+    printf("L1 Miss              : \t %ld (%f %%)\n", counters[i].cache1_miss_count, PERCENT(cache1_miss_count));
+    printf("L2 Miss              : \t %ld (%f %%)\n", counters[i].cache2_miss_count, PERCENT(cache2_miss_count));
+    printf("L3 Miss              : \t %ld (%f %%)\n", counters[i].cache3_miss_count, PERCENT(cache3_miss_count));
+    printf("LFB Miss             : \t %ld (%f %%)\n", counters[i].lfb_miss_count, PERCENT(lfb_miss_count));
+    printf("Local RAM Miss       : \t %ld (%f %%)\n", counters[i].local_ram_miss_count, PERCENT(local_ram_miss_count));
+    printf("Remote RAM Miss      : \t %ld (%f %%)\n", counters[i].remote_ram_miss_count,  PERCENT(remote_ram_miss_count));
+    printf("Remote cache Miss    : \t %ld (%f %%)\n", counters[i].remote_cache_miss_count, PERCENT(remote_cache_miss_count));
+    printf("IO Memory Miss       : \t %ld (%f %%)\n", counters[i].io_memory_miss_count, PERCENT(io_memory_miss_count));
+    printf("Uncached memory Miss : \t %ld (%f %%)\n", counters[i].uncached_memory_miss_count, PERCENT(uncached_memory_miss_count));
+  }
+}
 
 void mem_sampling_finalize() {
   printf("%s offline_analysis=%s\n", __FUNCTION__, offline_analysis ? "true" : "false");
@@ -233,8 +270,9 @@ void mem_sampling_finalize() {
     printf("avg position: %" PRIu64 "\n", avg_pos/nb_samples_total);
     stop_tick(offline_sample_analysis);
     printf("Offline analysis took %lf s\n",tick_duration(offline_sample_analysis)/1e9);
-
   }
+
+  print_counters(global_counters);
 }
 
 void mem_sampling_thread_finalize() {
@@ -454,6 +492,82 @@ static void __copy_samples(struct numap_sampling_measure *sm,
 extern date_t origin_date;
 #define DATE(d) ((d)-origin_date)
 
+void update_counters(struct mem_counters* counters,
+		     struct mem_sample *sample) {
+
+  counters[samples->access_type].total_count++;
+  counters[samples->access_type].total_weight += sample->weight;
+
+  if(sample->data_src.mem_lvl & PERF_MEM_LVL_NA) {
+    counters[samples->access_type].na_miss_count++;
+  }
+
+  if(sample->data_src.mem_lvl & PERF_MEM_LVL_L1) {
+    if (sample->data_src.mem_lvl & PERF_MEM_LVL_HIT)
+      counters[samples->access_type].cache1_hit_count++;
+    else if (sample->data_src.mem_lvl & PERF_MEM_LVL_MISS)
+      counters[samples->access_type].cache1_miss_count++;
+  }
+
+  if(sample->data_src.mem_lvl & PERF_MEM_LVL_L2) {
+    if (sample->data_src.mem_lvl & PERF_MEM_LVL_HIT)
+      counters[samples->access_type].cache2_hit_count++;
+    else if (sample->data_src.mem_lvl & PERF_MEM_LVL_MISS)
+      counters[samples->access_type].cache2_miss_count++;
+  }
+
+  if(sample->data_src.mem_lvl & PERF_MEM_LVL_L3) {
+    if (sample->data_src.mem_lvl & PERF_MEM_LVL_HIT)
+      counters[samples->access_type].cache3_hit_count++;
+    else if (sample->data_src.mem_lvl & PERF_MEM_LVL_MISS)
+      counters[samples->access_type].cache3_miss_count++;
+  }
+
+  if(sample->data_src.mem_lvl & PERF_MEM_LVL_LFB) {
+    if (sample->data_src.mem_lvl & PERF_MEM_LVL_HIT)
+      counters[samples->access_type].lfb_hit_count++;
+    else if (sample->data_src.mem_lvl & PERF_MEM_LVL_MISS)
+      counters[samples->access_type].lfb_miss_count++;
+  }
+
+  if(sample->data_src.mem_lvl & PERF_MEM_LVL_LOC_RAM) {
+    if (sample->data_src.mem_lvl & PERF_MEM_LVL_HIT)
+      counters[samples->access_type].local_ram_hit_count++;
+    else if (sample->data_src.mem_lvl & PERF_MEM_LVL_MISS)
+      counters[samples->access_type].local_ram_miss_count++;
+  }
+
+  if((sample->data_src.mem_lvl & PERF_MEM_LVL_REM_RAM1) ||
+     (sample->data_src.mem_lvl & PERF_MEM_LVL_REM_RAM2)) {
+    if (sample->data_src.mem_lvl & PERF_MEM_LVL_HIT)
+      counters[samples->access_type].remote_ram_hit_count++;
+    else if (sample->data_src.mem_lvl & PERF_MEM_LVL_MISS)
+      counters[samples->access_type].remote_ram_miss_count++;
+  }
+
+  if((sample->data_src.mem_lvl & PERF_MEM_LVL_REM_CCE1) ||
+     (sample->data_src.mem_lvl & PERF_MEM_LVL_REM_CCE2)) {
+    if (sample->data_src.mem_lvl & PERF_MEM_LVL_HIT)
+      counters[samples->access_type].remote_cache_hit_count++;
+    else if (sample->data_src.mem_lvl & PERF_MEM_LVL_MISS)
+      counters[samples->access_type].remote_cache_miss_count++;
+  }
+
+  if(sample->data_src.mem_lvl & PERF_MEM_LVL_IO) {
+    if (sample->data_src.mem_lvl & PERF_MEM_LVL_HIT)
+      counters[samples->access_type].io_memory_hit_count++;
+    else if (sample->data_src.mem_lvl & PERF_MEM_LVL_MISS)
+      counters[samples->access_type].io_memory_miss_count++;
+  }
+
+  if(sample->data_src.mem_lvl & PERF_MEM_LVL_UNC) {
+    if (sample->data_src.mem_lvl & PERF_MEM_LVL_HIT)
+      counters[samples->access_type].uncached_memory_hit_count++;
+    else if (sample->data_src.mem_lvl & PERF_MEM_LVL_MISS)
+      counters[samples->access_type].uncached_memory_miss_count++;
+  }
+}
+
 /* This function analyzes a set of samples
  * @param samples : a buffer that contains samples
  * @return nb_samples : the number of samples that were in the buffer
@@ -490,6 +604,7 @@ static void __analyze_buffer(struct sample_list* samples,
 	goto next_sample;
       }
 
+      update_counters(global_counters, sample);
       /* find the memory object that corresponds to the sample*/
       struct memory_info* mem_info = ma_find_mem_info_from_sample(sample);
 
@@ -508,35 +623,8 @@ static void __analyze_buffer(struct sample_list* samples,
 
 	/* find the memory pages in the object that corresponds to the sample address */
 	struct block_info *block = ma_get_block(mem_info, samples->thread_rank, sample->addr);
-
 	/* update counters */
-	block->counters[samples->access_type].total_count++;
-	block->counters[samples->access_type].total_weight += sample->weight;
-
-	if (is_served_by_local_NA_miss(sample->data_src)) {
-	  block->counters[samples->access_type].na_miss_count++;
-	}
-	if (is_served_by_local_cache1(sample->data_src)) {
-	  block->counters[samples->access_type].cache1_count++;
-	}
-	if (is_served_by_local_cache2(sample->data_src)) {
-	  block->counters[samples->access_type].cache2_count++;
-	}
-	if (is_served_by_local_cache3(sample->data_src)) {
-	  block->counters[samples->access_type].cache3_count++;
-	}
-	if (is_served_by_local_lfb(sample->data_src)) {
-	  block->counters[samples->access_type].lfb_count++;
-	}
-	if (is_served_by_local_memory(sample->data_src)) {
-	  block->counters[samples->access_type].memory_count++;
-	}
-	if (is_served_by_remote_memory(sample->data_src)) {
-	  block->counters[samples->access_type].remote_memory_count++;
-	}
-	if (is_served_by_remote_cache_or_local_memory(sample->data_src)) {
-	  block->counters[samples->access_type].remote_cache_count++;
-	}
+	update_counters(block->counters, sample);
       }
 
       if(_dump) {

@@ -1001,27 +1001,33 @@ void update_call_sites(struct memory_info* mem_info) {
       struct block_info* site_block = __ma_get_block(&site->cumulated_counters, 0);
 
       for(j = 0; j<ACCESS_MAX; j++) {
-	mem_block->counters[j].total_count         += block->counters[j].total_count;
-	mem_block->counters[j].total_weight        += block->counters[j].total_weight;
-	mem_block->counters[j].na_miss_count       += block->counters[j].na_miss_count;
-	mem_block->counters[j].cache1_count        += block->counters[j].cache1_count;
-	mem_block->counters[j].cache2_count        += block->counters[j].cache2_count;
-	mem_block->counters[j].cache3_count        += block->counters[j].cache3_count;
-	mem_block->counters[j].lfb_count           += block->counters[j].lfb_count;
-	mem_block->counters[j].memory_count        += block->counters[j].memory_count;
-	mem_block->counters[j].remote_memory_count += block->counters[j].remote_memory_count;
-	mem_block->counters[j].remote_cache_count  += block->counters[j].remote_cache_count;
 
-	site_block->counters[j].total_count         += block->counters[j].total_count;
-	site_block->counters[j].total_weight        += block->counters[j].total_weight;
-	site_block->counters[j].na_miss_count       += block->counters[j].na_miss_count;
-	site_block->counters[j].cache1_count        += block->counters[j].cache1_count;
-	site_block->counters[j].cache2_count        += block->counters[j].cache2_count;
-	site_block->counters[j].cache3_count        += block->counters[j].cache3_count;
-	site_block->counters[j].lfb_count           += block->counters[j].lfb_count;
-	site_block->counters[j].memory_count        += block->counters[j].memory_count;
-	site_block->counters[j].remote_memory_count += block->counters[j].remote_memory_count;
-	site_block->counters[j].remote_cache_count  += block->counters[j].remote_cache_count;
+#define ACC_COUNTERS(to, from) do {					\
+	  to.total_count += from.total_count;				\
+	  to.total_weight += from.total_weight;				\
+	  to.na_miss_count += from.na_miss_count;			\
+	  to.cache1_hit_count += from.cache1_hit_count;			\
+	  to.cache2_hit_count += from.cache2_hit_count;			\
+	  to.cache3_hit_count += from.cache3_hit_count;			\
+	  to.lfb_hit_count    += from.lfb_hit_count		 ;	\
+	  to.local_ram_hit_count += from.local_ram_hit_count	 ;	\
+	  to.remote_ram_hit_count += from.remote_ram_hit_count	 ;	\
+	  to.remote_cache_hit_count += from.remote_cache_hit_count	 ; \
+	  to.io_memory_hit_count += from.io_memory_hit_count	 ;	\
+	  to.uncached_memory_hit_count += from.uncached_memory_hit_count ; \
+	  to.cache1_miss_count += from.cache1_miss_count	 ;	\
+	  to.cache2_miss_count += from.cache2_miss_count	 ;	\
+	  to.cache3_miss_count += from.cache3_miss_count	 ;	\
+	  to.lfb_miss_count += from.lfb_miss_count		 ;	\
+	  to.local_ram_miss_count += from.local_ram_miss_count	 ;	\
+	  to.remote_ram_miss_count += from.remote_ram_miss_count	 ; \
+	  to.remote_cache_miss_count += from.remote_cache_miss_count	 ; \
+	  to.io_memory_miss_count += from.io_memory_miss_count	 ;	\
+	  to.uncached_memory_miss_count += from.uncached_memory_miss_count; \
+	}while(0)
+
+	ACC_COUNTERS(mem_block->counters[j], block->counters[j]);
+	ACC_COUNTERS(site_block->counters[j], block->counters[j]);
       }
       block = block->next;
     }

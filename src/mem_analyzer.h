@@ -11,13 +11,26 @@ struct mem_counters {
   unsigned total_count;
   unsigned total_weight;
   unsigned na_miss_count;
-  unsigned cache1_count;
-  unsigned cache2_count;
-  unsigned cache3_count;
-  unsigned lfb_count;
-  unsigned memory_count;
-  unsigned remote_memory_count;
-  unsigned remote_cache_count;
+
+  unsigned cache1_hit_count;
+  unsigned cache2_hit_count;
+  unsigned cache3_hit_count;
+  unsigned lfb_hit_count;
+  unsigned local_ram_hit_count;
+  unsigned remote_ram_hit_count;
+  unsigned remote_cache_hit_count;
+  unsigned io_memory_hit_count;
+  unsigned uncached_memory_hit_count;
+
+  unsigned cache1_miss_count;
+  unsigned cache2_miss_count;
+  unsigned cache3_miss_count;
+  unsigned lfb_miss_count;
+  unsigned local_ram_miss_count;
+  unsigned remote_ram_miss_count;
+  unsigned remote_cache_miss_count;
+  unsigned io_memory_miss_count;
+  unsigned uncached_memory_miss_count;
 };
 
 enum access_type {
