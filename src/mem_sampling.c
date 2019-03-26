@@ -267,7 +267,8 @@ void mem_sampling_finalize() {
     }
     printf("\n");
     printf("Total: %d samples including %d matches in %d blocks (%lu bytes)\n", nb_samples_total, nb_found_samples_total, nb_blocks, total_buffer_size);
-    printf("avg position: %" PRIu64 "\n", avg_pos/nb_samples_total);
+    if(nb_samples_total != 0)
+      printf("avg position: %" PRIu64 "\n", avg_pos/nb_samples_total);
     stop_tick(offline_sample_analysis);
     printf("Offline analysis took %lf s\n",tick_duration(offline_sample_analysis)/1e9);
   }
