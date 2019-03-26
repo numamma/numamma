@@ -6,6 +6,7 @@
 #include <linux/perf_event.h>
 #include <asm/unistd.h>
 #include <errno.h>
+#include <linux/version.h>
 
 struct counter{
   struct perf_event_attr attr;
@@ -16,7 +17,12 @@ struct counter{
   int status;
 };
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)
 #define NB_COUNTERS 28
+#else
+#define NB_COUNTERS 27
+#endif
+
 struct counter counters[]={
   {.counter_id=PERF_COUNT_HW_CPU_CYCLES, .counter_name="PERF_COUNT_HW_CPU_CYCLES"},
   {.counter_id=PERF_COUNT_HW_INSTRUCTIONS, .counter_name="PERF_COUNT_HW_INSTRUCTIONS"},
@@ -45,7 +51,9 @@ struct counter counters[]={
   {.counter_id=PERF_COUNT_SW_PAGE_FAULTS_MAJ, .counter_name="PERF_COUNT_SW_PAGE_FAULTS_MAJ"},
   {.counter_id=PERF_COUNT_SW_EMULATION_FAULTS, .counter_name="PERF_COUNT_SW_EMULATION_FAULTS"},
   {.counter_id=PERF_COUNT_SW_DUMMY	, .counter_name="PERF_COUNT_SW_DUMMY	"},
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0)
   {.counter_id=PERF_COUNT_SW_BPF_OUTPUT, .counter_name="PERF_COUNT_SW_BPF_OUTPUT"},
+#endif
 };
 
 
