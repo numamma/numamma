@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <time.h>
 #include <signal.h>
+#include <linux/version.h>
 
 #include "mem_sampling.h"
 #include "mem_analyzer.h"
@@ -456,7 +457,16 @@ static void __copy_samples(struct numap_sampling_measure *sm,
     struct mem_sampling_stat p_stat;
     struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
 
-    uint8_t* start_addr = (uint8_t *)metadata_page+metadata_page->data_offset;
+    uint8_t* start_addr = (uint8_t *)metadata_page;
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,1,0)
+    start_addr += metadata_page->data_offset;
+#else
+    static size_t page_size = 0;
+    if(page_size == 0)
+      page_size = (size_t)sysconf(_SC_PAGESIZE);
+    start_addr += page_size;
+#endif
+
     /* where the data begins */
     p_stat.head = metadata_page -> data_head;
     /* On SMP-capable platforms, after reading the data_head value,
