@@ -169,8 +169,14 @@ void* realloc(void *ptr, size_t size) {
   size_t old_size = p_block->size;
   size_t header_size = p_block->total_size - p_block->size;
 
-  if (p_block->mem_type != MEM_TYPE_MALLOC) {
-    fprintf(stderr, "Warning: realloc a ptr that was allocated by hand_made_malloc\n");
+  if (p_block->mem_type == MEM_TYPE_HAND_MADE_MALLOC) {
+    /* the buffer was allocated by hand_made_malloc.
+     * we need to emulate the behavior of realloc:
+     * allocate a buffer, and copy the data to the new buffer
+     */
+    void* pptr = malloc(size);
+    memcpy(pptr, p_block->u_ptr, p_block->size);
+    return pptr;
   }
   void *old_addr= p_block->u_ptr;
   void *pptr = librealloc(p_block->p_ptr, size + header_size);

@@ -98,21 +98,25 @@ struct mem_block_info {
  * @param nmemb the number of elements
  * @param block_size the size of 1 element
  */
-#define INIT_MEM_INFO(p_mem, ptr, nmemb, block_size)		\
-  do {								\
-    unsigned int nb_memb_header = HEADER_SIZE / block_size;	\
-    if(block_size*nb_memb_header < HEADER_SIZE)			\
-      nb_memb_header++;						\
-    void* u_ptr = ptr + (block_size*nb_memb_header);		\
-    p_mem = u_ptr - sizeof(struct mem_block_info);		\
-    p_mem->p_ptr = ptr;						\
-    p_mem->total_size = (nmemb + nb_memb_header) * block_size;	\
-    p_mem->size = nmemb * block_size;				\
-    p_mem->tail_block = u_ptr + p_mem->size;			\
-    p_mem->tail_block->canary = CANARY_PATTERN;			\
-    p_mem->record_info = NULL;					\
-    p_mem->u_ptr = u_ptr;					\
-    p_mem->canary = CANARY_PATTERN;				\
+#define INIT_MEM_INFO(p_mem, ptr, nmemb, block_size)                    \
+  do {                                                                  \
+    unsigned int nb_memb_header = HEADER_SIZE / block_size;		\
+    if(block_size*nb_memb_header < HEADER_SIZE)				\
+      nb_memb_header++;                                                 \
+    unsigned int nb_memb_tail = TAIL_SIZE / block_size;			\
+    if(block_size*nb_memb_tail < TAIL_SIZE)				\
+      nb_memb_tail++;							\
+    void* u_ptr = ptr + (block_size*nb_memb_header);                    \
+    p_mem = u_ptr - sizeof(struct mem_block_info);                      \
+    p_mem->p_ptr = ptr;                                                 \
+    p_mem->total_size = (nmemb + nb_memb_header + nb_memb_tail) * block_size; \
+    p_mem->size = nmemb * block_size;                                   \
+    p_mem->tail_block = u_ptr + p_mem->size;                            \
+    p_mem->tail_block->canary = CANARY_PATTERN;                         \
+    p_mem->record_info = NULL;                                          \
+    p_mem->u_ptr = u_ptr;                                               \
+    p_mem->canary = CANARY_PATTERN;                                     \
   } while(0)
+
 
 #endif	/* MEM_INTERCEPT_H */
