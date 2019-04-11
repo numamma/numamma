@@ -130,8 +130,8 @@ The data produced by NumaMMA at runtime can be plotted using R scripts:
   Usage: `plot_pages_matrix.R counters_0.dat` generates `counters_0.dat.png`
 
 - `plot_timeline`
-  + this script takes the `memory_dump.log` file as a parameter and generates a timeline plot that corresponds to a symbol.
-  Example of usage: `plot_timeline -i memory_dump.log -o fields.png -s  "fields_"`
+  + this script takes the `counters_${USER}` directory as a parameter and generates a timeline plot that corresponds to the symbols.
+  Example of usage: `plot_timeline -i /tmp/counters_trahay -o /tmp/counters_trahay_output -s  "fields_"`
 
 ## Content of this repository
 

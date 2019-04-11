@@ -83,7 +83,7 @@ p1 <- qplot(data = data,
           y = offset,
           colour = Thread,
           size = I(0.5), # size of the dots
-          ylab = "Offset (MiB)",
+          ylab = "Offset",
           xlab = "Time (second)")
 threadAsNum <- lapply(data["Thread"], function(x) {as.numeric(x);})
 maxThread = range(threadAsNum)[2]

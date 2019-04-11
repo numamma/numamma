@@ -7,8 +7,8 @@ usage()
     cat <<EOF
 usage: $0 options
 OPTIONS:
--i input_file
--o output_file
+-i input_directory
+-o output_directory
 -z zoom
 -h hlines
 -v vlines
@@ -18,8 +18,8 @@ EOF
 }
 
 zoom=1
-output_file=""
-input_file=""
+output_dir=""
+input_dir=""
 hlines=-1
 vlines=-1
 div=-1
@@ -29,7 +29,7 @@ modulo=-1
 while getopts 'o:i:z:h:v:d:s:' OPTION; do
   case $OPTION in
   o)
-	output_file=$OPTARG
+	output_dir=$OPTARG
 	;;
 
   s)
@@ -37,7 +37,7 @@ while getopts 'o:i:z:h:v:d:s:' OPTION; do
 	;;
 
   i)
-	input_file=$OPTARG
+	input_dir=$OPTARG
 	;;
 
   z)
@@ -68,21 +68,44 @@ done
 # remove the options from the command line
 shift $(($OPTIND - 1))
 
-if [ -z "$input_file" ]; then
-   echo "Please provide an input file" >&2
+if [ -z "$input_dir" ]; then
+   echo "Please provide an input dir" >&2
    exit 1
 fi
 
-if [ -z "$symbol" ]; then
-   echo "Please provide an symbol" >&2
-   exit 1
+if [ -z "$output_dir" ]; then
+   output_dir="$input_dir"
 fi
 
-if [ -z "$output_file" ]; then
-   output_file="${input_file}.png"
+if [ ! -f $input_dir/memory_dump.log ]; then
+    echo "Error: directory $input_dir does not contain a memory_dump.log !" >&2
+    exit 1
 fi
 
-tmp=$(mktemp)
-grep " fields_$" memory_dump.log  > $tmp
-Rscript $prefix/bin/plot_timeline.R "$tmp" "$output_file" "$hlines" "$vlines" "$zoom" "$div" "$modulo"
-rm $tmp
+
+process_symbol() {
+    symbol=$1
+
+    symbol_id=$(grep "[[:space:]]$symbol[[:space:]]" $input_dir/call_sites.log |cut -f 1)
+    if [ ! -z "$symbol_id" ]; then
+	output_file=$output_dir/"$symbol_id".png
+
+	echo "process '$symbol'. Output file: $output_file"
+	access_file=$output_dir/access_$symbol_id.log
+	if [ ! -f "$access_file" ]; then
+    	    grep " $symbol$" memory_dump.log  > $access_file
+	fi
+	Rscript $prefix/bin/plot_timeline.R "$access_file" "$output_file" "$hlines" "$vlines" "$zoom" "$div" "$modulo" > /dev/null 2>&1
+
+    fi
+}
+
+if [ ! -z "$symbol" ]; then
+    # only process symbol
+    process_symbol "$symbol"
+else
+    # process all symbols
+    for symbol in $(cat $input_dir/call_sites.log | awk '{print $2}'); do
+	process_symbol "$symbol"
+    done
+fi
