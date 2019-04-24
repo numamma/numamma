@@ -59,9 +59,10 @@ else
     echo "libpfm is already installed"
 fi
 
-#numactl-2.0.11
-NUMACTL_ROOT=$ROOT_DIR/numactl-2.0.11
-NUMACTL_INSTALL_ROOT=$ROOT_INSTALL_DIR/numactl-2.0.11
+#numactl-2.0.12
+NUMACTL_VERSION=2.0.12
+NUMACTL_ROOT=$ROOT_DIR/numactl-${NUMACTL_VERSION}
+NUMACTL_INSTALL_ROOT=$ROOT_INSTALL_DIR/numactl-${NUMACTL_VERSION}
 
 if ! [ -d $NUMACTL_INSTALL_ROOT ]; then
     echo "Installing numactl..."
@@ -69,7 +70,7 @@ if ! [ -d $NUMACTL_INSTALL_ROOT ]; then
     rm -rf $NUMACTL_ROOT || exit 1
     git clone git@github.com:numactl/numactl.git $NUMACTL_ROOT || exit 1
     cd $NUMACTL_ROOT  || exit 1
-    git checkout v2.0.11 || exit 1
+    git checkout v${NUMACTL_VERSION} || exit 1
     ./autogen.sh || exit 1
     mkdir build || exit 1
     cd build
