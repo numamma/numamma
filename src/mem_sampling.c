@@ -13,6 +13,9 @@ int sampling_rate = 10000;
 /* if set to one, numamma won't search for the buffer that match a sample */
 int drop_samples=0;
 
+/* number of memory pages for numap buffer  */
+size_t numap_page_count = 32;
+
 unsigned nb_samples_total = 0;
 unsigned nb_found_samples_total = 0;
 
@@ -165,18 +168,34 @@ void mem_sampling_init() {
     offline_analysis = 1;
     mem_allocator_init(&sample_mem, sizeof(struct sample_list), 1024);
   }
+
+  str=getenv("NUMAMMA_BUFFER_SIZE");
+  if(str) {
+    long buffer_size=atol(str);
+    size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+    if(buffer_size % page_size != 0) {
+      printf("[NumaMMA] buffer_size must be a multiple of %lu !\n", page_size);
+      buffer_size -= buffer_size % page_size;
+      printf("[NumaMMA]\tadjusting buffer_size to %lu !\n", buffer_size);
+    }
+    
+    numap_page_count = buffer_size / page_size;
+
+    printf("[NumaMMA] using a buffer size of %lu\n", buffer_size);
+  }
+ 
 #endif
 }
 
 void mem_sampling_thread_init() {
   pid_t tid = syscall(SYS_gettid);
-  int res = numap_sampling_init_measure(&sm, 1, sampling_rate, 32);
+  int res = numap_sampling_init_measure(&sm, 1, sampling_rate, numap_page_count);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
     abort();
   }
 
-  res = numap_sampling_init_measure(&sm_wr, 1, sampling_rate, 32);
+  res = numap_sampling_init_measure(&sm_wr, 1, sampling_rate, numap_page_count);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
     abort();
