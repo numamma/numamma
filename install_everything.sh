@@ -30,7 +30,7 @@ LIBBACKTRACE_INSTALL_ROOT=$ROOT_INSTALL_DIR/libbacktrace
 if ! [ -d $LIBBACKTRACE_INSTALL_ROOT ]; then
     echo "Installing libbacktrace..."
     rm -rf $LIBBACKTRACE_ROOT 
-    git clone git@github.com:ianlancetaylor/libbacktrace.git $LIBBACKTRACE_ROOT|| exit 1
+    git clone https://github.com/ianlancetaylor/libbacktrace.git $LIBBACKTRACE_ROOT|| exit 1
     cd $LIBBACKTRACE_ROOT || exit 1
 
     # any version should work, but to be sure, specify a revision that was tested
@@ -68,7 +68,7 @@ if ! [ -d $NUMACTL_INSTALL_ROOT ]; then
     echo "Installing numactl..."
 
     rm -rf $NUMACTL_ROOT || exit 1
-    git clone git@github.com:numactl/numactl.git $NUMACTL_ROOT || exit 1
+    git clone https://github.com/numactl/numactl.git $NUMACTL_ROOT || exit 1
     cd $NUMACTL_ROOT  || exit 1
     git checkout v${NUMACTL_VERSION} || exit 1
     ./autogen.sh || exit 1
