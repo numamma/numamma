@@ -464,58 +464,65 @@ void mem_sampling_collect_samples() {
 #endif	/* USE_NUMAP */
 }
 
-/* copy the samples to a buffer so that they can be analyzed later */
+/* copy the samples to a buffer so that they can be analyzed later for a thread */
+static void __copy_samples_thread(struct numap_sampling_measure *sm,
+			   enum access_type access_type,
+			   int thread) {
+  start_tick(rmb);
+  size_t sample_size = 0;
+  struct mem_sampling_stat p_stat;
+  struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
+
+  uint8_t* start_addr = (uint8_t *)metadata_page;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
+  start_addr += metadata_page->data_offset;
+#else
+  static size_t page_size = 0;
+  if(page_size == 0)
+    page_size = (size_t)sysconf(_SC_PAGESIZE);
+  start_addr += page_size;
+#endif
+
+  /* where the data begins */
+  p_stat.head = metadata_page -> data_head;
+  /* On SMP-capable platforms, after reading the data_head value,
+   * user space should issue an rmb().
+   */
+  rmb();
+  p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
+  sample_size =  p_stat.head;
+
+  struct sample_list* new_sample_buffer = malloc(sizeof(struct sample_list));
+  //  struct sample_list* new_sample_buffer = mem_allocator_alloc(sample_mem);
+  new_sample_buffer->buffer = malloc(sample_size);
+  new_sample_buffer->access_type = access_type;
+  new_sample_buffer->buffer_size = sample_size;
+
+  start_tick(memcpy_samples);
+  memcpy(new_sample_buffer->buffer, start_addr, sample_size);
+  new_sample_buffer->start_date = start_date;
+  new_sample_buffer->stop_date = new_date();
+  new_sample_buffer->thread_rank = thread_rank;
+
+  /* todo: make this thread-safe */
+  new_sample_buffer->next = samples;
+  samples = new_sample_buffer;
+  nb_sample_buffers++;
+
+  stop_tick(memcpy_samples);
+
+  debug_printf("[%d] copied %zu bytes\n", thread_rank, sample_size);
+  stop_tick(rmb);
+}
+
+/* calld __copy_samples_thread on each thread */
 static void __copy_samples(struct numap_sampling_measure *sm,
 			   enum access_type access_type) {
 
   /* well, sm->nb_threads should be 1, but let's make things generic */
   int thread;
   for (thread = 0; thread < sm->nb_threads; thread++) {
-    start_tick(rmb);
-    size_t sample_size = 0;
-    struct mem_sampling_stat p_stat;
-    struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
-
-    uint8_t* start_addr = (uint8_t *)metadata_page;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
-    start_addr += metadata_page->data_offset;
-#else
-    static size_t page_size = 0;
-    if(page_size == 0)
-      page_size = (size_t)sysconf(_SC_PAGESIZE);
-    start_addr += page_size;
-#endif
-
-    /* where the data begins */
-    p_stat.head = metadata_page -> data_head;
-    /* On SMP-capable platforms, after reading the data_head value,
-     * user space should issue an rmb().
-     */
-    rmb();
-    p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
-    sample_size =  p_stat.head;
-
-    struct sample_list* new_sample_buffer = malloc(sizeof(struct sample_list));
-    //    struct sample_list* new_sample_buffer = mem_allocator_alloc(sample_mem);
-    new_sample_buffer->buffer = malloc(sample_size);
-    new_sample_buffer->access_type = access_type;
-    new_sample_buffer->buffer_size = sample_size;
-
-    start_tick(memcpy_samples);
-    memcpy(new_sample_buffer->buffer, start_addr, sample_size);
-    new_sample_buffer->start_date = start_date;
-    new_sample_buffer->stop_date = new_date();
-    new_sample_buffer->thread_rank = thread_rank;
-
-    /* todo: make this thread-safe */
-    new_sample_buffer->next = samples;
-    samples = new_sample_buffer;
-    nb_sample_buffers++;
-
-    stop_tick(memcpy_samples);
-
-    debug_printf("[%d] copied %zu bytes\n", thread_rank, sample_size);
-    stop_tick(rmb);
+    __copy_samples_thread(sm, access_type, thread);
   }
 }
 
