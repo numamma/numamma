@@ -507,6 +507,7 @@ static void __copy_samples_thread(struct numap_sampling_measure *sm,
   struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
 
   uint8_t* start_addr = (uint8_t *)metadata_page;
+  uint64_t tail = metadata_page->data_tail;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
   start_addr += metadata_page->data_offset;
 #else
@@ -517,13 +518,21 @@ static void __copy_samples_thread(struct numap_sampling_measure *sm,
 #endif
 
   /* where the data begins */
+  if (metadata_page->data_head > metadata_page->data_size)
+  {
+    metadata_page->data_head = (metadata_page->data_head % metadata_page->data_size);
+  }
   p_stat.head = metadata_page -> data_head;
   /* On SMP-capable platforms, after reading the data_head value,
    * user space should issue an rmb().
    */
   rmb();
   p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
-  sample_size =  p_stat.head;
+  if (head > tail) {
+    sample_size =  p_stat.head - tail;
+  } else {
+    sample_size = (metadata_page->data_size - tail) + head;
+  }
 
   struct sample_list* new_sample_buffer = malloc(sizeof(struct sample_list));
   //  struct sample_list* new_sample_buffer = mem_allocator_alloc(sample_mem);
@@ -533,6 +542,13 @@ static void __copy_samples_thread(struct numap_sampling_measure *sm,
 
   start_tick(memcpy_samples);
   memcpy(new_sample_buffer->buffer, start_addr, sample_size);
+  if (head > tail) {
+    memcpy(new_sample_buffer->buffer, start_addr, sample_size);
+  } else {
+    memcpy(new_sample_buffer->buffer, start_addr+tail, (metadata_page->data_size - tail));
+    memcpy((char*)new_sample_buffer->buffer + (metadata_page->data_size - tail), start_addr, p_stat.head);
+  }
+  metadata_page->data_tail = head;
   new_sample_buffer->start_date = start_date;
   new_sample_buffer->stop_date = new_date();
   new_sample_buffer->thread_rank = thread_rank;
