@@ -61,6 +61,7 @@ struct sample_list {
   unsigned thread_rank;
 };
 struct sample_list *samples = NULL;
+pthread_mutex_t sample_list_lock;
 static int nb_sample_buffers = 0;
 
 /* if set to 1, samples are copied to a buffer at runtime and analyzed after the
@@ -183,6 +184,7 @@ void mem_sampling_init() {
 
     printf("[NumaMMA] using a buffer size of %lu\n", buffer_size);
   }
+  pthread_mutex_init(&sample_list_lock, NULL);
  
 #endif
 }
@@ -504,10 +506,11 @@ static void __copy_samples_thread(struct numap_sampling_measure *sm,
   new_sample_buffer->stop_date = new_date();
   new_sample_buffer->thread_rank = thread_rank;
 
-  /* todo: make this thread-safe */
+  pthread_mutex_lock(&sample_list_lock);
   new_sample_buffer->next = samples;
   samples = new_sample_buffer;
   nb_sample_buffers++;
+  pthread_mutex_unlock(&sample_list_lock);
 
   stop_tick(memcpy_samples);
 
@@ -515,7 +518,7 @@ static void __copy_samples_thread(struct numap_sampling_measure *sm,
   stop_tick(rmb);
 }
 
-/* calld __copy_samples_thread on each thread */
+/* calls __copy_samples_thread on each thread */
 static void __copy_samples(struct numap_sampling_measure *sm,
 			   enum access_type access_type) {
 
