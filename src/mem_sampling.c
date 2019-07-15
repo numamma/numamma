@@ -3,6 +3,7 @@
 #include <time.h>
 #include <signal.h>
 #include <linux/version.h>
+#include <pthread.h>
 
 #include "mem_sampling.h"
 #include "mem_analyzer.h"
@@ -72,6 +73,9 @@ int offline_analysis = 1;
 
 static void __analyze_sampling(struct numap_sampling_measure *sm,
 			       enum access_type access_type);
+static void __copy_samples_thread(struct numap_sampling_measure *sm,
+			   enum access_type access_type,
+			   int thread);
 static void __copy_samples(struct numap_sampling_measure *sm,
 			   enum access_type access_type);
 
@@ -189,6 +193,30 @@ void mem_sampling_init() {
 #endif
 }
 
+void numap_generic_handler(struct numap_sampling_measure *m, int fd, enum access_type access_type)
+{
+  int tid_i=-1; // search tid
+  for (int i = 0 ; i < m->nb_threads ; i++)
+  {
+    if (m->fd_per_tid[i] == fd)
+      tid_i = i;
+  }
+  if (tid_i == -1)
+  {
+    fprintf(stderr, "No tid associated with fd %d\n", fd);
+    exit(EXIT_FAILURE);
+  }
+  __copy_samples_thread(m, access_type, tid_i);
+}
+
+void numap_read_handler(struct numap_sampling_measure *m, int fd) {
+  numap_generic_handler(m, fd, ACCESS_READ);
+}
+
+void numap_write_handler(struct numap_sampling_measure *m, int fd) {
+  numap_generic_handler(m, fd, ACCESS_WRITE);
+}
+
 void mem_sampling_thread_init() {
   pid_t tid = syscall(SYS_gettid);
   int res = numap_sampling_init_measure(&sm, 1, sampling_rate, numap_page_count);
@@ -215,6 +243,9 @@ void mem_sampling_thread_init() {
     perror("sigaction failed");  
     abort();  
   }
+
+  numap_sampling_set_measure_handler(&sm, numap_read_handler, 1000);
+  numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1000);
 
   __set_alarm();
   mem_sampling_start();
