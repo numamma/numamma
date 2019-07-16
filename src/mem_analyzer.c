@@ -390,9 +390,37 @@ static void __allocate_counters(struct memory_info* mem_info) {
   }
 }
 
+#define INIT_COUNTER(c) do {		\
+    c.count = 0;				\
+    c.min_weight = UINT64_MAX;		\
+    c.max_weight = 0;			\
+    c.sum_weight = 0;			\
+  } while(0)
+
 /* initialize a mem_counters structure */
-static void __init_counter(struct mem_counters* counters){
-  memset(counters, 0, sizeof(struct mem_counters));
+void init_mem_counter(struct mem_counters* counters) {
+  counters->total_count = 0;
+  counters->total_weight = 0;
+  counters->na_miss_count = 0;
+
+  INIT_COUNTER(counters->cache1_hit);
+  INIT_COUNTER(counters->cache2_hit);
+  INIT_COUNTER(counters->cache3_hit);
+  INIT_COUNTER(counters->lfb_hit);
+  INIT_COUNTER(counters->local_ram_hit);
+  INIT_COUNTER(counters->remote_ram_hit);
+  INIT_COUNTER(counters->remote_cache_hit);
+  INIT_COUNTER(counters->io_memory_hit);
+  INIT_COUNTER(counters->uncached_memory_hit);
+  INIT_COUNTER(counters->cache1_miss);
+  INIT_COUNTER(counters->cache2_miss);
+  INIT_COUNTER(counters->cache3_miss);
+  INIT_COUNTER(counters->lfb_miss);
+  INIT_COUNTER(counters->local_ram_miss);
+  INIT_COUNTER(counters->remote_ram_miss);
+  INIT_COUNTER(counters->remote_cache_miss);
+  INIT_COUNTER(counters->io_memory_miss);
+  INIT_COUNTER(counters->uncached_memory_miss);
 }
 
 /* initialize the counters of a mem_info structure */
@@ -402,7 +430,7 @@ static void __init_counters(struct memory_info* mem_info) {
     struct block_info*block = mem_info->blocks[i];
     while(block) {
       for(j=0; j<ACCESS_MAX; j++) {
-	__init_counter(&block->counters[j]);
+	init_mem_counter(&block->counters[j]);
       }
       block = block->next;
     }
@@ -459,7 +487,7 @@ struct block_info* __ma_get_block(struct block_info* block,
       /* initialize the block */
       new_block->block_id = page_no;
       for(int j=0; j<ACCESS_MAX; j++) {
-	__init_counter(&new_block->counters[j]);
+	init_mem_counter(&new_block->counters[j]);
       }
 
       /* enqueue it after block */
@@ -1002,28 +1030,37 @@ void update_call_sites(struct memory_info* mem_info) {
 
       for(j = 0; j<ACCESS_MAX; j++) {
 
-#define ACC_COUNTERS(to, from) do {					\
-	  to.total_count += from.total_count;				\
-	  to.total_weight += from.total_weight;				\
-	  to.na_miss_count += from.na_miss_count;			\
-	  to.cache1_hit_count += from.cache1_hit_count;			\
-	  to.cache2_hit_count += from.cache2_hit_count;			\
-	  to.cache3_hit_count += from.cache3_hit_count;			\
-	  to.lfb_hit_count    += from.lfb_hit_count		 ;	\
-	  to.local_ram_hit_count += from.local_ram_hit_count	 ;	\
-	  to.remote_ram_hit_count += from.remote_ram_hit_count	 ;	\
-	  to.remote_cache_hit_count += from.remote_cache_hit_count	 ; \
-	  to.io_memory_hit_count += from.io_memory_hit_count	 ;	\
-	  to.uncached_memory_hit_count += from.uncached_memory_hit_count ; \
-	  to.cache1_miss_count += from.cache1_miss_count	 ;	\
-	  to.cache2_miss_count += from.cache2_miss_count	 ;	\
-	  to.cache3_miss_count += from.cache3_miss_count	 ;	\
-	  to.lfb_miss_count += from.lfb_miss_count		 ;	\
-	  to.local_ram_miss_count += from.local_ram_miss_count	 ;	\
-	  to.remote_ram_miss_count += from.remote_ram_miss_count	 ; \
-	  to.remote_cache_miss_count += from.remote_cache_miss_count	 ; \
-	  to.io_memory_miss_count += from.io_memory_miss_count	 ;	\
-	  to.uncached_memory_miss_count += from.uncached_memory_miss_count; \
+#define ACC_COUNTER(to, from, _c) do {			\
+	  to._c.count += from._c.count;			\
+	  to._c.sum_weight += from._c.sum_weight;	\
+	  if(to._c.min_weight > from._c.min_weight)	\
+	    to._c.min_weight = from._c.min_weight;	\
+	  if(to._c.max_weight > from._c.max_weight)	\
+	    to._c.max_weight = from._c.max_weight;	\
+	} while(0)
+
+#define ACC_COUNTERS(to, from) do {			\
+	  to.total_count += from.total_count;		\
+	  to.total_weight += from.total_weight;		\
+	  to.na_miss_count += from.na_miss_count;	\
+	  ACC_COUNTER(to, from, cache1_hit);		\
+	  ACC_COUNTER(to, from, cache2_hit);		\
+	  ACC_COUNTER(to, from, cache3_hit);		\
+	  ACC_COUNTER(to, from, lfb_hit);		\
+	  ACC_COUNTER(to, from, local_ram_hit);		\
+	  ACC_COUNTER(to, from, remote_ram_hit);	\
+	  ACC_COUNTER(to, from, remote_cache_hit);	\
+	  ACC_COUNTER(to, from, io_memory_hit);		\
+	  ACC_COUNTER(to, from, uncached_memory_hit);	\
+	  ACC_COUNTER(to, from, cache1_miss);		\
+	  ACC_COUNTER(to, from, cache2_miss);		\
+	  ACC_COUNTER(to, from, cache3_miss);		\
+	  ACC_COUNTER(to, from, lfb_miss);		\
+	  ACC_COUNTER(to, from, local_ram_miss);	\
+	  ACC_COUNTER(to, from, remote_ram_miss);	\
+	  ACC_COUNTER(to, from, remote_cache_miss);	\
+	  ACC_COUNTER(to, from, io_memory_miss);	\
+	  ACC_COUNTER(to, from, uncached_memory_miss);	\
 	}while(0)
 
 	ACC_COUNTERS(mem_block->counters[j], block->counters[j]);
