@@ -528,10 +528,10 @@ static void __copy_samples_thread(struct numap_sampling_measure *sm,
    */
   rmb();
   p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
-  if (head > tail) {
+  if (p_stat.head > tail) {
     sample_size =  p_stat.head - tail;
   } else {
-    sample_size = (metadata_page->data_size - tail) + head;
+    sample_size = (metadata_page->data_size - tail) + p_stat.head;
   }
 
   struct sample_list* new_sample_buffer = malloc(sizeof(struct sample_list));
@@ -542,13 +542,13 @@ static void __copy_samples_thread(struct numap_sampling_measure *sm,
 
   start_tick(memcpy_samples);
   memcpy(new_sample_buffer->buffer, start_addr, sample_size);
-  if (head > tail) {
+  if (p_stat.head > tail) {
     memcpy(new_sample_buffer->buffer, start_addr, sample_size);
   } else {
     memcpy(new_sample_buffer->buffer, start_addr+tail, (metadata_page->data_size - tail));
     memcpy((char*)new_sample_buffer->buffer + (metadata_page->data_size - tail), start_addr, p_stat.head);
   }
-  metadata_page->data_tail = head;
+  metadata_page->data_tail = p_stat.head;
   new_sample_buffer->start_date = start_date;
   new_sample_buffer->stop_date = new_date();
   new_sample_buffer->thread_rank = thread_rank;
