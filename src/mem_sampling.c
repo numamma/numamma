@@ -243,9 +243,13 @@ void print_counters(struct mem_counters* counters) {
 #define MIN_COUNT(__c) (counters[i].__c.min_weight)
 #define MAX_COUNT(__c) (counters[i].__c.max_weight)
 #define AVG_COUNT(__c) (counters[i].__c.count? counters[i].__c.sum_weight / counters[i].__c.count : 0)
+#define WEIGHT(__c) (counters[i].__c.sum_weight)
+#define PERCENT_WEIGHT(__c) (counters[i].total_weight?100*counters[i].__c.sum_weight/counters[i].total_weight:0)
+    
 #define PRINT_COUNTER(__c, str) \
-    if(counters[i].__c.count) printf("%s\t\t:\t %ld (%f %%) \tmin: %llu cycles\tmax: %llu cycles\t avg: %llu cycles\n", \
-	   str, counters[i].__c.count, PERCENT(__c), MIN_COUNT(__c), MAX_COUNT(__c), AVG_COUNT(__c))
+    if(counters[i].__c.count) printf("%s\t\t:\t %ld (%f %%) \tmin: %llu cycles\tmax: %llu cycles\t avg: %llu cycles\ttotal weight: %llu (%f %%)\n", \
+				     str, counters[i].__c.count, PERCENT(__c), MIN_COUNT(__c), MAX_COUNT(__c), AVG_COUNT(__c), \
+				     WEIGHT(__c), PERCENT_WEIGHT(__c))
     
     printf("Total count          : \t %ld\n", counters[i].total_count);
     printf("Total weigh          : \t %ld\n", counters[i].total_weight);
