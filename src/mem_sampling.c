@@ -14,6 +14,10 @@ int sampling_rate = 10000;
 /* if set to one, numamma matches samples with memory objects */
 int match_samples=1;
 
+/* if set to 1, numamma registers a callback that is call each
+   time the sample buffer is full. Otherwise, samples may be lost */
+int sig_refresh_enabled=1;
+
 /* number of memory pages for numap buffer  */
 size_t numap_page_count = 32;
 
@@ -170,6 +174,11 @@ void mem_sampling_init() {
     alarm_enabled=1;
   }
 
+  str = getenv("NUMAMMA_NO_REFRESH");
+  if(str) {
+    sig_refresh_enabled=0;
+  }
+  
   str=getenv("NUMAMMA_BUFFER_SIZE");
   size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
   long buffer_size = numap_page_count * page_size;
@@ -192,6 +201,7 @@ void mem_sampling_init() {
   printf("Buffer size: %lu\n", buffer_size);
   printf("Alarm interval: %ld ms\n", alarm_enabled?interval:0);
   printf("Memory access analysis: %s\n", offline_analysis?"offline":"online");
+  printf("Refresh: %s\n", sig_refresh_enabled?"enabled":"disabled");
   printf("-----------------\n");
 
   mem_allocator_init(&sample_mem, sizeof(struct sample_list), 1024);
@@ -243,19 +253,19 @@ void mem_sampling_thread_init() {
   /* for now, only collect info on the current thread */
   sm.tids[0] = tid;
 
+  if(sig_refresh_enabled) {
+    struct sigaction s;  
+    s.sa_handler = sig_handler;  
+    int signo=SIGALRM;
+    int ret = sigaction(signo, &s, NULL);
+    if(ret<0) {  
+      perror("sigaction failed");  
+      abort();  
+    }
 
-  struct sigaction s;  
-  s.sa_handler = sig_handler;  
-  int signo=SIGALRM;
-  int ret = sigaction(signo, &s, NULL);
-  if(ret<0) {  
-    perror("sigaction failed");  
-    abort();  
+    numap_sampling_set_measure_handler(&sm, numap_read_handler, 1000);
+    numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1000);
   }
-
-  numap_sampling_set_measure_handler(&sm, numap_read_handler, 1000);
-  numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1000);
-
   __set_alarm();
   mem_sampling_start();
 }
