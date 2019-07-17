@@ -16,8 +16,8 @@ int match_samples=1;
 /* number of memory pages for numap buffer  */
 size_t numap_page_count = 32;
 
-unsigned nb_samples_total = 0;
-unsigned nb_found_samples_total = 0;
+uint64_t nb_samples_total = 0;
+uint64_t nb_found_samples_total = 0;
 
 /* set to 1 if we are currently sampling memory accesses */
 static __thread volatile int is_sampling = 0;
@@ -325,7 +325,7 @@ void mem_sampling_thread_finalize() {
 
 void mem_sampling_statistics() {
   float percent = 100.0*(nb_samples_total-nb_found_samples_total)/nb_samples_total;
-  printf("%d samples (including %d samples that do not match a known memory buffer / %f%%)\n",
+  printf("%"PRIu64" samples (including %"PRIu64" samples that do not match a known memory buffer / %f%%)\n",
 	 nb_samples_total, nb_samples_total-nb_found_samples_total, percent);
   if(offline_analysis) {
     printf("Buffer size for sample: %zu bytes\n", sample_buffer_size);

@@ -1338,8 +1338,8 @@ void ma_finalize() {
 	0;
 
       int nb_threads = next_thread_rank;
-      unsigned total_read_count = 0;
-      unsigned total_write_count = 0;
+      uint64_t total_read_count = 0;
+      uint64_t total_write_count = 0;
       size_t nb_blocks_with_samples = 0;
       for(int i=0; i<nb_threads; i++) {
 	struct block_info* block = mem_info->blocks[i];
@@ -1368,7 +1368,7 @@ void ma_finalize() {
 	else
 	  w_access_frequency = 0;
 
-	debug_printf("buffer %p (%lu bytes, %zu blocks with samples), duration = %lu ticks, %d writes, %d reads, allocated : %s, read operation every %lf ticks\n",
+	debug_printf("buffer %p (%lu bytes, %zu blocks with samples), duration = %lu ticks, %"PRIu64" writes, %"PRIu64" reads, allocated : %s, read operation every %lf ticks\n",
 		     mem_info->buffer_addr,
 		     mem_info->initial_buffer_size,
 		     nb_blocks_with_samples,
