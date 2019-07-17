@@ -7,30 +7,37 @@
 
 typedef uint64_t date_t;
 
+struct count {
+  uint64_t count;
+  uint64_t min_weight;
+  uint64_t max_weight;
+  uint64_t sum_weight;
+};
+
 struct mem_counters {
-  unsigned total_count;
-  unsigned total_weight;
-  unsigned na_miss_count;
+  uint64_t total_count;
+  uint64_t total_weight;
+  uint64_t na_miss_count;
 
-  unsigned cache1_hit_count;
-  unsigned cache2_hit_count;
-  unsigned cache3_hit_count;
-  unsigned lfb_hit_count;
-  unsigned local_ram_hit_count;
-  unsigned remote_ram_hit_count;
-  unsigned remote_cache_hit_count;
-  unsigned io_memory_hit_count;
-  unsigned uncached_memory_hit_count;
+  struct count cache1_hit;
+  struct count cache2_hit;
+  struct count cache3_hit;
+  struct count lfb_hit;
+  struct count local_ram_hit;
+  struct count remote_ram_hit;
+  struct count remote_cache_hit;
+  struct count io_memory_hit;
+  struct count uncached_memory_hit;
 
-  unsigned cache1_miss_count;
-  unsigned cache2_miss_count;
-  unsigned cache3_miss_count;
-  unsigned lfb_miss_count;
-  unsigned local_ram_miss_count;
-  unsigned remote_ram_miss_count;
-  unsigned remote_cache_miss_count;
-  unsigned io_memory_miss_count;
-  unsigned uncached_memory_miss_count;
+  struct count cache1_miss;
+  struct count cache2_miss;
+  struct count cache3_miss;
+  struct count lfb_miss;
+  struct count local_ram_miss;
+  struct count remote_ram_miss;
+  struct count remote_cache_miss;
+  struct count io_memory_miss;
+  struct count uncached_memory_miss;
 };
 
 enum access_type {
