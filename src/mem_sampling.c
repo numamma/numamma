@@ -56,7 +56,7 @@ struct mem_allocator *sample_mem = NULL;
 
 struct sample_list {
   struct sample_list*next;
-  void* buffer;
+  struct perf_event_header *buffer;
   size_t buffer_size;
   enum access_type access_type;
   date_t start_date;
@@ -280,13 +280,13 @@ void print_counters(struct mem_counters* counters) {
 #define PERCENT_WEIGHT(__c) (counters[i].total_weight?100*counters[i].__c.sum_weight/counters[i].total_weight:0)
     
 #define PRINT_COUNTER(__c, str) \
-    if(counters[i].__c.count) printf("%s\t\t:\t %ld (%f %%) \tmin: %llu cycles\tmax: %llu cycles\t avg: %llu cycles\ttotal weight: %llu (%f %%)\n", \
+    if(counters[i].__c.count) printf("%s\t: %ld (%f %%) \tmin: %llu cycles\tmax: %llu cycles\t avg: %llu cycles\ttotal weight: % "PRIu64" (%f %%)\n", \
 				     str, counters[i].__c.count, PERCENT(__c), MIN_COUNT(__c), MAX_COUNT(__c), AVG_COUNT(__c), \
 				     WEIGHT(__c), PERCENT_WEIGHT(__c))
     
-    printf("Total count          : \t %ld\n", counters[i].total_count);
-    printf("Total weigh          : \t %ld\n", counters[i].total_weight);
-    printf("N/A                  : \t %ld (%f %%)\n", counters[i].na_miss_count, _PERCENT(counters[i].na_miss_count));
+    printf("Total count          : \t %"PRIu64"\n", counters[i].total_count);
+    printf("Total weigh          : \t %"PRIu64"\n", counters[i].total_weight);
+    printf("N/A                  : \t %"PRIu64" (%f %%)\n", counters[i].na_miss_count, _PERCENT(counters[i].na_miss_count));
 
     PRINT_COUNTER(cache1_hit, "L1 Hit");
     PRINT_COUNTER(cache2_hit, "L2 Hit");
@@ -336,7 +336,7 @@ void mem_sampling_finalize() {
       samples = samples->next;
       nb_blocks++;
       free(prev->buffer);
-      free(prev);
+      mem_allocator_free(sample_mem, prev);
     }
     printf("\n");
     printf("Total: %d samples including %d matches in %d blocks (%lu bytes)\n", nb_samples_total, nb_found_samples_total, nb_blocks, total_buffer_size);
@@ -469,7 +469,7 @@ void mem_sampling_collect_samples() {
   if(status_finalized)
     return;
 
-  debug_printf("in %s : [tid=%lx][cur_date=%lf] Collect samples %d\n",
+   debug_printf("in %s : [tid=%lx][cur_date=%lf] Collect samples %d\n",
 	       __FUNCTION__,
 	       syscall(SYS_gettid), get_cur_date(), is_sampling);
 
@@ -522,52 +522,58 @@ static void __copy_samples_thread(struct numap_sampling_measure *sm,
 			   int thread) {
   start_tick(rmb);
   size_t sample_size = 0;
-  struct mem_sampling_stat p_stat;
   struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
 
-  uint8_t* start_addr = (uint8_t *)metadata_page;
+  if(metadata_page->data_tail == metadata_page->data_head)
+    /* nothing to do */
+    return;
+  
+  uint8_t* buffer_addr = (uint8_t *)metadata_page;
   uint64_t tail = metadata_page->data_tail;
+  uint64_t buffer_size = metadata_page->data_size;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
-  start_addr += metadata_page->data_offset;
+  buffer_addr += metadata_page->data_offset;
 #else
   static size_t page_size = 0;
   if(page_size == 0)
     page_size = (size_t)sysconf(_SC_PAGESIZE);
-  start_addr += page_size;
+  buffer_addr += page_size;
 #endif
+  struct perf_event_header *header = (struct perf_event_header *)buffer_addr;
+  uint64_t head = metadata_page -> data_head;
 
   /* where the data begins */
-  if (metadata_page->data_head > metadata_page->data_size)
-  {
-    metadata_page->data_head = (metadata_page->data_head % metadata_page->data_size);
+  if (head > buffer_size) {
+    head = (head % buffer_size);
   }
-  p_stat.head = metadata_page -> data_head;
+  metadata_page -> data_head = head;
   /* On SMP-capable platforms, after reading the data_head value,
    * user space should issue an rmb().
    */
   rmb();
-  p_stat.header = (struct perf_event_header *)((char *)metadata_page + sm->page_size);
-  if (p_stat.head > tail) {
-    sample_size =  p_stat.head - tail;
+
+  if (head > tail) {
+    sample_size =  head - tail;
   } else {
-    sample_size = (metadata_page->data_size - tail) + p_stat.head;
+    sample_size = (buffer_size - tail) + head;
   }
 
-  struct sample_list* new_sample_buffer = malloc(sizeof(struct sample_list));
-  //  struct sample_list* new_sample_buffer = mem_allocator_alloc(sample_mem);
+  struct sample_list* new_sample_buffer = mem_allocator_alloc(sample_mem);
   new_sample_buffer->buffer = malloc(sample_size);
   new_sample_buffer->access_type = access_type;
   new_sample_buffer->buffer_size = sample_size;
 
   start_tick(memcpy_samples);
-  memcpy(new_sample_buffer->buffer, start_addr, sample_size);
-  if (p_stat.head > tail) {
-    memcpy(new_sample_buffer->buffer, start_addr, sample_size);
+  if (head > tail) {
+    memcpy(new_sample_buffer->buffer, &buffer_addr[tail], sample_size);
   } else {
-    memcpy(new_sample_buffer->buffer, start_addr+tail, (metadata_page->data_size - tail));
-    memcpy((char*)new_sample_buffer->buffer + (metadata_page->data_size - tail), start_addr, p_stat.head);
+    memcpy(new_sample_buffer->buffer, &buffer_addr[tail], (buffer_size - tail));
+    memcpy(((uint8_t*)new_sample_buffer->buffer) + (buffer_size - tail),
+	   &buffer_addr[0],
+	   head);
   }
-  metadata_page->data_tail = p_stat.head;
+
+  metadata_page->data_tail = head;
   new_sample_buffer->start_date = start_date;
   new_sample_buffer->stop_date = new_date();
   new_sample_buffer->thread_rank = thread_rank;
@@ -577,6 +583,11 @@ static void __copy_samples_thread(struct numap_sampling_measure *sm,
   samples = new_sample_buffer;
   nb_sample_buffers++;
   pthread_mutex_unlock(&sample_list_lock);
+
+
+  int nb_samples=0;
+  int found_samples=0;
+  __analyze_buffer(new_sample_buffer, &nb_samples, &found_samples);
 
   stop_tick(memcpy_samples);
 
@@ -695,7 +706,6 @@ static void __analyze_buffer(struct sample_list* samples,
   size_t consumed = 0;
   struct perf_event_header *event = samples->buffer;
   enum access_type access_type = samples->access_type;
-
   if(_dump) {
     fprintf(dump_file, "%d Analyze samples %p (size=%d), start: %lu stop: %lu -- duration: %llu\n",
 	    samples->thread_rank,
@@ -715,7 +725,6 @@ static void __analyze_buffer(struct sample_list* samples,
     if (event->type == PERF_RECORD_SAMPLE) {
       struct mem_sample *sample = (struct mem_sample *)((char *)(event) + 8); /* todo: remplace 8 with sizeof(ptr) ? */
       (*nb_samples)++;
-
       update_counters(global_counters, sample, access_type);
       if(! match_samples)
 	goto next_sample;
@@ -792,7 +801,7 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
 
     struct sample_list samples = {
       .next = NULL,
-      .buffer = (uint8_t *)metadata_page+metadata_page->data_offset,
+      .buffer = (struct perf_event_header *)((uint8_t *)metadata_page+metadata_page->data_offset),
       .buffer_size = metadata_page -> data_head,
       .access_type = access_type,
       .start_date = start_date,
