@@ -29,6 +29,7 @@ static __thread volatile int is_sampling = 0;
 
 /* set to 1 once the thread was finalized */
 static __thread int status_finalized = 0;
+static __thread int status_initialized = 0;
 
 struct timespec t_init;
 
@@ -266,6 +267,7 @@ void mem_sampling_thread_init() {
     numap_sampling_set_measure_handler(&sm, numap_read_handler, 1000);
     numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1000);
   }
+  status_initialized = 1;
   __set_alarm();
   mem_sampling_start();
 }
@@ -360,6 +362,8 @@ void mem_sampling_finalize() {
 }
 
 void mem_sampling_thread_finalize() {
+  if(!status_initialized)
+    return;
   mem_sampling_collect_samples();
   numap_sampling_end(&sm);
   numap_sampling_end(&sm_wr);
