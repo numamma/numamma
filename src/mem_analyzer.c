@@ -35,7 +35,8 @@ static pthread_mutex_t mem_list_lock;
 
 __thread unsigned thread_rank;
 unsigned next_thread_rank = 0;
-static char program_file[4096];
+#define PROGRAM_FILE_LEN 4096 // used for readlink cmd
+static char program_file[PROGRAM_FILE_LEN];
 
 static __thread int is_record_safe = 1;
 #define IS_RECORD_SAFE (is_record_safe)
@@ -616,22 +617,25 @@ void ma_get_global_variables() {
 
   debug_printf("Looking for global variables\n");
   /* get the filename of the program being run */
-  char readlink_cmd[1024];
-  sprintf(readlink_cmd, "readlink /proc/%d/exe", getpid());
-  FILE* f = popen(readlink_cmd, "r");
-  if(!f) {
-    perror("failed to get the program filename");
-    abort();
-  }
-  while(fgets(program_file, 4096, f) == NULL) {
-    /* fgets may be interrupted if we set an alarm */
-    if(errno != EINTR ) {
-      perror("fgets failed");
-      abort();
-    }
-  }
-  strtok(program_file, "\n"); // remove trailing newline
-  pclose(f);
+//  char readlink_cmd[1024];
+//  sprintf(readlink_cmd, "readlink /proc/%d/exe", getpid());
+//  FILE* f = popen(readlink_cmd, "r");
+//  if(!f) {
+//    perror("failed to get the program filename");
+//    abort();
+//  }
+//  while(fgets(program_file, 4096, f) == NULL) {
+//    /* fgets may be interrupted if we set an alarm */
+//    if(errno != EINTR ) {
+//      perror("fgets failed");
+//      abort();
+//    }
+//  }
+//  strtok(program_file, "\n"); // remove trailing newline
+//  pclose(f);
+  char link_path[1024];
+  sprintf(link_path, "/proc/%d/exe", getpid());
+  readlink(link_path, program_file, PROGRAM_FILE_LEN*sizeof(char));
 
   debug_printf("  The program file is %s\n", program_file);
   /* get the address at which the program is mapped in memory */
@@ -640,6 +644,7 @@ void ma_get_global_variables() {
   void *base_addr = NULL;
   void *end_addr = NULL;
 
+  FILE *f;
   sprintf(cmd, "file \"%s\" |grep \"shared object\\|pie executable\" > plop", program_file);
   int ret = system(cmd);
   if(WIFEXITED(ret)) {
@@ -764,6 +769,106 @@ void ma_get_global_variables() {
     }
   }
  out:
+  pclose(f);
+  /* Restore LD_PRELOAD.
+   * This is usefull when the program is run with gdb. gdb creates a process than runs bash -e prog arg1
+   * Thus, the ld_preload affects bash. bash then calls execvp to execute the program.
+   * If we unset ld_preload, the ld_preload will only affect bash (and not the programà
+   * Hence, we need to restore ld_preload here.
+   */
+  reset_ld_preload();
+}
+
+/* get the list of lib variables with their address and size */
+void ma_get_lib_variables() {
+  /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
+  unset_ld_preload();
+
+  debug_printf("Looking for lib variables\n");
+  /* get the filename of the program being run */
+  char link_path[1024];
+  sprintf(link_path, "/proc/%d/exe", getpid());
+  readlink(link_path, program_file, PROGRAM_FILE_LEN*sizeof(char));
+
+  debug_printf("  The program file is %s\n", program_file);
+  /* get the address at which the program is mapped in memory */
+  char cmd[4069];
+  char line[4096];
+  void *base_addr = NULL;
+  void *end_addr = NULL;
+
+  char maps_path[1024];
+  FILE *f = NULL;
+  sprintf(maps_path, "/proc/%d/maps", getpid());
+  f = fopen(maps_path, "r");
+  if (f == NULL) {
+    fprintf(stderr, "Could not open %s (reading mode)\n", maps_path);
+    abort();
+  }
+  while (!feof(f)) {
+    fgets(line, sizeof(line), f);
+    if (strstr(line, "lib") != NULL) {
+      // get rid of trailing new lines
+      strtok(line, "\n");
+      /* each line is in the form:
+       * addr_b-addr_end permissions offset device inode file
+       */
+      void *addr_begin = NULL;
+      void *addr_end = NULL;
+      char *perm = null_str;
+      char *offset = null_str;
+      char *device = null_str;
+      char *inode = 0;
+      char *file = null_str;
+      sscanf(strtok(line," "), "%p-%p", &addr_begin, &addr_end);
+      perm = strtok(NULL, " ");
+      offset = strtok(NULL, " ");
+      device = strtok(NULL, " ");
+      inode = strtok(NULL, " ");
+      file = strtok(NULL, " ");
+      assert(file);
+      size_t size;
+      size = addr_end - addr_begin;
+      assert(size);
+      struct memory_info * mem_info = NULL;
+#ifdef USE_HASHTABLE
+      mem_info = mem_allocator_alloc(mem_info_allocator);
+#else
+      struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
+      mem_info = &p_node->mem_info;
+#endif
+      mem_info->mem_type = lib;
+      mem_info->alloc_date = 0;
+      mem_info->free_date = 0;
+      mem_info->initial_buffer_size = size;
+      mem_info->buffer_size = mem_info->initial_buffer_size;
+
+      mem_info->buffer_addr = addr_begin;
+      mem_info->caller = mem_allocator_alloc(string_allocator);
+      snprintf(mem_info->caller, 1024, "%s", file);
+      if(! offline_analysis) {
+        __allocate_counters(mem_info);
+        __init_counters(mem_info);
+      }
+      printf("Found a lib variable (defined at %s). base addr=%p, size=%zu\n",
+      	     file, mem_info->buffer_addr, mem_info->buffer_size);
+      pthread_mutex_lock(&mem_list_lock);
+#ifdef USE_HASHTABLE
+      mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
+#else
+      /* todo: insert large buffers at the beginning of the list since
+       * their are more likely to be accessed often (this will speed
+       * up searching at runtime)
+       */
+      p_node->next = mem_list;
+      p_node->prev = NULL;
+      if(p_node->next)
+        p_node->next->prev = p_node;
+      mem_list = p_node;
+#endif
+      pthread_mutex_unlock(&mem_list_lock);
+    }
+  }
   pclose(f);
   /* Restore LD_PRELOAD.
    * This is usefull when the program is run with gdb. gdb creates a process than runs bash -e prog arg1
