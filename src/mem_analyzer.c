@@ -610,6 +610,51 @@ void ma_register_stack() {
   fclose(f);
 }  
 
+/* writes given information into a new memory_info struct and adds it to list or hashtable, and returns the inserted element */
+struct memory_info* insert_memory_info(enum mem_type mem_type, size_t initial_buffer_size, void* buffer_addr, const char* caller)
+{
+	struct memory_info* mem_info = NULL;
+#ifdef USE_HASHTABLE
+	mem_info = mem_allocator_alloc(mem_info_allocator);
+#else
+	struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
+	mem_info = &p_node->mem_info;
+#endif
+	mem_info->mem_type = mem_type;
+	mem_info->alloc_date = 0;
+	mem_info->free_date = 0;
+	mem_info->initial_buffer_size = initial_buffer_size;
+	mem_info->buffer_size = mem_info->initial_buffer_size;
+
+	/* addr is the offset within the binary. The actual address of the variable is located at
+	 *  addr+base_addr
+	 */
+	mem_info->buffer_addr = buffer_addr;
+	mem_info->caller = mem_allocator_alloc(string_allocator);
+	snprintf(mem_info->caller, 1024, "%s", caller);
+	if(! offline_analysis) {
+	  __allocate_counters(mem_info);
+	  __init_counters(mem_info);
+	}
+
+	pthread_mutex_lock(&mem_list_lock);
+#ifdef USE_HASHTABLE
+	mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
+#else
+	/* todo: insert large buffers at the beginning of the list since
+	 * their are more likely to be accessed often (this will speed
+	 * up searching at runtime)
+	 */
+	p_node->next = mem_list;
+	p_node->prev = NULL;
+	if(p_node->next)
+	  p_node->next->prev = p_node;
+	mem_list = p_node;
+#endif
+	pthread_mutex_unlock(&mem_list_lock);
+	return mem_info;
+}
+
 /* get the list of global/static variables with their address and size */
 void ma_get_global_variables() {
   /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
@@ -723,48 +768,12 @@ void ma_get_global_variables() {
       sscanf(size_str, "%lx", &size);
       if(size) {
 	struct memory_info * mem_info = NULL;
-#ifdef USE_HASHTABLE
-	mem_info = mem_allocator_alloc(mem_info_allocator);
-#else
-	struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
-	mem_info = &p_node->mem_info;
-#endif
-	mem_info->mem_type = global_symbol;
-	mem_info->alloc_date = 0;
-	mem_info->free_date = 0;
-	mem_info->initial_buffer_size = size;
-	mem_info->buffer_size = mem_info->initial_buffer_size;
-
-	/* addr is the offset within the binary. The actual address of the variable is located at
-	 *  addr+base_addr
-	 */
+	// here
 	size_t offset;
 	sscanf(addr, "%lx", &offset);
-	mem_info->buffer_addr = offset + (uint8_t*)base_addr;
-	mem_info->caller = mem_allocator_alloc(string_allocator);
-	snprintf(mem_info->caller, 1024, "%s", symbol);
-	if(! offline_analysis) {
-	  __allocate_counters(mem_info);
-	  __init_counters(mem_info);
-	}
-
+	mem_info = insert_memory_info(global_symbol, size, offset + (uint8_t*)base_addr, symbol);
 	printf("Found a global variable: %s (defined at %s). base addr=%p, size=%zu\n",
 		     symbol, file, mem_info->buffer_addr, mem_info->buffer_size);
-	pthread_mutex_lock(&mem_list_lock);
-#ifdef USE_HASHTABLE
-	mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
-#else
-	/* todo: insert large buffers at the beginning of the list since
-	 * their are more likely to be accessed often (this will speed
-	 * up searching at runtime)
-	 */
-	p_node->next = mem_list;
-	p_node->prev = NULL;
-	if(p_node->next)
-	  p_node->next->prev = p_node;
-	mem_list = p_node;
-#endif
-	pthread_mutex_unlock(&mem_list_lock);
       }
     }
   }
@@ -785,18 +794,8 @@ void ma_get_lib_variables() {
   unset_ld_preload();
 
   debug_printf("Looking for lib variables\n");
-  /* get the filename of the program being run */
-  char link_path[1024];
-  sprintf(link_path, "/proc/%d/exe", getpid());
-  readlink(link_path, program_file, PROGRAM_FILE_LEN*sizeof(char));
-
-  debug_printf("  The program file is %s\n", program_file);
-  /* get the address at which the program is mapped in memory */
-  char cmd[4069];
+  /* get the address ranges in /proc/pid/maps */
   char line[4096];
-  void *base_addr = NULL;
-  void *end_addr = NULL;
-
   char maps_path[1024];
   FILE *f = NULL;
   sprintf(maps_path, "/proc/%d/maps", getpid());
@@ -831,42 +830,9 @@ void ma_get_lib_variables() {
       size = addr_end - addr_begin;
       assert(size);
       struct memory_info * mem_info = NULL;
-#ifdef USE_HASHTABLE
-      mem_info = mem_allocator_alloc(mem_info_allocator);
-#else
-      struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
-      mem_info = &p_node->mem_info;
-#endif
-      mem_info->mem_type = lib;
-      mem_info->alloc_date = 0;
-      mem_info->free_date = 0;
-      mem_info->initial_buffer_size = size;
-      mem_info->buffer_size = mem_info->initial_buffer_size;
-
-      mem_info->buffer_addr = addr_begin;
-      mem_info->caller = mem_allocator_alloc(string_allocator);
-      snprintf(mem_info->caller, 1024, "%s", file);
-      if(! offline_analysis) {
-        __allocate_counters(mem_info);
-        __init_counters(mem_info);
-      }
+      mem_info = insert_memory_info(lib, size, addr_begin, file);
       printf("Found a lib variable (defined at %s). base addr=%p, size=%zu\n",
       	     file, mem_info->buffer_addr, mem_info->buffer_size);
-      pthread_mutex_lock(&mem_list_lock);
-#ifdef USE_HASHTABLE
-      mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
-#else
-      /* todo: insert large buffers at the beginning of the list since
-       * their are more likely to be accessed often (this will speed
-       * up searching at runtime)
-       */
-      p_node->next = mem_list;
-      p_node->prev = NULL;
-      if(p_node->next)
-        p_node->next->prev = p_node;
-      mem_list = p_node;
-#endif
-      pthread_mutex_unlock(&mem_list_lock);
     }
   }
   pclose(f);
