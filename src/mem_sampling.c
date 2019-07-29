@@ -204,18 +204,22 @@ void mem_sampling_init() {
 
 void numap_generic_handler(struct numap_sampling_measure *m, int fd, enum access_type access_type)
 {
-  int tid_i=-1; // search tid
-  for (int i = 0 ; i < m->nb_threads ; i++)
-  {
-    if (m->fd_per_tid[i] == fd)
-      tid_i = i;
+  if(IS_RECURSE_SAFE) {
+    PROTECT_FROM_RECURSION;
+    int tid_i=-1; // search tid
+    for (int i = 0 ; i < m->nb_threads ; i++)
+    {
+      if (m->fd_per_tid[i] == fd)
+        tid_i = i;
+    }
+    if (tid_i == -1)
+    {
+      fprintf(stderr, "No tid associated with fd %d\n", fd);
+      exit(EXIT_FAILURE);
+    }
+    __copy_samples_thread(m, access_type, tid_i);
+    UNPROTECT_FROM_RECURSION;
   }
-  if (tid_i == -1)
-  {
-    fprintf(stderr, "No tid associated with fd %d\n", fd);
-    exit(EXIT_FAILURE);
-  }
-  __copy_samples_thread(m, access_type, tid_i);
 }
 
 void numap_read_handler(struct numap_sampling_measure *m, int fd) {
@@ -323,8 +327,8 @@ void mem_sampling_finalize() {
       int nb_samples = 0;
       int found_samples = 0;
       if(nb_blocks % 10 == 0) {
-	fflush(stdout);
-	printf("\rAnalyzing sample buffer %d/%d [%lx - %lx]. Total samples so far: %d",
+        fflush(stdout);
+        printf("\rAnalyzing sample buffer %d/%d [%lx - %lx]. Total samples so far: %d",
 	       nb_blocks, nb_sample_buffers,
 	       samples->start_date, samples->stop_date, nb_samples_total);
      }
@@ -734,6 +738,43 @@ static void __analyze_buffer(struct sample_list* samples,
 
       if(!mem_info) {
 	/* no buffer matches sample->addr */
+        if (_verbose) {
+          // trying to find where the address is located in maps file
+          char maps_path[1024];
+          sprintf(maps_path, "/proc/%d/maps", getpid());
+          FILE *maps = fopen(maps_path, "r");
+          if (maps == NULL)
+          {
+            fprintf(stderr, "Could not read %s\n", maps_path);
+            abort();
+          }
+          char line[1024];
+          int found=0;
+          void *addr = (void*)sample->addr;
+          while (!found && !feof(maps))
+          {
+            fgets(line, sizeof(line), maps);
+            char cut_line[1024];
+            strncpy(cut_line, line, sizeof(cut_line));
+            void *begin = NULL;
+            void *end = NULL;
+            sscanf(strtok(cut_line, " "), "%p-%p", &begin, &end);
+            if (addr >= begin && addr <= end)
+              found = 1;
+          }
+          fclose(maps);
+          FILE *debug_file = fopen("missed_samples.txt", "a+");
+          fprintf(debug_file, "%p ",sample->addr);
+          if (found)
+          {
+            fprintf(debug_file, "located in %s", strtok(line, "\n"));
+          }
+          else {
+            fprintf(debug_file, "matching no address range in %s", maps_path);
+          }
+          fprintf(debug_file, "\n");
+          fclose(debug_file);
+	}
       } else {
 
 	/* we found a memory object that corresponds to the sample */
