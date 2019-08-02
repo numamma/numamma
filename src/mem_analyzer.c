@@ -8,6 +8,8 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <dlfcn.h>
+#include <link.h>
 
 #include "mem_intercept.h"
 #include "mem_analyzer.h"
@@ -826,6 +828,32 @@ void ma_get_lib_variables() {
       inode = strtok(NULL, " ");
       file = strtok(NULL, " ");
       assert(file);
+      // added stuff begins here
+      void* handle = NULL;
+      handle = dlopen(file, RTLD_NOW);
+      if (handle == NULL) {
+        fprintf(stderr, "Could not dlopen %s\n", file);
+      } else {
+        void* prev_addr = NULL;
+	char *i = addr_begin;
+	while (i < (char*)addr_end){
+  	  Dl_info info;
+	  const ElfW(Sym) *extra_info = NULL;
+	  int ret = dladdr1(i, &info, (void**)&extra_info, RTLD_DL_SYMENT);
+	  if (ret != 0 && info.dli_saddr != NULL && extra_info != NULL
+			  && ELF64_ST_TYPE(extra_info->st_info) == STT_OBJECT && ELF64_ST_BIND(extra_info->st_info) == STB_GLOBAL) {
+            struct memory_info *mem_info = insert_memory_info(lib, extra_info->st_size, info.dli_saddr, info.dli_sname);
+	    printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
+			    file, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+	    i += extra_info->st_size;
+	  } else {
+  	    i++;
+	  }
+	}
+	dlclose(handle);
+	handle = NULL;
+      }
+      /*
       size_t size;
       size = addr_end - addr_begin;
       assert(size);
@@ -833,6 +861,7 @@ void ma_get_lib_variables() {
       mem_info = insert_memory_info(lib, size, addr_begin, file);
       printf("Found a lib variable (defined at %s). base addr=%p, size=%zu\n",
       	     file, mem_info->buffer_addr, mem_info->buffer_size);
+      */
     }
   }
   pclose(f);
