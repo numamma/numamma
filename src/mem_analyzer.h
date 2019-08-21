@@ -8,16 +8,16 @@
 typedef uint64_t date_t;
 
 struct count {
-  uint64_t count;
-  uint64_t min_weight;
-  uint64_t max_weight;
-  uint64_t sum_weight;
+  _Atomic uint64_t count;
+  _Atomic uint64_t min_weight;
+  _Atomic uint64_t max_weight;
+  _Atomic uint64_t sum_weight;
 };
 
 struct mem_counters {
-  uint64_t total_count;
-  uint64_t total_weight;
-  uint64_t na_miss_count;
+  _Atomic uint64_t total_count;
+  _Atomic uint64_t total_weight;
+  _Atomic uint64_t na_miss_count;
 
   struct count cache1_hit;
   struct count cache2_hit;

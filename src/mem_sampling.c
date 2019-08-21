@@ -18,17 +18,22 @@ int get_lib_done = 0;
 /* if set to one, numamma matches samples with memory objects */
 int match_samples=1;
 
+/* if set to 1, numamma registers a callback that is call each
+   time the sample buffer is full. Otherwise, samples may be lost */
+int sig_refresh_enabled=1;
+
 /* number of memory pages for numap buffer  */
 size_t numap_page_count = 32;
 
-unsigned nb_samples_total = 0;
-unsigned nb_found_samples_total = 0;
+uint64_t nb_samples_total = 0;
+uint64_t nb_found_samples_total = 0;
 
 /* set to 1 if we are currently sampling memory accesses */
 static __thread volatile int is_sampling = 0;
 
 /* set to 1 once the thread was finalized */
 static __thread int status_finalized = 0;
+static __thread int status_initialized = 0;
 
 struct timespec t_init;
 
@@ -174,6 +179,11 @@ void mem_sampling_init() {
     alarm_enabled=1;
   }
 
+  str = getenv("NUMAMMA_NO_REFRESH");
+  if(str) {
+    sig_refresh_enabled=0;
+  }
+  
   str=getenv("NUMAMMA_BUFFER_SIZE");
   size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
   long buffer_size = numap_page_count * page_size;
@@ -196,6 +206,7 @@ void mem_sampling_init() {
   printf("Buffer size: %lu\n", buffer_size);
   printf("Alarm interval: %ld ms\n", alarm_enabled?interval:0);
   printf("Memory access analysis: %s\n", offline_analysis?"offline":"online");
+  printf("Refresh: %s\n", sig_refresh_enabled?"enabled":"disabled");
   printf("-----------------\n");
 
   mem_allocator_init(&sample_mem, sizeof(struct sample_list), 1024);
@@ -251,19 +262,20 @@ void mem_sampling_thread_init() {
   /* for now, only collect info on the current thread */
   sm.tids[0] = tid;
 
+  if(sig_refresh_enabled) {
+    struct sigaction s;  
+    s.sa_handler = sig_handler;  
+    int signo=SIGALRM;
+    int ret = sigaction(signo, &s, NULL);
+    if(ret<0) {  
+      perror("sigaction failed");  
+      abort();  
+    }
 
-  struct sigaction s;  
-  s.sa_handler = sig_handler;  
-  int signo=SIGALRM;
-  int ret = sigaction(signo, &s, NULL);
-  if(ret<0) {  
-    perror("sigaction failed");  
-    abort();  
+    numap_sampling_set_measure_handler(&sm, numap_read_handler, 1000);
+    numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1000);
   }
-
-  numap_sampling_set_measure_handler(&sm, numap_read_handler, 1000);
-  numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1000);
-
+  status_initialized = 1;
   __set_alarm();
   mem_sampling_start();
 }
@@ -285,7 +297,7 @@ void print_counters(struct mem_counters* counters) {
 #define MAX_COUNT(__c) (counters[i].__c.max_weight)
 #define AVG_COUNT(__c) (counters[i].__c.count? counters[i].__c.sum_weight / counters[i].__c.count : 0)
 #define WEIGHT(__c) (counters[i].__c.sum_weight)
-#define PERCENT_WEIGHT(__c) (counters[i].total_weight?100*counters[i].__c.sum_weight/counters[i].total_weight:0)
+#define PERCENT_WEIGHT(__c) (counters[i].total_weight?100.*counters[i].__c.sum_weight/counters[i].total_weight:0)
     
 #define PRINT_COUNTER(__c, str) \
     if(counters[i].__c.count) printf("%s\t: %ld (%f %%) \tmin: %llu cycles\tmax: %llu cycles\t avg: %llu cycles\ttotal weight: % "PRIu64" (%f %%)\n", \
@@ -364,6 +376,8 @@ void mem_sampling_finalize() {
 }
 
 void mem_sampling_thread_finalize() {
+  if(!status_initialized)
+    return;
   mem_sampling_collect_samples();
   numap_sampling_end(&sm);
   numap_sampling_end(&sm_wr);
@@ -372,7 +386,7 @@ void mem_sampling_thread_finalize() {
 
 void mem_sampling_statistics() {
   float percent = 100.0*(nb_samples_total-nb_found_samples_total)/nb_samples_total;
-  printf("%d samples (including %d samples that do not match a known memory buffer / %f%%)\n",
+  printf("%"PRIu64" samples (including %"PRIu64" samples that do not match a known memory buffer / %f%%)\n",
 	 nb_samples_total, nb_samples_total-nb_found_samples_total, percent);
   if(offline_analysis) {
     printf("Buffer size for sample: %zu bytes\n", sample_buffer_size);
