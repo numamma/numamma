@@ -8,8 +8,11 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <fcntl.h>
 #include <dlfcn.h>
 #include <link.h>
+#include <unistd.h>
+#include <gelf.h>
 
 #include "mem_intercept.h"
 #include "mem_analyzer.h"
@@ -795,6 +798,8 @@ void ma_get_lib_variables() {
   /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
   unset_ld_preload();
 
+  elf_version(EV_CURRENT); // has to be called before elf_begin
+
   debug_printf("Looking for lib variables\n");
   /* get the address ranges in /proc/pid/maps */
   char line[4096];
@@ -806,6 +811,7 @@ void ma_get_lib_variables() {
     fprintf(stderr, "Could not open %s (reading mode)\n", maps_path);
     abort();
   }
+  char last_file[4096] = "not a file"; // each file appears several times, we should not deal with them more than once
   while (!feof(f)) {
     fgets(line, sizeof(line), f);
     if (strstr(line, "lib") != NULL) {
@@ -828,7 +834,52 @@ void ma_get_lib_variables() {
       inode = strtok(NULL, " ");
       file = strtok(NULL, " ");
       assert(file);
-      // added stuff begins here
+      if (strcmp(file, last_file) == 0) continue; //pass
+      strncpy(last_file, file, sizeof(last_file));
+      Elf *elf = NULL;
+      GElf_Ehdr header;
+      int fd = open(file, O_RDONLY);
+      if (fd == -1) {
+        fprintf(stderr, "open %s failed : (%d) %s\n", file, errno, strerror(errno));
+        continue;
+      }
+      elf = elf_begin(fd, ELF_C_READ, NULL); // obtain ELF descriptor
+      if (elf == NULL) {
+        fprintf(stderr, "elf_begin failed on %s : (%d) %s\n", file, errno, strerror(errno));
+	continue;
+      }
+      if (gelf_getehdr(elf, &header) == NULL)
+      {
+        fprintf(stderr, "elf_getehdr failed on %s : (%d) %s\n", file, errno, strerror(errno));
+	continue;
+      }
+      Elf_Scn *scn = NULL; // section
+      GElf_Shdr shdr; // symbol header
+      Elf_Data *data; // section data
+      while ((scn=elf_nextscn(elf, scn)) != NULL) // iterate through sections
+      {
+        gelf_getshdr(scn, &shdr);
+        data = elf_getdata(scn, NULL);
+        if (shdr.sh_entsize == 0) continue; // can't explore this one
+        int count = (shdr.sh_size / shdr.sh_entsize);
+        for (int index = 0; index < count ; index++)
+	{
+          GElf_Sym sym;
+	  if (gelf_getsym(data, index, &sym) == NULL) continue;
+	  if (sym.st_size != 0 && (GELF_ST_TYPE(sym.st_info) == STT_OBJECT && GELF_ST_BIND(sym.st_info) == STB_GLOBAL)) {
+            char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
+	    void* addr = (void*) ( (long long) addr_begin + sym.st_value );
+	    size_t size = sym.st_size;
+            struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
+	    printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
+			    file, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+	  }
+	}
+      }
+      elf_end(elf);
+      close(fd);
+      // old stuff
+      /*
       void* handle = NULL;
       handle = dlopen(file, RTLD_NOW);
       if (handle == NULL) {
@@ -853,6 +904,7 @@ void ma_get_lib_variables() {
 	dlclose(handle);
 	handle = NULL;
       }
+      */
       /*
       size_t size;
       size = addr_end - addr_begin;
@@ -862,6 +914,7 @@ void ma_get_lib_variables() {
       printf("Found a lib variable (defined at %s). base addr=%p, size=%zu\n",
       	     file, mem_info->buffer_addr, mem_info->buffer_size);
       */
+      // end old stuff
     }
   }
   pclose(f);
