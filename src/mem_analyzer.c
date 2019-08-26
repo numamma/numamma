@@ -631,9 +631,6 @@ struct memory_info* insert_memory_info(enum mem_type mem_type, size_t initial_bu
 	mem_info->initial_buffer_size = initial_buffer_size;
 	mem_info->buffer_size = mem_info->initial_buffer_size;
 
-	/* addr is the offset within the binary. The actual address of the variable is located at
-	 *  addr+base_addr
-	 */
 	mem_info->buffer_addr = buffer_addr;
 	mem_info->caller = mem_allocator_alloc(string_allocator);
 	snprintf(mem_info->caller, 1024, "%s", caller);
@@ -667,22 +664,6 @@ void ma_get_global_variables() {
 
   debug_printf("Looking for global variables\n");
   /* get the filename of the program being run */
-//  char readlink_cmd[1024];
-//  sprintf(readlink_cmd, "readlink /proc/%d/exe", getpid());
-//  FILE* f = popen(readlink_cmd, "r");
-//  if(!f) {
-//    perror("failed to get the program filename");
-//    abort();
-//  }
-//  while(fgets(program_file, 4096, f) == NULL) {
-//    /* fgets may be interrupted if we set an alarm */
-//    if(errno != EINTR ) {
-//      perror("fgets failed");
-//      abort();
-//    }
-//  }
-//  strtok(program_file, "\n"); // remove trailing newline
-//  pclose(f);
   char link_path[1024];
   sprintf(link_path, "/proc/%d/exe", getpid());
   readlink(link_path, program_file, PROGRAM_FILE_LEN*sizeof(char));
@@ -773,7 +754,9 @@ void ma_get_global_variables() {
       sscanf(size_str, "%lx", &size);
       if(size) {
 	struct memory_info * mem_info = NULL;
-	// here
+	/* addr is the offset within the binary. The actual address of the variable is located at
+	 *  addr+base_addr
+	 */
 	size_t offset;
 	sscanf(addr, "%lx", &offset);
 	mem_info = insert_memory_info(global_symbol, size, offset + (uint8_t*)base_addr, symbol);
@@ -787,7 +770,7 @@ void ma_get_global_variables() {
   /* Restore LD_PRELOAD.
    * This is usefull when the program is run with gdb. gdb creates a process than runs bash -e prog arg1
    * Thus, the ld_preload affects bash. bash then calls execvp to execute the program.
-   * If we unset ld_preload, the ld_preload will only affect bash (and not the programà
+   * If we unset ld_preload, the ld_preload will only affect bash (and not the program)
    * Hence, we need to restore ld_preload here.
    */
   reset_ld_preload();
@@ -814,11 +797,12 @@ void ma_get_lib_variables() {
   char last_file[4096] = "not a file"; // each file appears several times, we should not deal with them more than once
   while (!feof(f)) {
     fgets(line, sizeof(line), f);
+    // only selecting lines containing lib, could be another criteria, and could filter libnumap, libnumamma, etc.
     if (strstr(line, "lib") != NULL) {
       // get rid of trailing new lines
       strtok(line, "\n");
       /* each line is in the form:
-       * addr_b-addr_end permissions offset device inode file
+       * addr_begin-addr_end permissions offset device inode file
        */
       void *addr_begin = NULL;
       void *addr_end = NULL;
@@ -834,7 +818,7 @@ void ma_get_lib_variables() {
       inode = strtok(NULL, " ");
       file = strtok(NULL, " ");
       assert(file);
-      if (strcmp(file, last_file) == 0) continue; //pass
+      if (strcmp(file, last_file) == 0) continue; // pass if the file has been parsed just before
       strncpy(last_file, file, sizeof(last_file));
       Elf *elf = NULL;
       GElf_Ehdr header;
@@ -865,8 +849,12 @@ void ma_get_lib_variables() {
         for (int index = 0; index < count ; index++)
 	{
           GElf_Sym sym;
-	  if (gelf_getsym(data, index, &sym) == NULL) continue;
-	  if (sym.st_size != 0 && (GELF_ST_TYPE(sym.st_info) == STT_OBJECT && GELF_ST_BIND(sym.st_info) == STB_GLOBAL)) {
+	  if (gelf_getsym(data, index, &sym) == NULL) continue; // pass if we can't retrieve the data at current index
+	  // we want objects with a non zero size, and that are global objects
+	  // trying to retrieve global functions too seems to break memory analysis (parsing all blocks never ends)
+	  if (sym.st_size != 0  && GELF_ST_BIND(sym.st_info) == STB_GLOBAL &&
+			  (GELF_ST_TYPE(sym.st_info) == STT_OBJECT
+			   /*|| GELF_ST_TYPE(sym.st_info) == STT_FUNC*/)) {
             char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
 	    void* addr = (void*) ( (long long) addr_begin + sym.st_value );
 	    size_t size = sym.st_size;
@@ -874,47 +862,96 @@ void ma_get_lib_variables() {
 	    printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
 			    file, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
 	  }
+	  // this dumps all symbols found that did not match above requirements in stderr when using verbose
+	  // since there are lots of those symbols, it would be better to dump them in a file I guess, so for now I comment this
+	  /*
+	  else if (_verbose) {
+            char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
+	    void* addr = (void*) ( (long long) addr_begin + sym.st_value );
+	    size_t size = sym.st_size;
+            fprintf(stderr, "%s\n\taddr : %p\n\tsize : %zu\n", symbol, addr, size);
+	    fprintf(stderr, "\ttype : %d (", GELF_ST_TYPE(sym.st_info));
+	    switch(GELF_ST_TYPE(sym.st_info)) {
+		    case STT_NOTYPE:
+			    fprintf(stderr, "STT_NOTYPE");
+			    break;
+		    case STT_OBJECT:
+			    fprintf(stderr, "STT_OBJECT");
+			    break;
+		    case STT_FUNC:
+			    fprintf(stderr, "STT_FUNC");
+			    break;
+		    case STT_SECTION:
+			    fprintf(stderr, "STT_SECTION");
+			    break;
+		    case STT_FILE:
+			    fprintf(stderr, "STT_FILE");
+			    break;
+		    case STT_COMMON:
+			    fprintf(stderr, "STT_COMMON");
+			    break;
+		    case STT_TLS:
+			    fprintf(stderr, "STT_TLS");
+			    break;
+		    case STT_NUM:
+			    fprintf(stderr, "STT_NUM");
+			    break;
+		    case STT_LOOS:
+		    //case STT_GNU_IFUNC: // both defined to 10
+			    fprintf(stderr, "STT_LOOS or STT_GNU_IFUNC");
+			    break;
+		    case STT_HIOS:
+			    fprintf(stderr, "STT_HIOS");
+			    break;
+		    case STT_LOPROC:
+			    fprintf(stderr, "STT_LOPROC");
+			    break;
+		    case STT_HIPROC:
+			    fprintf(stderr, "STT_HIPROC");
+			    break;
+		    default:
+			    fprintf(stderr, "undefined");
+			    break;
+	    }
+	    fprintf(stderr, ")\n");
+            fprintf(stderr, "\tbind : %d (", GELF_ST_BIND(sym.st_info));
+	    switch(GELF_ST_BIND(sym.st_info)) {
+		    case STB_LOCAL:
+			    fprintf(stderr, "STB_LOCAL");
+			    break;
+		    case STB_GLOBAL:
+			    fprintf(stderr, "STB_GLOBAL");
+			    break;
+		    case STB_WEAK:
+			    fprintf(stderr, "STB_WEAK");
+			    break;
+		    case STB_NUM:
+			    fprintf(stderr, "STB_NUM");
+			    break;
+		    case STB_LOOS:
+		    //case STB_GNU_UNIQUE: // both defined to 10
+			    fprintf(stderr, "STB_LOOS or STB_GNU_UNIQUE");
+			    break;
+		    case STB_HIOS:
+			    fprintf(stderr, "STB_HIOS");
+			    break;
+		    case STB_LOPROC:
+			    fprintf(stderr, "STB_LOPROC");
+			    break;
+		    case STB_HIPROC:
+			    fprintf(stderr, "STB_HIPROC");
+			    break;
+		    default:
+			    fprintf(stderr, "undefined");
+			    break;
+	    }
+	    fprintf(stderr, ")\n");
+	  }
+	*/
 	}
       }
       elf_end(elf);
       close(fd);
-      // old stuff
-      /*
-      void* handle = NULL;
-      handle = dlopen(file, RTLD_NOW);
-      if (handle == NULL) {
-        fprintf(stderr, "Could not dlopen %s\n", file);
-      } else {
-        void* prev_addr = NULL;
-	char *i = addr_begin;
-	while (i < (char*)addr_end){
-  	  Dl_info info;
-	  const ElfW(Sym) *extra_info = NULL;
-	  int ret = dladdr1(i, &info, (void**)&extra_info, RTLD_DL_SYMENT);
-	  if (ret != 0 && info.dli_saddr != NULL && extra_info != NULL
-			  && ELF64_ST_TYPE(extra_info->st_info) == STT_OBJECT && ELF64_ST_BIND(extra_info->st_info) == STB_GLOBAL) {
-            struct memory_info *mem_info = insert_memory_info(lib, extra_info->st_size, info.dli_saddr, info.dli_sname);
-	    printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
-			    file, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
-	    i += extra_info->st_size;
-	  } else {
-  	    i++;
-	  }
-	}
-	dlclose(handle);
-	handle = NULL;
-      }
-      */
-      /*
-      size_t size;
-      size = addr_end - addr_begin;
-      assert(size);
-      struct memory_info * mem_info = NULL;
-      mem_info = insert_memory_info(lib, size, addr_begin, file);
-      printf("Found a lib variable (defined at %s). base addr=%p, size=%zu\n",
-      	     file, mem_info->buffer_addr, mem_info->buffer_size);
-      */
-      // end old stuff
     }
   }
   pclose(f);

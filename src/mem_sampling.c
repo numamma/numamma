@@ -13,7 +13,9 @@
 #include "mem_tools.h"
 
 int sampling_rate = 10000;
-int get_lib_done = 0;
+
+// if > 0, ma_get_*_variables functions are called before analysis, and do_get_at_analysis is decremented
+int do_get_at_analysis = 1;
 
 /* if set to one, numamma matches samples with memory objects */
 int match_samples=1;
@@ -332,11 +334,10 @@ void print_counters(struct mem_counters* counters) {
 void mem_sampling_finalize() {
   printf("%s offline_analysis=%s\n", __FUNCTION__, offline_analysis ? "true" : "false");
   if(offline_analysis) {
-    if (get_lib_done < 1) {
-      fprintf(stderr, "test\n");
+    if (do_get_at_analysis > 0) {
       ma_get_lib_variables();
       ma_get_global_variables();
-      get_lib_done++;
+      do_get_at_analysis--;
     }
     /* analyze the samples that were copied at runtime */
     ma_register_stack();
@@ -787,49 +788,20 @@ static void __analyze_buffer(struct sample_list* samples,
               found = 1;
           }
           fclose(maps);
-          FILE *debug_file = fopen("missed_samples.txt", "a+");
-          fprintf(debug_file, "%p ",sample->addr);
+	  // todo : unmatched_samples.log is never emptied
+          FILE *dump_unmatched;
+          dump_unmatched = fopen("unmatched_samples.log", "a+");
+
+          fprintf(dump_unmatched, "%p ",sample->addr);
           if (found)
           {
-	    if (strstr(line, "lib") != NULL)
-	    {
-              // the sample has been located in a lib
-	      strtok(NULL, " "); // cut_line : perm
-	      strtok(NULL, " "); // cut_line : offset
-	      strtok(NULL, " "); // cut_line : device
-	      strtok(NULL, " "); // cut_line : inode
-	      char *file = strtok(NULL, " "); // cut_line : file
-              fprintf(debug_file, "located in %s", strtok(line, "\n"));
-	      void *handle = NULL;
-	      handle = dlopen(file, RTLD_NOW);
-	      if (handle == NULL) {
-                fprintf(debug_file, "\n\tcould not dlopen");
-	      } else {
-                Dl_info info;
-		const ElfW(Sym) *extra_info = NULL;
-		if (dladdr1(addr, &info, (void**)&extra_info, RTLD_DL_SYMENT) == 0) {
-                  fprintf(debug_file,"\n\tdladdr1 did not work");
-	        } else {
-                  fprintf(debug_file, "\n\ttest");
-                  fprintf(debug_file, "\n\tdli_sname : %s", info.dli_sname);
-                  fprintf(debug_file, "\n\tdli_saddr : %p", info.dli_saddr);
-		  if (extra_info != NULL) {
-                    fprintf(debug_file, "\n\ttype : %d", ELF64_ST_TYPE(extra_info->st_info));
-                    fprintf(debug_file, "\n\tbind : %d", ELF64_ST_BIND(extra_info->st_info));
-		  }
-		}
-		dlclose(handle);
-		handle = NULL;
-	      }
-	    } else {
-              fprintf(debug_file, "located in %s", strtok(line, "\n"));
-	    }
+            fprintf(dump_unmatched, "located in %s", strtok(line, "\n"));
           }
           else {
-            fprintf(debug_file, "matching no address range in %s", maps_path);
+            fprintf(dump_unmatched, "matching no address range in %s", maps_path);
           }
-          fprintf(debug_file, "\n");
-          fclose(debug_file);
+          fprintf(dump_unmatched, "\n");
+          fclose(dump_unmatched);
 	}
       } else {
 
@@ -888,11 +860,10 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
     __copy_samples(sm, access_type);
     return;
   }
-  if (get_lib_done < 1) {
-    fprintf(stderr, "test\n");
+  if (do_get_at_analysis > 0) {
     ma_get_lib_variables();
     ma_get_global_variables();
-    get_lib_done++;
+    do_get_at_analysis--;
   }
   int thread;
   int nb_samples = 0;
