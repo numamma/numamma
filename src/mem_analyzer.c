@@ -657,6 +657,7 @@ struct memory_info* insert_memory_info(enum mem_type mem_type, size_t initial_bu
 	return mem_info;
 }
 
+// todo : merge with ma_get_lib_variables
 /* get the list of global/static variables with their address and size */
 void ma_get_global_variables() {
   /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
@@ -794,165 +795,163 @@ void ma_get_lib_variables() {
     fprintf(stderr, "Could not open %s (reading mode)\n", maps_path);
     abort();
   }
-  char last_file[4096] = "not a file"; // each file appears several times, we should not deal with them more than once
   while (!feof(f)) {
     fgets(line, sizeof(line), f);
     // only selecting lines containing lib, could be another criteria, and could filter libnumap, libnumamma, etc.
-    if (strstr(line, "lib") != NULL) {
-      // get rid of trailing new lines
-      strtok(line, "\n");
-      /* each line is in the form:
-       * addr_begin-addr_end permissions offset device inode file
-       */
-      void *addr_begin = NULL;
-      void *addr_end = NULL;
-      char *perm = null_str;
-      char *offset = null_str;
-      char *device = null_str;
-      char *inode = 0;
-      char *file = null_str;
-      sscanf(strtok(line," "), "%p-%p", &addr_begin, &addr_end);
-      perm = strtok(NULL, " ");
-      offset = strtok(NULL, " ");
-      device = strtok(NULL, " ");
-      inode = strtok(NULL, " ");
-      file = strtok(NULL, " ");
-      assert(file);
-      if (strcmp(file, last_file) == 0) continue; // pass if the file has been parsed just before
-      strncpy(last_file, file, sizeof(last_file));
-      Elf *elf = NULL;
-      GElf_Ehdr header;
-      int fd = open(file, O_RDONLY);
-      if (fd == -1) {
-        fprintf(stderr, "open %s failed : (%d) %s\n", file, errno, strerror(errno));
-        continue;
-      }
-      elf = elf_begin(fd, ELF_C_READ, NULL); // obtain ELF descriptor
-      if (elf == NULL) {
-        fprintf(stderr, "elf_begin failed on %s : (%d) %s\n", file, errno, strerror(errno));
-	continue;
-      }
-      if (gelf_getehdr(elf, &header) == NULL)
-      {
-        fprintf(stderr, "elf_getehdr failed on %s : (%d) %s\n", file, errno, strerror(errno));
-	continue;
-      }
-      Elf_Scn *scn = NULL; // section
-      GElf_Shdr shdr; // symbol header
-      Elf_Data *data; // section data
-      while ((scn=elf_nextscn(elf, scn)) != NULL) // iterate through sections
-      {
-        gelf_getshdr(scn, &shdr);
-        data = elf_getdata(scn, NULL);
-        if (shdr.sh_entsize == 0) continue; // can't explore this one
-        int count = (shdr.sh_size / shdr.sh_entsize);
-        for (int index = 0; index < count ; index++)
-	{
-          GElf_Sym sym;
-	  if (gelf_getsym(data, index, &sym) == NULL) continue; // pass if we can't retrieve the data at current index
-	  // we want objects with a non zero size, and that are global objects
-	  // trying to retrieve global functions too seems to break memory analysis (parsing all blocks never ends)
-	  if (sym.st_size != 0  && GELF_ST_BIND(sym.st_info) == STB_GLOBAL &&
-			  (GELF_ST_TYPE(sym.st_info) == STT_OBJECT
-			   /*|| GELF_ST_TYPE(sym.st_info) == STT_FUNC*/)) {
-            char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
-	    void* addr = (void*) ( (long long) addr_begin + sym.st_value );
-	    size_t size = sym.st_size;
-            struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
-	    printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
-			    file, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
-	  }
-	  // this dumps all symbols found that did not match above requirements in stderr when using verbose
-	  // since there are lots of those symbols, it would be better to dump them in a file I guess, so for now I comment this
-	  /*
-	  else if (_verbose) {
-            char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
-	    void* addr = (void*) ( (long long) addr_begin + sym.st_value );
-	    size_t size = sym.st_size;
-            fprintf(stderr, "%s\n\taddr : %p\n\tsize : %zu\n", symbol, addr, size);
-	    fprintf(stderr, "\ttype : %d (", GELF_ST_TYPE(sym.st_info));
-	    switch(GELF_ST_TYPE(sym.st_info)) {
-		    case STT_NOTYPE:
-			    fprintf(stderr, "STT_NOTYPE");
-			    break;
-		    case STT_OBJECT:
-			    fprintf(stderr, "STT_OBJECT");
-			    break;
-		    case STT_FUNC:
-			    fprintf(stderr, "STT_FUNC");
-			    break;
-		    case STT_SECTION:
-			    fprintf(stderr, "STT_SECTION");
-			    break;
-		    case STT_FILE:
-			    fprintf(stderr, "STT_FILE");
-			    break;
-		    case STT_COMMON:
-			    fprintf(stderr, "STT_COMMON");
-			    break;
-		    case STT_TLS:
-			    fprintf(stderr, "STT_TLS");
-			    break;
-		    case STT_NUM:
-			    fprintf(stderr, "STT_NUM");
-			    break;
-		    case STT_LOOS:
-		    //case STT_GNU_IFUNC: // both defined to 10
-			    fprintf(stderr, "STT_LOOS or STT_GNU_IFUNC");
-			    break;
-		    case STT_HIOS:
-			    fprintf(stderr, "STT_HIOS");
-			    break;
-		    case STT_LOPROC:
-			    fprintf(stderr, "STT_LOPROC");
-			    break;
-		    case STT_HIPROC:
-			    fprintf(stderr, "STT_HIPROC");
-			    break;
-		    default:
-			    fprintf(stderr, "undefined");
-			    break;
-	    }
-	    fprintf(stderr, ")\n");
-            fprintf(stderr, "\tbind : %d (", GELF_ST_BIND(sym.st_info));
-	    switch(GELF_ST_BIND(sym.st_info)) {
-		    case STB_LOCAL:
-			    fprintf(stderr, "STB_LOCAL");
-			    break;
-		    case STB_GLOBAL:
-			    fprintf(stderr, "STB_GLOBAL");
-			    break;
-		    case STB_WEAK:
-			    fprintf(stderr, "STB_WEAK");
-			    break;
-		    case STB_NUM:
-			    fprintf(stderr, "STB_NUM");
-			    break;
-		    case STB_LOOS:
-		    //case STB_GNU_UNIQUE: // both defined to 10
-			    fprintf(stderr, "STB_LOOS or STB_GNU_UNIQUE");
-			    break;
-		    case STB_HIOS:
-			    fprintf(stderr, "STB_HIOS");
-			    break;
-		    case STB_LOPROC:
-			    fprintf(stderr, "STB_LOPROC");
-			    break;
-		    case STB_HIPROC:
-			    fprintf(stderr, "STB_HIPROC");
-			    break;
-		    default:
-			    fprintf(stderr, "undefined");
-			    break;
-	    }
-	    fprintf(stderr, ")\n");
-	  }
-	*/
-	}
-      }
-      elf_end(elf);
-      close(fd);
+    // get rid of trailing new lines
+    strtok(line, "\n");
+    /* each line is in the form:
+     * addr_begin-addr_end permissions offset device inode file
+     */
+    void *addr_begin = NULL;
+    void *addr_end = NULL;
+    char *perm = null_str;
+    char *offset = null_str;
+    char *device = null_str;
+    char *inode = 0;
+    char *file = null_str;
+    sscanf(strtok(line," "), "%p-%p", &addr_begin, &addr_end);
+    perm = strtok(NULL, " ");
+    offset = strtok(NULL, " ");
+    device = strtok(NULL, " ");
+    inode = strtok(NULL, " ");
+    file = strtok(NULL, " ");
+    if (file == NULL) continue;
+    strncpy(last_file, file, sizeof(last_file));
+    Elf *elf = NULL;
+    GElf_Ehdr header;
+    int fd = open(file, O_RDONLY);
+    if (fd == -1) {
+      fprintf(stderr, "open %s failed : (%d) %s\n", file, errno, strerror(errno));
+      continue;
     }
+    elf = elf_begin(fd, ELF_C_READ, NULL); // obtain ELF descriptor
+    if (elf == NULL) {
+      fprintf(stderr, "elf_begin failed on %s : (%d) %s\n", file, errno, strerror(errno));
+      continue;
+    }
+    if (gelf_getehdr(elf, &header) == NULL)
+    {
+      fprintf(stderr, "elf_getehdr failed on %s : (%d) %s\n", file, errno, strerror(errno));
+      continue;
+    }
+    Elf_Scn *scn = NULL; // section
+    GElf_Shdr shdr; // symbol header
+    Elf_Data *data; // section data
+    while ((scn=elf_nextscn(elf, scn)) != NULL) // iterate through sections
+    {
+      gelf_getshdr(scn, &shdr);
+      data = elf_getdata(scn, NULL);
+      if (shdr.sh_entsize == 0) continue; // can't explore this one
+      int count = (shdr.sh_size / shdr.sh_entsize);
+      for (int index = 0; index < count ; index++)
+      {
+        GElf_Sym sym;
+        if (gelf_getsym(data, index, &sym) == NULL) continue; // pass if we can't retrieve the data at current index
+         // we want objects with a non zero size, and that are global objects 
+         // todo : we sure want TLS too
+         // todo : see if we want more
+         // trying to retrieve global functions too seems to break memory analysis (parsing all blocks never ends)
+         if (sym.st_size != 0  && GELF_ST_BIND(sym.st_info) == STB_GLOBAL &&
+			 (GELF_ST_TYPE(sym.st_info) == STT_OBJECT
+			  /*|| GELF_ST_TYPE(sym.st_info) == STT_FUNC*/)) {
+          char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
+	  void* addr = (void*) ( (long long) addr_begin + sym.st_value );
+	  size_t size = sym.st_size;
+          struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
+	  printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
+			  file, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+        }
+        // this dumps all symbols found that did not match above requirements in stderr when using verbose
+        // since there are lots of those symbols, it would be better to dump them in a file I guess, so for now I comment this
+        /*
+        else if (_verbose) {
+          char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
+          void* addr = (void*) ( (long long) addr_begin + sym.st_value );
+          size_t size = sym.st_size;
+          fprintf(stderr, "%s\n\taddr : %p\n\tsize : %zu\n", symbol, addr, size);
+          fprintf(stderr, "\ttype : %d (", GELF_ST_TYPE(sym.st_info));
+          switch(GELF_ST_TYPE(sym.st_info)) {
+            case STT_NOTYPE:
+              fprintf(stderr, "STT_NOTYPE");
+              break;
+            case STT_OBJECT:
+              fprintf(stderr, "STT_OBJECT");
+              break;
+            case STT_FUNC:
+              fprintf(stderr, "STT_FUNC");
+              break;
+            case STT_SECTION:
+              fprintf(stderr, "STT_SECTION");
+              break;
+            case STT_FILE:
+              fprintf(stderr, "STT_FILE");
+              break;
+            case STT_COMMON:
+              fprintf(stderr, "STT_COMMON");
+              break;
+            case STT_TLS:
+              fprintf(stderr, "STT_TLS");
+              break;
+            case STT_NUM:
+              fprintf(stderr, "STT_NUM");
+              break;
+            case STT_LOOS:
+            //case STT_GNU_IFUNC: // both defined to 10
+              fprintf(stderr, "STT_LOOS or STT_GNU_IFUNC");
+              break;
+            case STT_HIOS:
+              fprintf(stderr, "STT_HIOS");
+              break;
+            case STT_LOPROC:
+              fprintf(stderr, "STT_LOPROC");
+              break;
+            case STT_HIPROC:
+              fprintf(stderr, "STT_HIPROC");
+              break;
+            default:
+              fprintf(stderr, "undefined");
+              break;
+          }
+          fprintf(stderr, ")\n");
+          fprintf(stderr, "\tbind : %d (", GELF_ST_BIND(sym.st_info));
+          switch(GELF_ST_BIND(sym.st_info)) {
+            case STB_LOCAL:
+              fprintf(stderr, "STB_LOCAL");
+              break;
+            case STB_GLOBAL:
+              fprintf(stderr, "STB_GLOBAL");
+              break;
+            case STB_WEAK:
+              fprintf(stderr, "STB_WEAK");
+              break;
+            case STB_NUM:
+              fprintf(stderr, "STB_NUM");
+              break;
+            case STB_LOOS:
+            //case STB_GNU_UNIQUE: // both defined to 10
+              fprintf(stderr, "STB_LOOS or STB_GNU_UNIQUE");
+              break;
+            case STB_HIOS:
+              fprintf(stderr, "STB_HIOS");
+              break;
+            case STB_LOPROC:
+              fprintf(stderr, "STB_LOPROC");
+              break;
+            case STB_HIPROC:
+              fprintf(stderr, "STB_HIPROC");
+              break;
+            default:
+              fprintf(stderr, "undefined");
+              break;
+          }
+          fprintf(stderr, ")\n");
+        }
+  */      
+      }
+    }
+    elf_end(elf);
+    close(fd);
   }
   pclose(f);
   /* Restore LD_PRELOAD.
