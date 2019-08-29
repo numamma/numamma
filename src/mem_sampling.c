@@ -337,6 +337,7 @@ void mem_sampling_finalize() {
     if (do_get_at_analysis > 0) {
       ma_get_lib_variables();
       ma_get_global_variables();
+      //ma_get_variables();
       do_get_at_analysis--;
     }
     /* analyze the samples that were copied at runtime */

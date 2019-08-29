@@ -1020,9 +1020,7 @@ void ma_get_variables () {
   struct maps_file_list *current_file = list;
   while (current_file != NULL)
   {
-    if (strstr(current_file->pathname, "lib") != NULL) {
-      elf_parse(*current_file);
-    }
+    elf_parse(*current_file);
     current_file = current_file->next;
   }
   free_maps_file_list(list);
