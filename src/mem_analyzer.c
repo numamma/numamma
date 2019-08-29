@@ -689,22 +689,18 @@ struct maps_file_list* insert_new_maps_file_from_line(char *line, struct maps_fi
   sscanf(line, "%p-%p %s %p %s %ld %s\n", &addr_begin, &addr_end, permissions, &offset, device, &inode, pathname);
   if (pathname == NULL) return current_list;
   struct maps_file_list* current_file = current_list;
-  while (current_file != NULL)
-  {
+  while (current_file != NULL) {
     if (strcmp(current_file->pathname, pathname) == 0)
     {
       struct maps_addr_ranges* current_range = current_file->addr_ranges;
-      while (current_range != NULL)
-      {
+      do {
         if (strcmp(current_range->permissions, permissions) == 0 &&
             current_range->addr_begin == addr_begin &&
             current_range->addr_end == addr_end &&
             current_range->offset == offset) {
           return current_list;
         }
-        current_range = current_range->next;
-
-      }
+      } while ((current_range = current_range->next) != NULL);
       // this range has to be added on its own but is in a known file
       current_range = malloc(sizeof(struct maps_addr_ranges));
       current_range->addr_begin = addr_begin;
@@ -740,15 +736,14 @@ void fprint_maps_file_list(FILE *f, struct maps_file_list* list) {
     fprintf(f, "\tdevice : %s\n", list->device);
     fprintf(f, "\tinode : %ld\n", list->inode);
     struct maps_addr_ranges* current_range = list->addr_ranges;
-    while(current_range != NULL) {
+    do {
       fprintf(f, "\t%p-%p (%p) : %p : %s\n",
           current_range->addr_begin,
           current_range->addr_end,
           (void*) ((size_t) current_range->addr_end - (size_t) current_range->addr_begin),
           current_range->offset,
           current_range->permissions);
-      current_range = current_range->next;
-    }
+    } while((current_range = current_range->next) != NULL);
     list = list->next;
   }
 }
@@ -956,7 +951,10 @@ void elf_parse(struct maps_file_list maps_file)
       // todo : we sure want TLS too
       // todo : see if we want more
       // see elf.h for type and bind values
-      if (size != 0 && GELF_ST_BIND(sym.st_info) == STB_GLOBAL)
+      if (size != 0 && GELF_ST_BIND(sym.st_info) == STB_GLOBAL
+		      && (GELF_ST_TYPE(sym.st_info) == STT_OBJECT
+			      || GELF_ST_TYPE(sym.st_info) == STT_TLS)
+			      )
       {
         // compute the address of the symbol
         // todo : fix computation
@@ -969,17 +967,16 @@ void elf_parse(struct maps_file_list maps_file)
         // check if the address is within a range of maps
         // note : when the address computation is done, maybe consider doing this check based on section address or something like that
         struct maps_addr_ranges* current_range = maps_file.addr_ranges;
-        while (current_range != NULL)
-        {
+        do {
           if (addr >= current_range->addr_begin && (void*)((size_t)addr + size) < current_range->addr_end)
           {
             // the symbol fits in the range, add it
             struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
             printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
               maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+	    break;
           }
-          current_range = current_range->next;
-        }
+        } while ((current_range = current_range->next) != NULL);
       }
     }
   }
@@ -1018,8 +1015,7 @@ void ma_get_variables () {
   }
   fclose(f);
   struct maps_file_list *current_file = list;
-  while (current_file != NULL)
-  {
+  while (current_file != NULL) {
     elf_parse(*current_file);
     current_file = current_file->next;
   }
