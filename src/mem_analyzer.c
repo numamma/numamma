@@ -657,7 +657,377 @@ struct memory_info* insert_memory_info(enum mem_type mem_type, size_t initial_bu
 	return mem_info;
 }
 
-// todo : merge with ma_get_lib_variables
+// a file can appear several times in maps, and thus we need to track the several ranges it has
+struct maps_addr_ranges {
+  void *addr_begin;
+  void *addr_end;
+  char permissions[16];
+  void* offset;
+  struct maps_addr_ranges* next;
+};
+
+struct maps_file_list {
+  struct maps_addr_ranges *addr_ranges;
+  char device[1024];
+  uint64_t inode;
+  char pathname[1024];
+  struct maps_file_list *next;
+};
+
+// insert the maps file described in line into current_list, or create a new one if is NULL, and returns the new list
+// the file appened may just add a new addr_range into current_list->maps_addr_ranges, or even just update an existing range
+struct maps_file_list* insert_new_maps_file_from_line(char *line, struct maps_file_list* current_list)
+{
+  void *addr_begin;
+  void *addr_end;
+  char permissions[16];
+  void* offset;
+  char device[1024];
+  uint64_t inode;
+  char pathname[1024];
+
+  sscanf(line, "%p-%p %s %p %s %ld %s\n", &addr_begin, &addr_end, permissions, &offset, device, &inode, pathname);
+  if (pathname == NULL) return current_list;
+  struct maps_file_list* current_file = current_list;
+  while (current_file != NULL)
+  {
+    if (strcmp(current_file->pathname, pathname) == 0)
+    {
+      struct maps_addr_ranges* current_range = current_file->addr_ranges;
+      while (current_range != NULL)
+      {
+        if (strcmp(current_range->permissions, permissions) == 0 &&
+            current_range->addr_begin == addr_begin &&
+            current_range->addr_end == addr_end &&
+            current_range->offset == offset) {
+          return current_list;
+        }
+        current_range = current_range->next;
+
+      }
+      // this range has to be added on its own but is in a known file
+      current_range = malloc(sizeof(struct maps_addr_ranges));
+      current_range->addr_begin = addr_begin;
+      current_range->addr_end = addr_end;
+      current_range->offset = offset;
+      strncpy(current_range->permissions, permissions, 16);
+      current_range->next = current_file->addr_ranges;
+      current_file->addr_ranges = current_range;
+      return current_list;
+    }
+    current_file = current_file->next;
+  }
+  // the file is not in the list, add it
+  struct maps_file_list* new_file;
+  new_file = malloc(sizeof(struct maps_file_list));
+  new_file->addr_ranges = malloc(sizeof(struct maps_addr_ranges));
+  new_file->addr_ranges->addr_begin = addr_begin;
+  new_file->addr_ranges->addr_end = addr_end;
+  new_file->addr_ranges->offset = offset;
+  new_file->addr_ranges->next = NULL;
+  strncpy(new_file->addr_ranges->permissions, permissions, 16);
+  strncpy(new_file->device, device, 1024);
+  new_file->inode = inode;
+  strncpy(new_file->pathname, pathname, 1024);
+  new_file->next = current_list;
+  return new_file;
+}
+
+void fprint_maps_file_list(FILE *f, struct maps_file_list* list) {
+  while (list != NULL)
+  {
+    fprintf(f, "%s :\n", list->pathname);
+    fprintf(f, "\tdevice : %s\n", list->device);
+    fprintf(f, "\tinode : %ld\n", list->inode);
+    struct maps_addr_ranges* current_range = list->addr_ranges;
+    while(current_range != NULL) {
+      fprintf(f, "\t%p-%p (%p) : %p : %s\n",
+          current_range->addr_begin,
+          current_range->addr_end,
+          (void*) ((size_t) current_range->addr_end - (size_t) current_range->addr_begin),
+          current_range->offset,
+          current_range->permissions);
+      current_range = current_range->next;
+    }
+    list = list->next;
+  }
+}
+
+void print_elf_header(GElf_Ehdr header) {
+  printf("ehdr :\n");
+  printf("\te_type : %d\n", header.e_type);
+  printf("\te_machine : %d\n", header.e_machine);
+  printf("\te_version : %d\n", header.e_version);
+  printf("\te_entry : %d\n", header.e_entry);
+  printf("\te_phoff : %d\n", header.e_phoff);
+  printf("\te_shoff : %p\n", (void*)header.e_shoff);
+  printf("\te_flags : %d\n", header.e_flags);
+  printf("\te_ehsize : %d\n", header.e_ehsize);
+  printf("\te_phentsize : %d\n", header.e_phentsize);
+  printf("\te_phnum : %d\n", header.e_phnum);
+  printf("\te_shentsize : %d\n", header.e_shentsize);
+  printf("\te_shnum : %d\n", header.e_shnum);
+  printf("\te_shstrndx : %d\n", header.e_shstrndx);
+}
+
+void print_section_header(GElf_Shdr shdr, const char* spacing)
+{
+  printf("%ssh_name : %d\n", spacing, shdr.sh_name);
+  printf("%ssh_type : %d (", spacing, shdr.sh_type);
+  switch(shdr.sh_type) {
+    case SHT_NULL:
+      printf("SHT_NULL");
+      break;
+    case SHT_PROGBITS:
+      printf("SHT_PROGBITS");
+      break;
+    case SHT_SYMTAB:
+      printf("SHT_SYMTAB");
+      break;
+    case SHT_STRTAB:
+      printf("SHT_STRTAB");
+      break;
+    case SHT_RELA:
+      printf("SHT_RELA");
+      break;
+    case SHT_HASH:
+      printf("SHT_HASH");
+      break;
+    case SHT_DYNAMIC:
+      printf("SHT_DYNAMIC");
+      break;
+    case SHT_NOTE:
+      printf("SHT_NOTE");
+      break;
+    case SHT_NOBITS:
+      printf("SHT_NOBITS");
+      break;
+    case SHT_REL:
+      printf("SHT_REL");
+      break;
+    case SHT_SHLIB:
+      printf("SHT_SHLIB");
+      break;
+    case SHT_DYNSYM:
+      printf("SHT_DYNSYM");
+      break;
+    case SHT_INIT_ARRAY:
+      printf("SHT_INIT_ARRAY");
+      break;
+    case SHT_FINI_ARRAY:
+      printf("SHT_FINI_ARRAY");
+      break;
+    case SHT_PREINIT_ARRAY:
+      printf("SHT_PREINIT_ARRAY");
+      break;
+    case SHT_GROUP:
+      printf("SHT_GROUP");
+      break;
+    case SHT_SYMTAB_SHNDX:
+      printf("SHT_SYMTAB_SHNDX");
+      break;
+    case  SHT_NUM:
+      printf("SHT_NUM");
+      break;
+    case SHT_LOOS:
+      printf("SHT_LOOS");
+      break;
+    case SHT_GNU_ATTRIBUTES:
+      printf("SHT_GNU_ATTRIBUTES");
+      break;
+    case SHT_GNU_HASH:
+      printf("SHT_GNU_HASH");
+      break;
+    case SHT_GNU_LIBLIST:
+      printf("SHT_GNU_LIBLIST");
+      break;
+    case SHT_CHECKSUM:
+      printf("SHT_CHECKSUM");
+      break;
+    case SHT_LOSUNW:
+    //case SHT_SUNW_move:
+      printf("SHT_LOSUNW or SHT_SUNW_move");
+      break;
+    case SHT_SUNW_COMDAT:
+      printf("SHT_SUNW_COMDAT");
+      break;
+    case SHT_SUNW_syminfo:
+      printf("SHT_SUNW_syminfo");
+      break;
+    case SHT_GNU_verdef:
+      printf("SHT_GNU_verdef");
+      break;
+    case SHT_GNU_verneed:
+      printf("SHT_GNU_verneed");
+      break;
+    case SHT_GNU_versym:
+    //case SHT_HISUNW:
+    //case SHT_HIOS:
+      printf("SHT_GNU_versym or SHT_HIOS or SHT_HISUNW");
+      break;
+    case SHT_LOPROC:
+      printf("SHT_LOPROC");
+      break;
+    case SHT_HIPROC:
+      printf("SHT_HIPROC");
+      break;
+    case SHT_LOUSER:
+      printf("SHT_LOUSER");
+      break;
+    case SHT_HIUSER:
+      printf("SHT_HIUSER");
+      break;
+    default:
+      printf("unknown");
+      break;
+  }
+  printf(")\n");
+  printf("%ssh_flags : %d\n", spacing, shdr.sh_flags);
+  printf("%ssh_addr : %p\n", spacing, shdr.sh_addr);
+  printf("%ssh_offset : %p\n", spacing, (void*)shdr.sh_offset);
+  printf("%ssh_size : %d\n", spacing, shdr.sh_size);
+  printf("%ssh_link : %d\n", spacing, shdr.sh_link);
+  printf("%ssh_info : %d\n", spacing, shdr.sh_info);
+  printf("%ssh_addralign : %d\n", spacing, shdr.sh_addralign);
+  printf("%ssh_entsize : %d\n", spacing, shdr.sh_entsize);
+}
+
+void elf_parse(struct maps_file_list maps_file)
+{
+  elf_version(EV_CURRENT); // has to be called before elf_begin
+  /*
+   * attempt to use elf_memory instead of elf_begin, did not work well
+   * however, this should be investigated, since it would ease the range check,
+   *   and would work with pathnames that are not files (like  heap and stack)
+  Elf *elf = NULL;
+  GElf_Ehdr header;
+  struct maps_addr_ranges* current_range = maps_file.addr_ranges;
+  do {
+    if (current_range->permissions[0] == 'r') {
+      printf("\t%p-%p\n", current_range->addr_begin, current_range->addr_end);
+      size_t size = (size_t) current_range->addr_end - (size_t) current_range->addr_begin;
+      elf = elf_memory(current_range->addr_begin, size);
+      if (elf == NULL)
+      {
+        fprintf(stderr, "Could not elf_memory %s on address range %p-%p\n", maps_file.pathname, current_range->addr_begin, current_range->addr_end);
+        // tried to find a section here, did not work
+        abort();
+      }
+      elf_end(elf);
+    }
+  } while ((current_range = current_range->next) != NULL);
+  */
+  Elf *elf = NULL;
+  GElf_Ehdr header;
+  int fd = open(maps_file.pathname, O_RDONLY);
+  if (fd == -1) {
+    fprintf(stderr, "open %s failed : (%d) %s\n", maps_file.pathname, errno, strerror(errno));
+    return;
+  }
+  elf = elf_begin(fd, ELF_C_READ, NULL); // obtain ELF descriptor
+  if (elf == NULL) {
+    fprintf(stderr, "elf_begin failed on %s : (%d) %s\n", maps_file.pathname, errno, strerror(errno));
+    return;
+  }
+  if (gelf_getehdr(elf, &header) == NULL)
+  {
+    fprintf(stderr, "elf_getehdr failed on %s : (%d) %s\n", maps_file.pathname, errno, strerror(errno));
+    return;
+  }
+  Elf_Scn *scn = NULL; // section
+  GElf_Shdr shdr; // section header
+  Elf_Data *data; // section data
+  while ((scn=elf_nextscn(elf, scn)) != NULL) // iterate through sections
+  {
+    if (gelf_getshdr(scn, &shdr) == NULL) continue;
+    if (shdr.sh_entsize == 0) continue;
+    data = elf_getdata(scn, NULL);
+    if (shdr.sh_entsize == 0) continue; // can't explore this one
+    int count = (shdr.sh_size / shdr.sh_entsize);
+    for (int index = 0; index < count ; index++)
+    {
+      GElf_Sym sym;
+      if (gelf_getsym(data, index, &sym) == NULL) continue;
+      char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
+      if (symbol == NULL) continue;
+      void* value = (void*) ( sym.st_value );
+      size_t size = sym.st_size;
+      // we want objects with a non zero size, and that are global objects 
+      // todo : we sure want TLS too
+      // todo : see if we want more
+      // see elf.h for type and bind values
+      if (size != 0 && GELF_ST_BIND(sym.st_info) == STB_GLOBAL)
+      {
+        // compute the address of the symbol
+        // todo : fix computation
+        // what is done here is a replica of what was done in ma_get_lib_variables :
+        //   take the address of the first entry in maps and suppose you just have to add the symbol value
+        //   this seemed to work with most symbols
+        struct maps_addr_ranges* first_maps_entry = maps_file.addr_ranges;
+        while (first_maps_entry->next != NULL) first_maps_entry = first_maps_entry->next;
+        void* addr = (void*) ((size_t)value + (size_t)first_maps_entry->addr_begin);
+        // check if the address is within a range of maps
+        // note : when the address computation is done, maybe consider doing this check based on section address or something like that
+        struct maps_addr_ranges* current_range = maps_file.addr_ranges;
+        while (current_range != NULL)
+        {
+          if (addr >= current_range->addr_begin && (void*)((size_t)addr + size) < current_range->addr_end)
+          {
+            // the symbol fits in the range, add it
+            struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
+            printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
+              maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+          }
+          current_range = current_range->next;
+        }
+      }
+    }
+  }
+}
+
+void free_maps_file_list(struct maps_file_list* list) {
+  while (list != NULL)
+  {
+    struct maps_addr_ranges* current_range = list->addr_ranges;
+    while (current_range != NULL)
+    {
+      struct maps_addr_ranges* old = current_range;
+      current_range = current_range->next;
+      free(old);
+    }
+    struct maps_file_list* old_file = list;
+    list = list->next;
+    free(old_file);
+  }
+}
+
+void ma_get_variables () {
+  char line[4096];
+  char maps_path[1024];
+  FILE *f = NULL;
+  sprintf(maps_path, "/proc/%d/maps", getpid());
+  f = fopen(maps_path, "r");
+  if (f == NULL) {
+    fprintf(stderr, "Could not open %s (reading mode)\n", maps_path);
+    abort();
+  }
+  struct maps_file_list* list = NULL;
+  while (!feof(f)) {
+    fgets(line, sizeof(line), f);
+    list = insert_new_maps_file_from_line(line,list);
+  }
+  fclose(f);
+  struct maps_file_list *current_file = list;
+  while (current_file != NULL)
+  {
+    if (strstr(current_file->pathname, "lib") != NULL) {
+      elf_parse(*current_file);
+    }
+    current_file = current_file->next;
+  }
+  free_maps_file_list(list);
+}
+
 /* get the list of global/static variables with their address and size */
 void ma_get_global_variables() {
   /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
@@ -817,7 +1187,6 @@ void ma_get_lib_variables() {
     inode = strtok(NULL, " ");
     file = strtok(NULL, " ");
     if (file == NULL) continue;
-    strncpy(last_file, file, sizeof(last_file));
     Elf *elf = NULL;
     GElf_Ehdr header;
     int fd = open(file, O_RDONLY);
@@ -836,7 +1205,7 @@ void ma_get_lib_variables() {
       continue;
     }
     Elf_Scn *scn = NULL; // section
-    GElf_Shdr shdr; // symbol header
+    GElf_Shdr shdr; // section header
     Elf_Data *data; // section data
     while ((scn=elf_nextscn(elf, scn)) != NULL) // iterate through sections
     {

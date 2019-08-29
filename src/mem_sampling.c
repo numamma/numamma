@@ -15,7 +15,7 @@
 int sampling_rate = 10000;
 
 // if > 0, ma_get_*_variables functions are called before analysis, and do_get_at_analysis is decremented
-int do_get_at_analysis = 1;
+int do_get_at_analysis = 0;
 
 /* if set to one, numamma matches samples with memory objects */
 int match_samples=1;

@@ -493,6 +493,7 @@ static void __memory_init(void) {
 
   ma_get_global_variables();
   ma_get_lib_variables();
+  //ma_get_variables();
 
   __memory_initialized = 1;
   UNPROTECT_FROM_RECURSION;
