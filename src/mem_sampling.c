@@ -185,6 +185,11 @@ void mem_sampling_init() {
   if(str) {
     sig_refresh_enabled=0;
   }
+
+  str = getenv("NUMAMMA_GET_AT_ANALYSIS");
+  if (str) {
+    do_get_at_analysis = atoi(str);
+  }
   
   str=getenv("NUMAMMA_BUFFER_SIZE");
   size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
