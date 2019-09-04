@@ -20,7 +20,7 @@
 #include "mem_sampling.h"
 
 #define USE_HASHTABLE
-#define WARN_NON_FREED 1
+#define WARN_NON_FREED 0
 
 #ifdef USE_HASHTABLE
 #include "hash.h"
@@ -912,9 +912,14 @@ void elf_parse(struct maps_file_list maps_file)
     }
   } while ((current_range = current_range->next) != NULL);
   */
+
   Elf *elf = NULL;
   GElf_Ehdr header;
   int fd = open(maps_file.pathname, O_RDONLY);
+  if (fd == -1 && errno == ENOENT) {
+    /* file does not exist. It's probably a pseudo-files like [stack] or [heap] */
+    return;
+  }
   if (fd == -1) {
     fprintf(stderr, "open %s failed : (%d) %s\n", maps_file.pathname, errno, strerror(errno));
     return;
@@ -972,8 +977,10 @@ void elf_parse(struct maps_file_list maps_file)
           {
             // the symbol fits in the range, add it
             struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
-            printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
-              maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+	    if(_verbose) {
+	      printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
+		     maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+	    }
 	    break;
           }
         } while ((current_range = current_range->next) != NULL);
@@ -1125,8 +1132,10 @@ void ma_get_global_variables() {
 	size_t offset;
 	sscanf(addr, "%lx", &offset);
 	mem_info = insert_memory_info(global_symbol, size, offset + (uint8_t*)base_addr, symbol);
-	printf("Found a global variable: %s (defined at %s). base addr=%p, size=%zu\n",
-		     symbol, file, mem_info->buffer_addr, mem_info->buffer_size);
+	if(_verbose) {
+	  printf("Found a global variable: %s (defined at %s). base addr=%p, size=%zu\n",
+		 symbol, file, mem_info->buffer_addr, mem_info->buffer_size);
+	}
       }
     }
   }
@@ -1180,10 +1189,16 @@ void ma_get_lib_variables() {
     device = strtok(NULL, " ");
     inode = strtok(NULL, " ");
     file = strtok(NULL, " ");
-    if (file == NULL) continue;
+    
+    if(file == NULL) continue;
+
     Elf *elf = NULL;
     GElf_Ehdr header;
     int fd = open(file, O_RDONLY);
+    if (fd == -1 && errno == ENOENT) {
+      /* file does not exist. It's probably a pseudo-files like [stack] or [heap] */
+      continue;
+    }
     if (fd == -1) {
       fprintf(stderr, "open %s failed : (%d) %s\n", file, errno, strerror(errno));
       continue;
@@ -1222,8 +1237,10 @@ void ma_get_lib_variables() {
 	  void* addr = (void*) ( (long long) addr_begin + sym.st_value );
 	  size_t size = sym.st_size;
           struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
-	  printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
-			  file, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+	  if(_verbose) {
+	    printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
+		   file, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+	  }
         }
         // this dumps all symbols found that did not match above requirements in stderr when using verbose
         // since there are lots of those symbols, it would be better to dump them in a file I guess, so for now I comment this
