@@ -637,7 +637,7 @@ struct memory_info* insert_memory_info(enum mem_type mem_type,
 	mem_info->buffer_addr = buffer_addr;
 	mem_info->caller = mem_allocator_alloc(string_allocator);
 	snprintf(mem_info->caller, 1024, "%s", caller);
-	printf("insert %s\n", mem_info->caller);
+
 	if(! offline_analysis) {
 	  __allocate_counters(mem_info);
 	  __init_counters(mem_info);
@@ -1042,10 +1042,6 @@ void ma_get_variables () {
   }
   fclose(f);
   struct maps_file_list *current_file = list;
-
-  printf("attach %d\n", getpid());
-  int plop=0;
-  //  while(plop==0) ;
 
   while (current_file != NULL) {
     __ma_parse_elf(*current_file);

@@ -2,10 +2,12 @@
 #include <time.h>
 #include <stdlib.h>
 
-#define N 500
+#define N 200
 double A[N][N];
 double B[N][N];
 double C[N][N];
+
+extern double increment;
 char D='a';
 
 void mat_mul(double A[N][N], double B[N][N], double C[N][N]) {
@@ -14,7 +16,7 @@ void mat_mul(double A[N][N], double B[N][N], double C[N][N]) {
     for(j=0; j<N; j++) {
       C[i][j] = 0;
       for(k=0; k<N; k++) {
-	C[i][j] += A[i][k] * B[k][j];
+	C[i][j] += (A[i][k] * B[k][j]) + increment;
       }
     }
   }
@@ -48,6 +50,9 @@ int main(int argc, char** argv) {
   printf("@A=%p\n", A);
   printf("@B=%p\n", B);
   printf("@C=%p\n", C);
+  printf("@D=%p\n", &D);
+  printf("@increment=%p\n", &increment);
+
   printf("Matrix size: %d\n", n);
   init_mat(A);
   init_mat(B);
@@ -63,6 +68,5 @@ int main(int argc, char** argv) {
   print_mat(C);
   //print_mat(B, n);
 
-  printf("%c\n",D);
   return 0;
 }
