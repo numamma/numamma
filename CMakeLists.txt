@@ -37,6 +37,13 @@ else (BACKTRACE_FOUND)
   message(FATAL_ERROR "backtrace not found")
 endif (BACKTRACE_FOUND)
 
+find_package (libelf)
+if (LIBELF_FOUND)
+  link_directories(${LIBELF_LIBDIR})
+else (LIBELF_FOUND)
+  message(FATAL_ERROR "libelf not found")
+endif (LIBELF_FOUND)
+
 option(ENABLE_DEBUG "Enable Debug" ON)
 if(ENABLE_DEBUG)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -g")

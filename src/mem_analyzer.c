@@ -20,7 +20,7 @@
 #include "mem_sampling.h"
 
 #define USE_HASHTABLE
-#define WARN_NON_FREED 1
+#define WARN_NON_FREED 0
 
 #ifdef USE_HASHTABLE
 #include "hash.h"
@@ -616,7 +616,10 @@ void ma_register_stack() {
 }  
 
 /* writes given information into a new memory_info struct and adds it to list or hashtable, and returns the inserted element */
-struct memory_info* insert_memory_info(enum mem_type mem_type, size_t initial_buffer_size, void* buffer_addr, const char* caller)
+struct memory_info* insert_memory_info(enum mem_type mem_type,
+				       size_t initial_buffer_size,
+				       void* buffer_addr,
+				       const char* caller)
 {
 	struct memory_info* mem_info = NULL;
 #ifdef USE_HASHTABLE
@@ -634,6 +637,7 @@ struct memory_info* insert_memory_info(enum mem_type mem_type, size_t initial_bu
 	mem_info->buffer_addr = buffer_addr;
 	mem_info->caller = mem_allocator_alloc(string_allocator);
 	snprintf(mem_info->caller, 1024, "%s", caller);
+
 	if(! offline_analysis) {
 	  __allocate_counters(mem_info);
 	  __init_counters(mem_info);
@@ -659,10 +663,10 @@ struct memory_info* insert_memory_info(enum mem_type mem_type, size_t initial_bu
 
 // a file can appear several times in maps, and thus we need to track the several ranges it has
 struct maps_addr_ranges {
-  void *addr_begin;
-  void *addr_end;
+  uintptr_t addr_begin;
+  uintptr_t addr_end;
   char permissions[16];
-  void* offset;
+  uintptr_t offset;
   struct maps_addr_ranges* next;
 };
 
@@ -678,10 +682,10 @@ struct maps_file_list {
 // the file appened may just add a new addr_range into current_list->maps_addr_ranges, or even just update an existing range
 struct maps_file_list* insert_new_maps_file_from_line(char *line, struct maps_file_list* current_list)
 {
-  void *addr_begin;
-  void *addr_end;
+  uintptr_t addr_begin;
+  uintptr_t addr_end;
   char permissions[16];
-  void* offset;
+  uintptr_t offset;
   char device[1024];
   uint64_t inode;
   char pathname[1024];
@@ -690,8 +694,7 @@ struct maps_file_list* insert_new_maps_file_from_line(char *line, struct maps_fi
   if (pathname == NULL) return current_list;
   struct maps_file_list* current_file = current_list;
   while (current_file != NULL) {
-    if (strcmp(current_file->pathname, pathname) == 0)
-    {
+    if (strcmp(current_file->pathname, pathname) == 0) {
       struct maps_addr_ranges* current_range = current_file->addr_ranges;
       do {
         if (strcmp(current_range->permissions, permissions) == 0 &&
@@ -729,21 +732,24 @@ struct maps_file_list* insert_new_maps_file_from_line(char *line, struct maps_fi
   return new_file;
 }
 
+void fprint_maps_file(FILE *f, struct maps_file_list* list) {
+  fprintf(f, "%s :\n", list->pathname);
+  fprintf(f, "\tdevice : %s\n", list->device);
+  fprintf(f, "\tinode : %ld\n", list->inode);
+  struct maps_addr_ranges* current_range = list->addr_ranges;
+  do {
+    fprintf(f, "\t%p-%p (%p) : %p : %s\n",
+	    current_range->addr_begin,
+	    current_range->addr_end,
+	    (void*) ((size_t) current_range->addr_end - (size_t) current_range->addr_begin),
+	    current_range->offset,
+	    current_range->permissions);
+  } while((current_range = current_range->next) != NULL);
+}
+
 void fprint_maps_file_list(FILE *f, struct maps_file_list* list) {
-  while (list != NULL)
-  {
-    fprintf(f, "%s :\n", list->pathname);
-    fprintf(f, "\tdevice : %s\n", list->device);
-    fprintf(f, "\tinode : %ld\n", list->inode);
-    struct maps_addr_ranges* current_range = list->addr_ranges;
-    do {
-      fprintf(f, "\t%p-%p (%p) : %p : %s\n",
-          current_range->addr_begin,
-          current_range->addr_end,
-          (void*) ((size_t) current_range->addr_end - (size_t) current_range->addr_begin),
-          current_range->offset,
-          current_range->permissions);
-    } while((current_range = current_range->next) != NULL);
+  while (list != NULL) {
+    fprint_maps_file(f, list);
     list = list->next;
   }
 }
@@ -887,96 +893,115 @@ void print_section_header(GElf_Shdr shdr, const char* spacing)
   printf("%ssh_entsize : %d\n", spacing, shdr.sh_entsize);
 }
 
-void elf_parse(struct maps_file_list maps_file)
-{
+static void __ma_parse_elf(struct maps_file_list maps_file) {
   elf_version(EV_CURRENT); // has to be called before elf_begin
-  /*
-   * attempt to use elf_memory instead of elf_begin, did not work well
-   * however, this should be investigated, since it would ease the range check,
-   *   and would work with pathnames that are not files (like  heap and stack)
-  Elf *elf = NULL;
-  GElf_Ehdr header;
-  struct maps_addr_ranges* current_range = maps_file.addr_ranges;
-  do {
-    if (current_range->permissions[0] == 'r') {
-      printf("\t%p-%p\n", current_range->addr_begin, current_range->addr_end);
-      size_t size = (size_t) current_range->addr_end - (size_t) current_range->addr_begin;
-      elf = elf_memory(current_range->addr_begin, size);
-      if (elf == NULL)
-      {
-        fprintf(stderr, "Could not elf_memory %s on address range %p-%p\n", maps_file.pathname, current_range->addr_begin, current_range->addr_end);
-        // tried to find a section here, did not work
-        abort();
-      }
-      elf_end(elf);
-    }
-  } while ((current_range = current_range->next) != NULL);
-  */
+
+  
   Elf *elf = NULL;
   GElf_Ehdr header;
   int fd = open(maps_file.pathname, O_RDONLY);
+  if (fd == -1 && errno == ENOENT) {
+    /* file does not exist. It's probably a pseudo-files like [stack] or [heap] */
+    return;
+  }
+
   if (fd == -1) {
     fprintf(stderr, "open %s failed : (%d) %s\n", maps_file.pathname, errno, strerror(errno));
     return;
   }
+
+  if(_verbose)
+    printf("Exploring %s\n", maps_file.pathname);
   elf = elf_begin(fd, ELF_C_READ, NULL); // obtain ELF descriptor
   if (elf == NULL) {
     fprintf(stderr, "elf_begin failed on %s : (%d) %s\n", maps_file.pathname, errno, strerror(errno));
     return;
   }
-  if (gelf_getehdr(elf, &header) == NULL)
-  {
+
+  if (gelf_getehdr(elf, &header) == NULL) {
     fprintf(stderr, "elf_getehdr failed on %s : (%d) %s\n", maps_file.pathname, errno, strerror(errno));
     return;
   }
+
   Elf_Scn *scn = NULL; // section
   GElf_Shdr shdr; // section header
   Elf_Data *data; // section data
-  while ((scn=elf_nextscn(elf, scn)) != NULL) // iterate through sections
-  {
+  while ((scn=elf_nextscn(elf, scn)) != NULL) { // iterate through sections
     if (gelf_getshdr(scn, &shdr) == NULL) continue;
     if (shdr.sh_entsize == 0) continue;
     data = elf_getdata(scn, NULL);
     if (shdr.sh_entsize == 0) continue; // can't explore this one
     int count = (shdr.sh_size / shdr.sh_entsize);
-    for (int index = 0; index < count ; index++)
-    {
+
+    uintptr_t section_alignment = shdr.sh_addralign;
+
+    /* iterate over the section's symbols */
+    for (int index = 0; index < count ; index++) {
       GElf_Sym sym;
       if (gelf_getsym(data, index, &sym) == NULL) continue;
       char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
-      if (symbol == NULL) continue;
-      void* value = (void*) ( sym.st_value );
+      if (symbol == NULL) continue;      
+      uintptr_t value = sym.st_value;
       size_t size = sym.st_size;
+
+
       // we want objects with a non zero size, and that are global objects 
-      // todo : we sure want TLS too
-      // todo : see if we want more
       // see elf.h for type and bind values
       if (size != 0 && GELF_ST_BIND(sym.st_info) == STB_GLOBAL
 		      && (GELF_ST_TYPE(sym.st_info) == STT_OBJECT
 			      || GELF_ST_TYPE(sym.st_info) == STT_TLS)
 			      )
       {
-        // compute the address of the symbol
-        // todo : fix computation
+
+        struct maps_addr_ranges* current_range = maps_file.addr_ranges;
+
+#if 0
+	// compute the address of the symbol
         // what is done here is a replica of what was done in ma_get_lib_variables :
         //   take the address of the first entry in maps and suppose you just have to add the symbol value
         //   this seemed to work with most symbols
-        struct maps_addr_ranges* first_maps_entry = maps_file.addr_ranges;
-        while (first_maps_entry->next != NULL) first_maps_entry = first_maps_entry->next;
-        void* addr = (void*) ((size_t)value + (size_t)first_maps_entry->addr_begin);
+	//        struct maps_addr_ranges* first_maps_entry = maps_file.addr_ranges;
+	//        while (first_maps_entry->next != NULL) first_maps_entry = first_maps_entry->next;
+	
         // check if the address is within a range of maps
         // note : when the address computation is done, maybe consider doing this check based on section address or something like that
-        struct maps_addr_ranges* current_range = maps_file.addr_ranges;
-        do {
-          if (addr >= current_range->addr_begin && (void*)((size_t)addr + size) < current_range->addr_end)
-          {
+
+	// while this *should* work, the computed address does not correspond to the actual address. This should be investigated !
+#warning TODO: fix the symbol address computation
+	do {
+	  uintptr_t addr = value + current_range->addr_begin - current_range->offset;
+
+	  size_t range_size = current_range->addr_end - current_range->addr_begin;
+	  if (addr >= current_range->addr_begin &&
+	      addr + size <= current_range->addr_end) {
+
             // the symbol fits in the range, add it
             struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
-            printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
-              maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+	    if(_verbose) {
+	      printf("Found a variable (defined at %s). addr=%p, size=%zu, symbol=%s, value=%p\n",
+		     maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller, value);
+	    }
 	    break;
           }
         } while ((current_range = current_range->next) != NULL);
+#else
+	/* since the proper */
+
+	/* find the lowest address where the binary is mmapped and assume the whole binary is mapped here.
+	 */
+	uintptr_t addr_begin = (uintptr_t)(current_range ? current_range->addr_begin : 0);
+	while(current_range) {
+	  if(current_range->addr_begin < addr_begin)
+	    addr_begin=current_range->addr_begin;
+	  current_range = current_range->next;
+	}
+	
+	uintptr_t addr = value + addr_begin;
+	struct memory_info *mem_info = insert_memory_info(lib, size, (void*)addr, symbol);
+	if(_verbose)
+	  printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s, value=%p\n",
+		 maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller, value);
+#endif
       }
     }
   }
@@ -998,6 +1023,8 @@ void free_maps_file_list(struct maps_file_list* list) {
   }
 }
 
+
+/* get the list of global/static variables with their address and size */
 void ma_get_variables () {
   char line[4096];
   char maps_path[1024];
@@ -1011,319 +1038,16 @@ void ma_get_variables () {
   struct maps_file_list* list = NULL;
   while (!feof(f)) {
     fgets(line, sizeof(line), f);
-    list = insert_new_maps_file_from_line(line,list);
+    list = insert_new_maps_file_from_line(line, list);
   }
   fclose(f);
   struct maps_file_list *current_file = list;
+
   while (current_file != NULL) {
-    elf_parse(*current_file);
+    __ma_parse_elf(*current_file);
     current_file = current_file->next;
   }
   free_maps_file_list(list);
-}
-
-/* get the list of global/static variables with their address and size */
-void ma_get_global_variables() {
-  /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
-  unset_ld_preload();
-
-  debug_printf("Looking for global variables\n");
-  /* get the filename of the program being run */
-  char link_path[1024];
-  sprintf(link_path, "/proc/%d/exe", getpid());
-  readlink(link_path, program_file, PROGRAM_FILE_LEN*sizeof(char));
-
-  debug_printf("  The program file is %s\n", program_file);
-  /* get the address at which the program is mapped in memory */
-  char cmd[4069];
-  char line[4096];
-  void *base_addr = NULL;
-  void *end_addr = NULL;
-
-  FILE *f;
-  sprintf(cmd, "file \"%s\" |grep \"shared object\\|pie executable\" > plop", program_file);
-  int ret = system(cmd);
-  if(WIFEXITED(ret)) {
-    /* find address range of the heap */
-    int exit_status= WEXITSTATUS(ret);
-    if(exit_status == EXIT_SUCCESS) {
-      /* process is compiled with -fPIE, thus, the addresses in the ELF are to be relocated */
-      sprintf(cmd, "cat /proc/%d/maps |grep \"[heap]\"", getpid());
-      f = popen(cmd, "r");
-      fgets(line, 4096, f);
-      pclose(f);
-      sscanf(line, "%p-%p", &base_addr, &end_addr);
-      printf("[NumaMMA]  This program was compiled with -fPIE. It is mapped at address %p\n", base_addr);
-    } else {
-      /* process is not compiled with -fPIE, thus, the addresses in the ELF are the addresses in the binary */
-      base_addr= NULL;
-      end_addr= NULL;
-      printf("[NumaMMA]  This program was not compiled with -fPIE. It is mapped at address %p\n", base_addr);
-    }
-  }
-
-  /* get the list of global variables in the current binary */
-  if(strcmp(program_file, "/usr/bin/bash")==0)
-    exit(EXIT_SUCCESS);
-  char nm_cmd[1024];
-  sprintf(nm_cmd, "nm --defined-only -l -S %s", program_file);
-  f = popen(nm_cmd, "r");
-
-  while(!feof(f)) {
-    if( ! fgets(line, 4096, f) ) {
-      if(errno == EINTR)
-	continue;
-      goto out;
-    }
-
-    /* each line is in the form:
-       offset [size] section symbol [file]
-    */
-    char *addr = null_str;
-    char *size_str = null_str;
-    char *section = null_str;
-    char *symbol = null_str;
-    char *file = null_str;
-
-    int nb_found;
-    addr = strtok(line, " \t\n");
-    assert(addr);
-    size_str = strtok(NULL, " \t\n");
-    assert(size_str);
-    section = strtok(NULL, " \t\n");
-    symbol = strtok(NULL, " \t\n");
-    if(!symbol) {
-      /* only 3 fields (addr section symbol) */
-      nb_found = 3;
-      symbol = section;
-      section = size_str;
-      size_str = null_str;
-      /* this is not enough (we need the size), skip this one */
-      continue;
-    } else {
-      nb_found = 4;
-      /*  fields */
-      file = strtok(NULL, " \t\n");
-      if(!file) {
-	file = null_str;
-      } else {
-	nb_found = 5;
-      }
-    }
-
-    if(section[0]== 'b' || section[0]=='B' || /* BSS (uninitialized global vars) section */
-       section[0]== 'd' || section[0]=='D' || /* initialized data section */
-       section[0]== 'g' || section[0]=='G') { /* initialized data section for small objects */
-
-      size_t size;
-      sscanf(size_str, "%lx", &size);
-      if(size) {
-	struct memory_info * mem_info = NULL;
-	/* addr is the offset within the binary. The actual address of the variable is located at
-	 *  addr+base_addr
-	 */
-	size_t offset;
-	sscanf(addr, "%lx", &offset);
-	mem_info = insert_memory_info(global_symbol, size, offset + (uint8_t*)base_addr, symbol);
-	printf("Found a global variable: %s (defined at %s). base addr=%p, size=%zu\n",
-		     symbol, file, mem_info->buffer_addr, mem_info->buffer_size);
-      }
-    }
-  }
- out:
-  pclose(f);
-  /* Restore LD_PRELOAD.
-   * This is usefull when the program is run with gdb. gdb creates a process than runs bash -e prog arg1
-   * Thus, the ld_preload affects bash. bash then calls execvp to execute the program.
-   * If we unset ld_preload, the ld_preload will only affect bash (and not the program)
-   * Hence, we need to restore ld_preload here.
-   */
-  reset_ld_preload();
-}
-
-/* get the list of lib variables with their address and size */
-void ma_get_lib_variables() {
-  /* make sure forked processes (eg nm, readlink, etc.) won't be analyzed */
-  unset_ld_preload();
-
-  elf_version(EV_CURRENT); // has to be called before elf_begin
-
-  debug_printf("Looking for lib variables\n");
-  /* get the address ranges in /proc/pid/maps */
-  char line[4096];
-  char maps_path[1024];
-  FILE *f = NULL;
-  sprintf(maps_path, "/proc/%d/maps", getpid());
-  f = fopen(maps_path, "r");
-  if (f == NULL) {
-    fprintf(stderr, "Could not open %s (reading mode)\n", maps_path);
-    abort();
-  }
-  while (!feof(f)) {
-    fgets(line, sizeof(line), f);
-    // only selecting lines containing lib, could be another criteria, and could filter libnumap, libnumamma, etc.
-    // get rid of trailing new lines
-    strtok(line, "\n");
-    /* each line is in the form:
-     * addr_begin-addr_end permissions offset device inode file
-     */
-    void *addr_begin = NULL;
-    void *addr_end = NULL;
-    char *perm = null_str;
-    char *offset = null_str;
-    char *device = null_str;
-    char *inode = 0;
-    char *file = null_str;
-    sscanf(strtok(line," "), "%p-%p", &addr_begin, &addr_end);
-    perm = strtok(NULL, " ");
-    offset = strtok(NULL, " ");
-    device = strtok(NULL, " ");
-    inode = strtok(NULL, " ");
-    file = strtok(NULL, " ");
-    if (file == NULL) continue;
-    Elf *elf = NULL;
-    GElf_Ehdr header;
-    int fd = open(file, O_RDONLY);
-    if (fd == -1) {
-      fprintf(stderr, "open %s failed : (%d) %s\n", file, errno, strerror(errno));
-      continue;
-    }
-    elf = elf_begin(fd, ELF_C_READ, NULL); // obtain ELF descriptor
-    if (elf == NULL) {
-      fprintf(stderr, "elf_begin failed on %s : (%d) %s\n", file, errno, strerror(errno));
-      continue;
-    }
-    if (gelf_getehdr(elf, &header) == NULL)
-    {
-      fprintf(stderr, "elf_getehdr failed on %s : (%d) %s\n", file, errno, strerror(errno));
-      continue;
-    }
-    Elf_Scn *scn = NULL; // section
-    GElf_Shdr shdr; // section header
-    Elf_Data *data; // section data
-    while ((scn=elf_nextscn(elf, scn)) != NULL) // iterate through sections
-    {
-      gelf_getshdr(scn, &shdr);
-      data = elf_getdata(scn, NULL);
-      if (shdr.sh_entsize == 0) continue; // can't explore this one
-      int count = (shdr.sh_size / shdr.sh_entsize);
-      for (int index = 0; index < count ; index++)
-      {
-        GElf_Sym sym;
-        if (gelf_getsym(data, index, &sym) == NULL) continue; // pass if we can't retrieve the data at current index
-         // we want objects with a non zero size, and that are global objects 
-         // todo : we sure want TLS too
-         // todo : see if we want more
-         // trying to retrieve global functions too seems to break memory analysis (parsing all blocks never ends)
-         if (sym.st_size != 0  && GELF_ST_BIND(sym.st_info) == STB_GLOBAL &&
-			 (GELF_ST_TYPE(sym.st_info) == STT_OBJECT
-			  /*|| GELF_ST_TYPE(sym.st_info) == STT_FUNC*/)) {
-          char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
-	  void* addr = (void*) ( (long long) addr_begin + sym.st_value );
-	  size_t size = sym.st_size;
-          struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
-	  printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
-			  file, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
-        }
-        // this dumps all symbols found that did not match above requirements in stderr when using verbose
-        // since there are lots of those symbols, it would be better to dump them in a file I guess, so for now I comment this
-        /*
-        else if (_verbose) {
-          char *symbol = elf_strptr(elf, shdr.sh_link, sym.st_name);
-          void* addr = (void*) ( (long long) addr_begin + sym.st_value );
-          size_t size = sym.st_size;
-          fprintf(stderr, "%s\n\taddr : %p\n\tsize : %zu\n", symbol, addr, size);
-          fprintf(stderr, "\ttype : %d (", GELF_ST_TYPE(sym.st_info));
-          switch(GELF_ST_TYPE(sym.st_info)) {
-            case STT_NOTYPE:
-              fprintf(stderr, "STT_NOTYPE");
-              break;
-            case STT_OBJECT:
-              fprintf(stderr, "STT_OBJECT");
-              break;
-            case STT_FUNC:
-              fprintf(stderr, "STT_FUNC");
-              break;
-            case STT_SECTION:
-              fprintf(stderr, "STT_SECTION");
-              break;
-            case STT_FILE:
-              fprintf(stderr, "STT_FILE");
-              break;
-            case STT_COMMON:
-              fprintf(stderr, "STT_COMMON");
-              break;
-            case STT_TLS:
-              fprintf(stderr, "STT_TLS");
-              break;
-            case STT_NUM:
-              fprintf(stderr, "STT_NUM");
-              break;
-            case STT_LOOS:
-            //case STT_GNU_IFUNC: // both defined to 10
-              fprintf(stderr, "STT_LOOS or STT_GNU_IFUNC");
-              break;
-            case STT_HIOS:
-              fprintf(stderr, "STT_HIOS");
-              break;
-            case STT_LOPROC:
-              fprintf(stderr, "STT_LOPROC");
-              break;
-            case STT_HIPROC:
-              fprintf(stderr, "STT_HIPROC");
-              break;
-            default:
-              fprintf(stderr, "undefined");
-              break;
-          }
-          fprintf(stderr, ")\n");
-          fprintf(stderr, "\tbind : %d (", GELF_ST_BIND(sym.st_info));
-          switch(GELF_ST_BIND(sym.st_info)) {
-            case STB_LOCAL:
-              fprintf(stderr, "STB_LOCAL");
-              break;
-            case STB_GLOBAL:
-              fprintf(stderr, "STB_GLOBAL");
-              break;
-            case STB_WEAK:
-              fprintf(stderr, "STB_WEAK");
-              break;
-            case STB_NUM:
-              fprintf(stderr, "STB_NUM");
-              break;
-            case STB_LOOS:
-            //case STB_GNU_UNIQUE: // both defined to 10
-              fprintf(stderr, "STB_LOOS or STB_GNU_UNIQUE");
-              break;
-            case STB_HIOS:
-              fprintf(stderr, "STB_HIOS");
-              break;
-            case STB_LOPROC:
-              fprintf(stderr, "STB_LOPROC");
-              break;
-            case STB_HIPROC:
-              fprintf(stderr, "STB_HIPROC");
-              break;
-            default:
-              fprintf(stderr, "undefined");
-              break;
-          }
-          fprintf(stderr, ")\n");
-        }
-  */      
-      }
-    }
-    elf_end(elf);
-    close(fd);
-  }
-  pclose(f);
-  /* Restore LD_PRELOAD.
-   * This is usefull when the program is run with gdb. gdb creates a process than runs bash -e prog arg1
-   * Thus, the ld_preload affects bash. bash then calls execvp to execute the program.
-   * If we unset ld_preload, the ld_preload will only affect bash (and not the programà
-   * Hence, we need to restore ld_preload here.
-   */
-  reset_ld_preload();
 }
 
 void ma_record_malloc(struct mem_block_info* info) {
@@ -1518,6 +1242,9 @@ struct call_site {
 struct call_site* call_sites = NULL;
 
 struct call_site *find_call_site(struct memory_info* mem_info) {
+  if(mem_info->mem_type != dynamic_allocation)
+    return NULL;
+
   struct call_site * cur_site = call_sites;
   while(cur_site) {
     if(cur_site->buffer_size == mem_info->initial_buffer_size &&
@@ -1566,10 +1293,9 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
 
 void update_call_sites(struct memory_info* mem_info) {
   struct call_site* site = find_call_site(mem_info);
+
   if(!site) {
     site = new_call_site(mem_info);
-  } else {
-    mem_info->caller = site->caller;
   }
 
   site->nb_mallocs++;
