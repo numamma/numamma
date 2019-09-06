@@ -424,6 +424,7 @@ static void read_options() {
       dump_filename = malloc(sizeof(char)*1024);
       create_log_filename("memory_dump.log", dump_filename, 2096);
       dump_file = fopen(dump_filename, "w");
+      fprintf(dump_file, "#thread_rank timestamp virtual_addr offset mem_level weight symbol sym_addr\n");
       printf("[%d] Dump mode enabled. Data will be dumped to %s\n", getpid(), dump_filename);
     }
   }

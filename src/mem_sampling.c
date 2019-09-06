@@ -728,6 +728,70 @@ void update_counters(struct mem_counters* counters,
   }
 }
 
+static struct memory_info* __match_sample(struct mem_sample *sample,
+					  enum access_type access_type) {
+  /* find the memory object that corresponds to the sample*/
+  struct memory_info* mem_info = ma_find_mem_info_from_sample(sample);
+
+  if(!mem_info) {
+    /* no buffer matches sample->addr */
+    if (_verbose) {
+      // trying to find where the address is located in maps file
+      char maps_path[1024];
+      sprintf(maps_path, "/proc/%d/maps", getpid());
+      FILE *maps = fopen(maps_path, "r");
+      if (maps == NULL)
+	{
+	  fprintf(stderr, "Could not read %s\n", maps_path);
+	  abort();
+	}
+      char line[1024];
+      int found=0;
+      void *addr = (void*)sample->addr;
+      while (!found && !feof(maps))
+	{
+	  fgets(line, sizeof(line), maps);
+	  char cut_line[1024];
+	  strncpy(cut_line, line, sizeof(cut_line));
+	  void *begin = NULL;
+	  void *end = NULL;
+	  sscanf(strtok(cut_line, " "), "%p-%p", &begin, &end);
+	  if (addr >= begin && addr <= end)
+	    found = 1;
+	}
+      fclose(maps);
+      // todo : unmatched_samples.log is never emptied
+      FILE *dump_unmatched;
+      dump_unmatched = fopen("unmatched_samples.log", "a+");
+
+      fprintf(dump_unmatched, "%p ",sample->addr);
+      if (found)
+	{
+	  fprintf(dump_unmatched, "located in %s", strtok(line, "\n"));
+	}
+      else {
+	fprintf(dump_unmatched, "matching no address range in %s", maps_path);
+      }
+      fprintf(dump_unmatched, "\n");
+      fclose(dump_unmatched);
+    }
+  } else {
+
+    /* we found a memory object that corresponds to the sample */
+    if(!mem_info->blocks) {
+      /* this is the first time a sample matches this object, initialize a few things */
+      ma_allocate_counters(mem_info);
+      ma_init_counters(mem_info);
+    }
+
+    /* find the memory pages in the object that corresponds to the sample address */
+    struct block_info *block = ma_get_block(mem_info, samples->thread_rank, sample->addr);
+    /* update counters */
+    update_counters(block->counters, sample, access_type);
+  }
+  return mem_info;
+}
+
 /* This function analyzes a set of samples
  * @param samples : a buffer that contains samples
  * @return nb_samples : the number of samples that were in the buffer
@@ -739,15 +803,6 @@ static void __analyze_buffer(struct sample_list* samples,
   size_t consumed = 0;
   struct perf_event_header *event = samples->buffer;
   enum access_type access_type = samples->access_type;
-  if(_dump) {
-    fprintf(dump_file, "%d Analyze samples %p (size=%d), start: %lu stop: %lu -- duration: %llu\n",
-	    samples->thread_rank,
-	    samples,
-	    samples->buffer_size,
-	    samples->start_date,
-	    samples->stop_date,
-	    samples->stop_date-samples->start_date);
-  }
 
   /* browse the buffer and process each sample */
   while(consumed < samples->buffer_size) {
@@ -759,95 +814,43 @@ static void __analyze_buffer(struct sample_list* samples,
       struct mem_sample *sample = (struct mem_sample *)((char *)(event) + 8); /* todo: remplace 8 with sizeof(ptr) ? */
       (*nb_samples)++;
       update_counters(global_counters, sample, access_type);
-      if(! match_samples)
-	goto next_sample;
 
-      /* find the memory object that corresponds to the sample*/
-      struct memory_info* mem_info = ma_find_mem_info_from_sample(sample);
+      struct memory_info* mem_info = NULL;
 
-      if(!mem_info) {
-	/* no buffer matches sample->addr */
-        if (_verbose) {
-          // trying to find where the address is located in maps file
-          char maps_path[1024];
-          sprintf(maps_path, "/proc/%d/maps", getpid());
-          FILE *maps = fopen(maps_path, "r");
-          if (maps == NULL)
-          {
-            fprintf(stderr, "Could not read %s\n", maps_path);
-            abort();
-          }
-          char line[1024];
-          int found=0;
-          void *addr = (void*)sample->addr;
-          while (!found && !feof(maps))
-          {
-            fgets(line, sizeof(line), maps);
-            char cut_line[1024];
-            strncpy(cut_line, line, sizeof(cut_line));
-            void *begin = NULL;
-            void *end = NULL;
-            sscanf(strtok(cut_line, " "), "%p-%p", &begin, &end);
-            if (addr >= begin && addr <= end)
-              found = 1;
-          }
-          fclose(maps);
-	  // todo : unmatched_samples.log is never emptied
-          FILE *dump_unmatched;
-          dump_unmatched = fopen("unmatched_samples.log", "a+");
-
-          fprintf(dump_unmatched, "%p ",sample->addr);
-          if (found)
-          {
-            fprintf(dump_unmatched, "located in %s", strtok(line, "\n"));
-          }
-          else {
-            fprintf(dump_unmatched, "matching no address range in %s", maps_path);
-          }
-          fprintf(dump_unmatched, "\n");
-          fclose(dump_unmatched);
+      if(match_samples) {
+	/* search for the object that correspond to this memory sample */
+	mem_info = __match_sample(sample, access_type);
+	if(mem_info) {
+	  (*found_samples)++;
 	}
-      } else {
-
-	/* we found a memory object that corresponds to the sample */
-	if(!mem_info->blocks) {
-	  /* this is the first time a sample matches this object, initialize a few things */
-	  ma_allocate_counters(mem_info);
-	  ma_init_counters(mem_info);
-	}
-
-	(*found_samples)++;
-
-	/* find the memory pages in the object that corresponds to the sample address */
-	struct block_info *block = ma_get_block(mem_info, samples->thread_rank, sample->addr);
-	/* update counters */
-	update_counters(block->counters, sample, access_type);
       }
 
       if(_dump) {
 	/* dump mode is activated, write to content of the sample to a file */
 
+	uintptr_t offset=0;
 	if(mem_info) {
 	  /* compute the offset of the sample adress in the memory object */
-	  uintptr_t offset=(uintptr_t)sample->addr - (uintptr_t)mem_info->buffer_addr;
+	  offset = (uintptr_t)sample->addr - (uintptr_t)mem_info->buffer_addr;
 
 	  if(!mem_info->caller) {
 	    /* search for the function that allocated the memory object */
 	    mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
 	  }
-
-	  if(mem_info->mem_type != stack) {
+	}
+	
+	if((!mem_info) || mem_info->mem_type != stack) {
 	    /* write the content of the sample to a file */
 	    fprintf(dump_file,
-		    "%d %" PRIu64 " %" PRIu64 " %" PRId64 " %s %" PRIu64 " %s\n",
+		    "%d %" PRIu64 " %" PRIu64 " %" PRId64 " %s %" PRIu64 " %s %p\n",
 		    samples->thread_rank,
 		    sample->timestamp,
 		    sample->addr,
 		    offset,
 		    get_data_src_level(sample->data_src),
 		    sample->weight,
-		    mem_info?mem_info->caller:"", mem_info->buffer_addr);
-	  }
+		    mem_info?mem_info->caller:"",
+		    mem_info?mem_info->buffer_addr: NULL);
 	}
       }
     }
