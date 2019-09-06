@@ -4,7 +4,8 @@
 #include <assert.h>
 #include <string.h>
 
-#define INSTALL_PREFIX @CMAKE_INSTALL_PREFIX@
+#define INSTALL_PREFIX "@CMAKE_INSTALL_PREFIX@"
+
 #define MAX_THREADS 1024
 
 extern int _verbose;

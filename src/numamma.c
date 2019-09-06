@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <errno.h>
 
+#include "numamma.h"
+
 #define SAMPLING_RATE -1
 #define NO_MATCH_SAMPLE -2
 #define ONLINE_ANALYSIS -3
@@ -17,7 +19,7 @@
 #define STRING_LENGTH 4096
 
 // CMake .c.in here
-const char prefix[] = "/home/mad/stage/numamma-build/install/numamma";
+const char prefix[] = INSTALL_PREFIX;
 const char numap_libdir[] = "";
 
 const char *program_version = "numamma";
@@ -143,7 +145,6 @@ int main(int argc, char **argv)
 	argp_parse(&argp, target_i+1, argv, 0, 0, &arguments);
 
 	char ld_preload[STRING_LENGTH] = "";
-	char ld_library_path[STRING_LENGTH] = "";
 	char *str;
 	if ((str = getenv("LD_PRELOAD")) != NULL) {
 		strncpy(ld_preload, str, STRING_LENGTH);
@@ -151,9 +152,11 @@ int main(int argc, char **argv)
 	}
 	strcat(ld_preload, prefix);
 	strcat(ld_preload, "/lib/libnumamma.so");
+	
+	char ld_library_path[STRING_LENGTH] = "";
 	if ((str = getenv("LD_LIBRARY_PATH")) != NULL) {
-		strncpy(ld_preload, str, STRING_LENGTH);
-		strcat(ld_preload, ":");
+	  strncpy(ld_library_path, str, STRING_LENGTH);
+	  strcat(ld_library_path, ":");
 	}
 	strcat(ld_library_path, numap_libdir);
 
