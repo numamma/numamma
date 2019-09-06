@@ -139,8 +139,8 @@ int main(int argc, char **argv)
 	}
 	
 	char **target_argv = NULL;
-	if (target_i + 1 < argc)
-		target_argv = &(argv[target_i+1]);
+	if (target_i < argc)
+		target_argv = &(argv[target_i]);
 	// we only want to parse what comes before target included
 	argp_parse(&argp, target_i+1, argv, 0, 0, &arguments);
 
