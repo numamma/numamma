@@ -335,9 +335,7 @@ void mem_sampling_finalize() {
   printf("%s offline_analysis=%s\n", __FUNCTION__, offline_analysis ? "true" : "false");
   if(offline_analysis) {
     if (do_get_at_analysis > 0) {
-      ma_get_lib_variables();
-      ma_get_global_variables();
-      //ma_get_variables();
+      ma_get_variables();
       do_get_at_analysis--;
     }
     /* analyze the samples that were copied at runtime */
