@@ -616,7 +616,10 @@ void ma_register_stack() {
 }  
 
 /* writes given information into a new memory_info struct and adds it to list or hashtable, and returns the inserted element */
-struct memory_info* insert_memory_info(enum mem_type mem_type, size_t initial_buffer_size, void* buffer_addr, const char* caller)
+struct memory_info* insert_memory_info(enum mem_type mem_type,
+				       size_t initial_buffer_size,
+				       void* buffer_addr,
+				       const char* caller)
 {
 	struct memory_info* mem_info = NULL;
 #ifdef USE_HASHTABLE
@@ -634,6 +637,7 @@ struct memory_info* insert_memory_info(enum mem_type mem_type, size_t initial_bu
 	mem_info->buffer_addr = buffer_addr;
 	mem_info->caller = mem_allocator_alloc(string_allocator);
 	snprintf(mem_info->caller, 1024, "%s", caller);
+	printf("insert %s\n", mem_info->caller);
 	if(! offline_analysis) {
 	  __allocate_counters(mem_info);
 	  __init_counters(mem_info);
@@ -659,10 +663,10 @@ struct memory_info* insert_memory_info(enum mem_type mem_type, size_t initial_bu
 
 // a file can appear several times in maps, and thus we need to track the several ranges it has
 struct maps_addr_ranges {
-  void *addr_begin;
-  void *addr_end;
+  uintptr_t addr_begin;
+  uintptr_t addr_end;
   char permissions[16];
-  void* offset;
+  uintptr_t offset;
   struct maps_addr_ranges* next;
 };
 
@@ -678,10 +682,10 @@ struct maps_file_list {
 // the file appened may just add a new addr_range into current_list->maps_addr_ranges, or even just update an existing range
 struct maps_file_list* insert_new_maps_file_from_line(char *line, struct maps_file_list* current_list)
 {
-  void *addr_begin;
-  void *addr_end;
+  uintptr_t addr_begin;
+  uintptr_t addr_end;
   char permissions[16];
-  void* offset;
+  uintptr_t offset;
   char device[1024];
   uint64_t inode;
   char pathname[1024];
@@ -892,6 +896,7 @@ void print_section_header(GElf_Shdr shdr, const char* spacing)
 static void __ma_parse_elf(struct maps_file_list maps_file) {
   elf_version(EV_CURRENT); // has to be called before elf_begin
 
+  
   Elf *elf = NULL;
   GElf_Ehdr header;
   int fd = open(maps_file.pathname, O_RDONLY);
@@ -905,7 +910,8 @@ static void __ma_parse_elf(struct maps_file_list maps_file) {
     return;
   }
 
-  printf("Exploring %s\n", maps_file.pathname);
+  if(_verbose)
+    printf("Exploring %s\n", maps_file.pathname);
   elf = elf_begin(fd, ELF_C_READ, NULL); // obtain ELF descriptor
   if (elf == NULL) {
     fprintf(stderr, "elf_begin failed on %s : (%d) %s\n", maps_file.pathname, errno, strerror(errno));
@@ -940,18 +946,17 @@ static void __ma_parse_elf(struct maps_file_list maps_file) {
 
 
       // we want objects with a non zero size, and that are global objects 
-      // todo : we sure want TLS too
-      // todo : see if we want more
       // see elf.h for type and bind values
       if (size != 0 && GELF_ST_BIND(sym.st_info) == STB_GLOBAL
 		      && (GELF_ST_TYPE(sym.st_info) == STT_OBJECT
 			      || GELF_ST_TYPE(sym.st_info) == STT_TLS)
 			      )
       {
-	//	printf("symbol %s (value %x), size=%x, type=%x. section offset: %p. section align: %p \n", symbol, value, size, GELF_ST_TYPE(sym.st_info), shdr.sh_addr, shdr.sh_addralign);
 
-        // compute the address of the symbol
-#warning TODO: fix the symbol address computation
+        struct maps_addr_ranges* current_range = maps_file.addr_ranges;
+
+#if 0
+	// compute the address of the symbol
         // what is done here is a replica of what was done in ma_get_lib_variables :
         //   take the address of the first entry in maps and suppose you just have to add the symbol value
         //   this seemed to work with most symbols
@@ -960,35 +965,43 @@ static void __ma_parse_elf(struct maps_file_list maps_file) {
 	
         // check if the address is within a range of maps
         // note : when the address computation is done, maybe consider doing this check based on section address or something like that
-        struct maps_addr_ranges* current_range = maps_file.addr_ranges;
-	//	fprint_maps_file(stdout, &maps_file);
-        do {
-	  
-	  //	  uintptr_t aligned_addr= ((uintptr_t)current_range->addr_begin + section_alignment -1) & ~(section_alignment-1);
-	  //	  printf("align range from %p to %p\n", current_range->addr_begin, aligned_addr);
+
+	// while this *should* work, the computed address does not correspond to the actual address. This should be investigated !
+#warning TODO: fix the symbol address computation
+	do {
 	  uintptr_t addr = value + current_range->addr_begin - current_range->offset;
 
 	  size_t range_size = current_range->addr_end - current_range->addr_begin;
-#if 0
-	  printf("\t-> OK. does the address (%p-%p) fits in [%p-%p] ?\n", addr,
-		 (void*)((size_t)addr + size), current_range->addr_begin, current_range->addr_end);
-	  printf("Range [%p-%p] maps data from offset %p-%p\n",
-		 current_range->addr_begin, current_range->addr_end,
-		 current_range->offset, current_range->offset+range_size);
-#endif
 	  if (addr >= current_range->addr_begin &&
 	      addr + size <= current_range->addr_end) {
 
             // the symbol fits in the range, add it
             struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
-	    //	    if(_verbose) {
-	    if(1) {
-	      printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s\n",
-		     maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller);
+	    if(_verbose) {
+	      printf("Found a variable (defined at %s). addr=%p, size=%zu, symbol=%s, value=%p\n",
+		     maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller, value);
 	    }
 	    break;
           }
         } while ((current_range = current_range->next) != NULL);
+#else
+	/* since the proper */
+
+	/* find the lowest address where the binary is mmapped and assume the whole binary is mapped here.
+	 */
+	uintptr_t addr_begin = (uintptr_t)(current_range ? current_range->addr_begin : 0);
+	while(current_range) {
+	  if(current_range->addr_begin < addr_begin)
+	    addr_begin=current_range->addr_begin;
+	  current_range = current_range->next;
+	}
+	
+	uintptr_t addr = value + addr_begin;
+	struct memory_info *mem_info = insert_memory_info(lib, size, (void*)addr, symbol);
+	if(_verbose)
+	  printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s, value=%p\n",
+		 maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller, value);
+#endif
       }
     }
   }
@@ -1024,12 +1037,16 @@ void ma_get_variables () {
   }
   struct maps_file_list* list = NULL;
   while (!feof(f)) {
-    printf("%s", line);
     fgets(line, sizeof(line), f);
     list = insert_new_maps_file_from_line(line, list);
   }
   fclose(f);
   struct maps_file_list *current_file = list;
+
+  printf("attach %d\n", getpid());
+  int plop=0;
+  //  while(plop==0) ;
+
   while (current_file != NULL) {
     __ma_parse_elf(*current_file);
     current_file = current_file->next;
@@ -1229,6 +1246,9 @@ struct call_site {
 struct call_site* call_sites = NULL;
 
 struct call_site *find_call_site(struct memory_info* mem_info) {
+  if(mem_info->mem_type != dynamic_allocation)
+    return NULL;
+
   struct call_site * cur_site = call_sites;
   while(cur_site) {
     if(cur_site->buffer_size == mem_info->initial_buffer_size &&
@@ -1277,10 +1297,9 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
 
 void update_call_sites(struct memory_info* mem_info) {
   struct call_site* site = find_call_site(mem_info);
+
   if(!site) {
     site = new_call_site(mem_info);
-  } else {
-    mem_info->caller = site->caller;
   }
 
   site->nb_mallocs++;

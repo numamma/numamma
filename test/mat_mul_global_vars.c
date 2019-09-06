@@ -6,6 +6,7 @@
 double A[N][N];
 double B[N][N];
 double C[N][N];
+char D='a';
 
 void mat_mul(double A[N][N], double B[N][N], double C[N][N]) {
   int i, j, k;
@@ -43,6 +44,7 @@ void print_mat(double C[N][N]) {
 int main(int argc, char** argv) {
   int i, j;
   int n = N;
+
   printf("@A=%p\n", A);
   printf("@B=%p\n", B);
   printf("@C=%p\n", C);
@@ -61,5 +63,6 @@ int main(int argc, char** argv) {
   print_mat(C);
   //print_mat(B, n);
 
+  printf("%c\n",D);
   return 0;
 }
