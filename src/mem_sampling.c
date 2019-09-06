@@ -209,7 +209,7 @@ void mem_sampling_init() {
   printf("NumaMMA settings:\n");
   printf("-----------------\n");
   printf("Sampling rate: %d\n", sampling_rate);
-  printf("Match samples: %d\n", match_samples);
+  printf("Match samples: %s\n", match_samples?"yes":"no");
   printf("Buffer size: %lu\n", buffer_size);
   printf("Alarm interval: %ld ms\n", alarm_enabled?interval:0);
   printf("Memory access analysis: %s\n", offline_analysis?"offline":"online");

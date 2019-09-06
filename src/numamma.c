@@ -27,10 +27,11 @@ const char *program_bug_address = "";
 static char doc[] = "Numamma description";
 static char args_doc[] = "target [TARGET OPTIONS]";
 
+const char * argp_program_version="NumaMMA dev";
+
 // long name, key, arg, option flags, doc, group
 // if key is negative or non printable, no short option
 static struct argp_option options[] = {
-	{"debug", 'd', 0, 0, "launch with gdb"},
 	{0, 0, 0, 0, "Outputs options :"},
 	{"verbose", 'v', 0, 0, "Produce verbose output" },
 	{"dump", 'o', 0, 0, "Enable memory dump"},
@@ -47,7 +48,6 @@ static struct argp_option options[] = {
 };
 
 struct arguments {
-	bool debug;
 	bool verbose;
 	bool dump;
 	char* sampling_rate;
@@ -67,9 +67,6 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
 	switch(key)
 	{
-		case 'd':
-			arguments->debug = true;
-			break;
 		case 'v':
 			arguments->verbose = true;
 			break;
@@ -117,7 +114,6 @@ int main(int argc, char **argv)
 	struct arguments arguments;
 
 	// Default values
-	arguments.debug = false;
 	arguments.verbose = false;
 	arguments.dump = false;
 	arguments.sampling_rate = NULL;
@@ -159,13 +155,6 @@ int main(int argc, char **argv)
 	  strcat(ld_library_path, ":");
 	}
 	strcat(ld_library_path, numap_libdir);
-
-	if (arguments.debug)
-	{
-		// launch with gdb
-		printf("Not implemented yet on this launcher\n");
-		return EXIT_FAILURE;
-	}
 
 	setenv("LD_PRELOAD", ld_preload, 1);
 	setenv("LD_LIBRARY_PATH", ld_library_path, 1);

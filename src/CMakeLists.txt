@@ -1,4 +1,4 @@
-add_library(libnumamma SHARED
+add_library(numamma SHARED
   mem_intercept.c
   mem_tools.c
   mem_sampling.c
@@ -6,7 +6,7 @@ add_library(libnumamma SHARED
   )
 
 
-add_executable(numamma
+add_executable(numamma-bin
   numamma.c
 )
 
@@ -18,7 +18,7 @@ set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${NUMACTL_LIBRARIES}
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  ${NUMACTL_LIBRARIES}   ${NUMAP_LDFLAGS} ${NUMAP_LDFLAGS_OTHER}  -L${BACKTRACE_DIR}/lib -lbacktrace")
 
 
-target_link_libraries(libnumamma ${NUMAP_LIBRARY} -lbacktrace -lnumap -ldl -lpthread numamma-tools -lrt -lelf)
+target_link_libraries(numamma ${NUMAP_LIBRARY} -lbacktrace -lnumap -ldl -lpthread numamma-tools -lrt -lelf)
 
 add_library(numa_run SHARED
   mem_run.c
@@ -42,7 +42,10 @@ list(APPEND SCRIPTS
   )
 
 install(PROGRAMS ${SCRIPTS} DESTINATION bin)
-install(TARGETS libnumamma DESTINATION lib)
+install(TARGETS numamma DESTINATION lib)
 install(TARGETS numa_run DESTINATION lib)
 
-install(TARGETS numamma DESTINATION bin)
+set_target_properties(numamma-bin
+        PROPERTIES OUTPUT_NAME numamma)
+
+install(TARGETS numamma-bin DESTINATION bin)
