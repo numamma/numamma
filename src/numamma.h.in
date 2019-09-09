@@ -7,10 +7,42 @@
 #define INSTALL_PREFIX "@CMAKE_INSTALL_PREFIX@"
 
 #define MAX_THREADS 1024
+#define STRING_LEN 4096
 
-extern int _verbose;
-extern int _dump;
+struct numamma_settings {
+  int verbose;
+
+  int sampling_rate;
+  int alarm;
+
+  /* if set, numamma registers a callback that is call each
+   time the sample buffer is full. Otherwise, samples may be lost */
+  int flush;
+
+  /* size (in KB per thread) of the buffer that contains the samples */
+  int buffer_size;
+
+  char* output_dir;
+  int match_samples; /* if set, numamma matches samples with memory objects */
+  int online_analysis;
+  int dump;
+  int dump_unmatched;
+};
+extern struct numamma_settings settings;
+
+#define SETTINGS_VERBOSE_DEFAULT         0
+#define SETTINGS_SAMPLING_RATE_DEFAULT   10000
+#define SETTINGS_ALARM_DEFAULT           0
+#define SETTINGS_FLUSH_DEFAULT           1
+#define SETTINGS_BUFFER_SIZE_DEFAULT     128
+#define SETTINGS_MATCH_SAMPLES_DEFAULT   1
+#define SETTINGS_ONLINE_ANALYSIS_DEFAULT 0
+#define SETTINGS_DUMP_DEFAULT            0
+#define SETTINGS_DUMP_UNMATCHED_DEFAULT  0
+
 extern FILE* dump_file;
+extern FILE* dump_unmatched_file;
+
 void create_log_filename(char* basename, char *filename, int length);
 char* get_log_dir();
 
@@ -36,11 +68,11 @@ extern __thread int is_recurse_unsafe;
   } while(0)
 
 #define FUNCTION_ENTRY do {			\
-    if(_verbose) printf("%s\n", __FUNCTION__);	\
+    if(settings.verbose) printf("%s\n", __FUNCTION__);	\
   } while(0)
 
 #define debug_printf(format, ...) do {		\
-    if(_verbose) {							\
+    if(settings.verbose) {							\
       printf(format, ##__VA_ARGS__);					\
     }									\
   }while(0)

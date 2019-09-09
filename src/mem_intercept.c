@@ -19,9 +19,11 @@
 #include "mem_analyzer.h"
 #include "mem_tools.h"
 
-int _verbose = 0;
-int _dump = 0;
+struct numamma_settings settings;
+static char dump_filename[STRING_LEN];
 FILE* dump_file = NULL;
+static char dump_unmatched_filename[STRING_LEN];
+FILE* dump_unmatched_file = NULL;
 __thread int is_recurse_unsafe = 0;
 
 /* set to 1 when all the hooks are set.
@@ -391,13 +393,12 @@ void pthread_exit(void *thread_return) {
   __builtin_unreachable();
 }
 
-static char *dump_filename=NULL;
 char *counters_dir=NULL;
 
 char* get_log_dir() {
   if(!counters_dir) {
-    counters_dir = malloc(sizeof(char)*1024);
-    sprintf(counters_dir, "/tmp/counters_%s", getenv("USER"));
+    counters_dir = malloc(STRING_LEN);
+    snprintf(counters_dir, STRING_LEN, "%s", settings.output_dir);
     mkdir(counters_dir, S_IRWXU);
   }
   return counters_dir;
@@ -407,27 +408,49 @@ void create_log_filename(char* basename, char *filename, int length) {
   snprintf(filename, length, "%s/%s", get_log_dir(), basename);
 }
 
-static void read_options() {
-  char* verbose_str = getenv("NUMAMMA_VERBOSE");
-  if(verbose_str) {
-    if(strcmp(verbose_str, "0")!=0) {
-      _verbose = 1;
-      printf("Verbose mode enabled\n");
-    }
+#define getenv_int(var, envname, default_value) do {	\
+    char* str = getenv(envname);			\
+    (var) = default_value;				\
+    if(str) {						\
+      (var) = atoi(str);				\
+    }							\
+  } while(0)
+
+static void read_settings() {
+  getenv_int(settings.verbose, "NUMAMMA_VERBOSE", SETTINGS_VERBOSE_DEFAULT);
+  getenv_int(settings.sampling_rate, "NUMAMMA_SAMPLING_RATE", SETTINGS_SAMPLING_RATE_DEFAULT);
+  getenv_int(settings.alarm, "NUMAMMA_ALARM", SETTINGS_ALARM_DEFAULT);
+  getenv_int(settings.flush, "NUMAMMA_FLUSH", SETTINGS_FLUSH_DEFAULT);
+  getenv_int(settings.buffer_size, "NUMAMMA_BUFFER_SIZE", SETTINGS_BUFFER_SIZE_DEFAULT);
+
+  char* str = getenv("NUMAMMA_OUTPUT_DIR");
+  settings.output_dir = malloc(STRING_LEN);
+  if(str) {
+    strncpy(settings.output_dir, str, STRING_LEN);
+  } else {
+    snprintf(settings.output_dir, STRING_LEN, "/tmp/numamma_%s", getenv("USER"));
   }
 
-  char* dump_str = getenv("NUMAMMA_DUMP");
-  if(dump_str) {
-    if(strcmp(dump_str, "0")!=0) {
-      _dump = 1;
+  getenv_int(settings.match_samples, "NUMAMMA_MATCH_SAMPLES", SETTINGS_MATCH_SAMPLES_DEFAULT);
+  getenv_int(settings.online_analysis, "NUMAMMA_ONLINE_ANALYSIS", SETTINGS_ONLINE_ANALYSIS_DEFAULT);
+  getenv_int(settings.dump, "NUMAMMA_DUMP", SETTINGS_DUMP_DEFAULT);
+  getenv_int(settings.dump_unmatched, "NUMAMMA_DUMP_UNMATCHED", SETTINGS_DUMP_UNMATCHED_DEFAULT);
+}
 
-      dump_filename = malloc(sizeof(char)*1024);
-      create_log_filename("memory_dump.log", dump_filename, 2096);
-      dump_file = fopen(dump_filename, "w");
-      fprintf(dump_file, "#thread_rank timestamp virtual_addr offset mem_level weight symbol sym_addr\n");
-      printf("[%d] Dump mode enabled. Data will be dumped to %s\n", getpid(), dump_filename);
-    }
-  }
+static void print_settings() {
+  printf("-----------------------------------\n");
+  printf("NumaMMA settings\n");
+  printf("verbose        : %s\n", settings.verbose ? "yes":"no");
+  printf("sampling_rate  : %d\n", settings.sampling_rate);
+  printf("alarm          : %d\n", settings.alarm);
+  printf("flush          : %s\n", settings.flush? "yes":"no");
+  printf("buffer_size    : %d KB\n", settings.buffer_size);
+  printf("output_dir     : %s\n", settings.output_dir);
+  printf("match_samples  : %s\n", settings.match_samples? "yes":"no");
+  printf("online_analysis: %s\n", settings.online_analysis? "yes":"no");
+  printf("dump           : %s\n", settings.dump? "yes":"no");
+  printf("dump_unmatched : %s\n", settings.dump_unmatched? "yes":"no");
+  printf("-----------------------------------\n");
 }
 
 extern char**environ;
@@ -489,7 +512,27 @@ static void __memory_init(void) {
   libpthread_create = dlsym(RTLD_NEXT, "pthread_create");
   libpthread_exit = dlsym(RTLD_NEXT, "pthread_exit");
 
-  read_options();
+  read_settings();
+  print_settings();
+
+  if(settings.dump) {
+    create_log_filename("memory_dump.log", dump_filename, STRING_LEN);
+    dump_file = fopen(dump_filename, "w");
+    if(!dump_file) {
+      fprintf(stderr, "Cannot create %s: %s\n", dump_filename, strerror(errno));
+      abort();
+    }
+  }
+
+  if(settings.dump_unmatched) {
+    create_log_filename("unmatched.log", dump_unmatched_filename, STRING_LEN);
+    dump_unmatched_file = fopen(dump_unmatched_filename, "w");
+    if(!dump_unmatched_file) {
+      fprintf(stderr, "Cannot create %s: %s\n", dump_unmatched_filename, strerror(errno));
+      abort();
+    }
+  }
+
   ma_init();
 
   ma_get_variables();
@@ -529,9 +572,18 @@ static void __memory_conclude(void) {
   wait_for_other_threads();
   __memory_initialized = 0;
 
+  printf("\n\n");
+  printf("-----------------------------------\n");
+  printf("NumaMMA report:\n");
+  
   ma_finalize();
-  if(dump_filename) {
+  if(settings.dump) {
+    fclose(dump_file);
     printf("Samples were written to %s\n", dump_filename);
-    free(dump_filename);
+  }
+
+  if(settings.dump_unmatched) {
+    fclose(dump_unmatched_file);
+    printf("Unmatched samples were written to %s\n", dump_unmatched_filename);
   }
 }

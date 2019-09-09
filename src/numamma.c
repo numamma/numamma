@@ -2,18 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <argp.h>
-#include <stdbool.h>
 #include <unistd.h>
 #include <errno.h>
 
 #include "numamma.h"
 
-#define SAMPLING_RATE -1
-#define NO_MATCH_SAMPLE -2
-#define ONLINE_ANALYSIS -3
-#define NO_REFRESH -4
-#define BUFFER_SIZE -5
-#define GET_AT_ANALYSIS -6
+#define ONLINE_ANALYSIS -1
 
 // todo : make better string length checks, for now this is not safe from buffer overflows
 #define STRING_LENGTH 4096
@@ -25,166 +19,171 @@ const char numap_libdir[] = "";
 const char *program_version = "numamma";
 const char *program_bug_address = "";
 static char doc[] = "Numamma description";
-static char args_doc[] = "target [TARGET OPTIONS]";
-
+static char args_doc[] = "target_application [TARGET OPTIONS]";
 const char * argp_program_version="NumaMMA dev";
 
 // long name, key, arg, option flags, doc, group
 // if key is negative or non printable, no short option
 static struct argp_option options[] = {
-	{0, 0, 0, 0, "Outputs options :"},
+	{0, 0, 0, 0, "Output options:"},
 	{"verbose", 'v', 0, 0, "Produce verbose output" },
-	{"dump", 'o', 0, 0, "Enable memory dump"},
-	{0, 0, 0, 0, "Another group :"},
-	{"sampling-rate", SAMPLING_RATE, "RATE", 0, "set sampling rate to RATE"},
-	{"sr", SAMPLING_RATE, 0, OPTION_ALIAS},
-	{"no-match-samples", NO_MATCH_SAMPLE, 0, 0, "do not match samples"},
-	{"online-analysis", ONLINE_ANALYSIS, 0, 0, "enable online analysis"},
-	{"alarm", 'a', "INTERVAL", 0, "set alarm interval (must be long)"},
-	{"no-refresh", NO_REFRESH, 0, 0, "disable perf event refresh"},
-	{"buffer-size", BUFFER_SIZE, "SIZE", 0, "set buffer size"},
-	{"get-at-analysis", GET_AT_ANALYSIS, "NB", 0, "if NB>0, call ma get functions before analysis, uppon online analysis, will be done before each NB first analysis"},
+
+	{0, 0, 0, 0, "Collect options:"},
+	{"sampling-rate", 'r', "RATE", 0, "Set the sampling rate (default: 10000)"},
+	{"alarm", 'a', "INTERVAL", 0, "Collect samples every INTERVAL ms (default: disabled)"},
+	{"flush", 'f', "yes|no", OPTION_ARG_OPTIONAL, "Flush the sample buffer when full (default: yes)"},
+	{"buffer-size", 's', "SIZE", 0, "Set the sample buffer size (default: 128 KB per thread)"},
+
+	{0, 0, 0, 0, "Report options:"},
+	{"outputdir", 'o', "dir", 0, "Specify the directory where files are written (default: /tmp/numamma_$USER"},
+	{"match-samples", 'm', "yes|no", OPTION_ARG_OPTIONAL, "Match samples with the corresponding memory object (default: yes)"},
+	{"online-analysis", ONLINE_ANALYSIS, 0, 0, "Analyze samples at runtime (default: disabled)"},
+	{"dump", 'd', 0, 0, "Dump the collected memory access (default: disabled)"},
+	{"dump-unmatched", 'u', 0, 0, "Dump the samples that did not match a memory object (default: disabled)"},
 	{0}
 };
 
-struct arguments {
-	bool verbose;
-	bool dump;
-	char* sampling_rate;
-	bool match_samples;
-	bool online_analysis;
-	char* alarm;;
-	bool refresh;
-	char* buffer_size;
-	char* get_at_analysis;
-};
 
-static error_t parse_opt(int key, char *arg, struct argp_state *state)
-{
-	/* Get the input argument from argp_parse, which we
-	 * know is a pointer to our arguments structure. */
-	struct arguments *arguments = state->input;
+static error_t parse_opt(int key, char *arg, struct argp_state *state) {
+  /* Get the input settings from argp_parse, which we
+   * know is a pointer to our settings structure. */
+  struct numamma_settings *settings = state->input;
 
-	switch(key)
-	{
-		case 'v':
-			arguments->verbose = true;
-			break;
-		case 'o':
-			arguments->dump = true;
-			break;
-		case SAMPLING_RATE:
-			arguments->sampling_rate = arg;
-			break;
-		case NO_MATCH_SAMPLE:
-			arguments->match_samples = false;
-			break;
-		case ONLINE_ANALYSIS:
-			arguments->online_analysis = true;
-			break;
-		case 'a':
-			arguments->alarm = arg;
-			break;
-		case NO_REFRESH:
-			arguments->refresh = false;
-			break;
-		case BUFFER_SIZE:
-			arguments->buffer_size = arg;
-			break;
-		case GET_AT_ANALYSIS:
-			arguments->get_at_analysis = arg;
-			break;
-		case ARGP_KEY_NO_ARGS:
-			argp_usage(state);
-			break;
-		case ARGP_KEY_ARG:
-		case ARGP_KEY_END:
-			// nothing to do
-			break;
-		default:
-			return ARGP_ERR_UNKNOWN;
-	}
-	return 0;
+  switch(key) {
+  case 'v':
+    settings->verbose = 1;
+    break;
+
+  case 'r':
+    settings->sampling_rate = atoi(arg);
+    break;
+  case 'a':
+    settings->alarm = atoi(arg);
+    break;
+  case 'f':
+    if(arg && strcmp(arg, "=no")==0)
+      settings->flush = 0;
+    else
+      settings->flush = 1;
+    break;
+  case 's':
+    settings->buffer_size = atoi(arg);
+    break;
+			
+  case 'o':
+    settings->output_dir = &arg[1];
+    break;
+  case 'm':
+    if(arg && strcmp(arg, "=no")==0)
+      settings->match_samples = 0;
+    else
+      settings->match_samples = 1;
+    break;
+  case ONLINE_ANALYSIS:
+    settings->online_analysis = 1;
+    break;
+  case 'd':
+    settings->dump = 1;
+    break;
+  case 'u':
+    settings->dump_unmatched = 1;
+    break;
+
+  case ARGP_KEY_NO_ARGS:
+    argp_usage(state);
+    break;
+  case ARGP_KEY_ARG:
+  case ARGP_KEY_END:
+    // nothing to do
+    break;
+  default:
+    return ARGP_ERR_UNKNOWN;
+  }
+  return 0;
 }
 
 static struct argp argp = { options, parse_opt, args_doc, doc };
 
-int main(int argc, char **argv)
-{
-	struct arguments arguments;
+int main(int argc, char **argv) {
+  struct numamma_settings settings;
 
-	// Default values
-	arguments.verbose = false;
-	arguments.dump = false;
-	arguments.sampling_rate = NULL;
-	arguments.match_samples = true;
-	arguments.online_analysis = false;
-	arguments.alarm = NULL;
-	arguments.refresh = true;
-	arguments.buffer_size = NULL;
-	arguments.get_at_analysis = NULL;
+  // Default values
+  settings.verbose = SETTINGS_VERBOSE_DEFAULT;
 
-	// first divide argv between numamma options and target file and options
-	// optionnal todo : better target detection : it should be possible to specify both --option=value and --option value, but for now the latter is not interpreted as such
-	int target_i = 1;
-	while (target_i < argc && argv[target_i][0] == '-') target_i++;
-	if (target_i == argc)
-	{
-		// there are no arguments, either the user entered --help or something like that, either we want to print usage anyway
-		return argp_parse(&argp, argc, argv, 0, 0, &arguments);
-	}
+  settings.sampling_rate = SETTINGS_SAMPLING_RATE_DEFAULT;
+  settings.alarm = SETTINGS_ALARM_DEFAULT;
+  settings.flush = SETTINGS_FLUSH_DEFAULT;
+  settings.buffer_size = SETTINGS_BUFFER_SIZE_DEFAULT;
+
+  settings.output_dir = malloc(STRING_LENGTH);
+  snprintf(settings.output_dir, STRING_LENGTH, "/tmp/numamma_%s", getenv("USER"));
+  settings.match_samples = SETTINGS_MATCH_SAMPLES_DEFAULT;
+  settings.online_analysis = SETTINGS_ONLINE_ANALYSIS_DEFAULT;
+  settings.dump = SETTINGS_DUMP_DEFAULT;
+  settings.dump_unmatched = SETTINGS_DUMP_UNMATCHED_DEFAULT;
+
+  // first divide argv between numamma options and target file and options
+  // optionnal todo : better target detection : it should be possible to specify both --option=value and --option value, but for now the latter is not interpreted as such
+  int target_i = 1;
+  while (target_i < argc && argv[target_i][0] == '-') target_i++;
+  if (target_i == argc)
+    {
+      // there are no settings, either the user entered --help or something like that, either we want to print usage anyway
+      return argp_parse(&argp, argc, argv, 0, 0, &settings);
+    }
 	
-	char **target_argv = NULL;
-	if (target_i < argc)
-		target_argv = &(argv[target_i]);
-	// we only want to parse what comes before target included
-	argp_parse(&argp, target_i+1, argv, 0, 0, &arguments);
+  char **target_argv = NULL;
+  if (target_i < argc)
+    target_argv = &(argv[target_i]);
+  // we only want to parse what comes before target included
+  argp_parse(&argp, target_i+1, argv, 0, 0, &settings);
 
-	char ld_preload[STRING_LENGTH] = "";
-	char *str;
-	if ((str = getenv("LD_PRELOAD")) != NULL) {
-		strncpy(ld_preload, str, STRING_LENGTH);
-		strcat(ld_preload, ":");
-	}
-	strcat(ld_preload, prefix);
-	strcat(ld_preload, "/lib/libnumamma.so");
+  char ld_preload[STRING_LENGTH] = "";
+  char *str;
+  if ((str = getenv("LD_PRELOAD")) != NULL) {
+    strncpy(ld_preload, str, STRING_LENGTH);
+    strcat(ld_preload, ":");
+  }
+  strcat(ld_preload, prefix);
+  strcat(ld_preload, "/lib/libnumamma.so");
 	
-	char ld_library_path[STRING_LENGTH] = "";
-	if ((str = getenv("LD_LIBRARY_PATH")) != NULL) {
-	  strncpy(ld_library_path, str, STRING_LENGTH);
-	  strcat(ld_library_path, ":");
-	}
-	strcat(ld_library_path, numap_libdir);
+  char ld_library_path[STRING_LENGTH] = "";
+  if ((str = getenv("LD_LIBRARY_PATH")) != NULL) {
+    strncpy(ld_library_path, str, STRING_LENGTH);
+    strcat(ld_library_path, ":");
+  }
+  strcat(ld_library_path, numap_libdir);
 
-	setenv("LD_PRELOAD", ld_preload, 1);
-	setenv("LD_LIBRARY_PATH", ld_library_path, 1);
-	if (arguments.verbose)
-		setenv("NUMAMMA_VERBOSE","1", 1);
-	if (arguments.dump)
-		setenv("NUMAMMA_DUMP","1", 1);
-	if (arguments.sampling_rate != NULL)
-		setenv("SAMPLING_RATE", arguments.sampling_rate, 1);
-	if (!arguments.match_samples)
-		setenv("DONT_MATCH_SAMPLES", "1", 1);
-	if (arguments.online_analysis)
-		setenv("ONLINE_ANALYSIS", "1", 1);
-	if (arguments.alarm != NULL)
-		setenv("NUMAMMA_ALARM", arguments.alarm, 1);
-	if (!arguments.refresh)
-		setenv("NUMAMMA_NO_REFRESH", "1", 1);
-	if (arguments.buffer_size != NULL)
-		setenv("NUMAMMA_BUFFER_SIZE", arguments.buffer_size, 1);
-	if (arguments.get_at_analysis != NULL)
-		setenv("NUMAMMA_GET_AT_ANALYSIS", arguments.get_at_analysis, 1);
-	extern char** environ;
-	int ret;
-	if (target_argv != NULL) {
-		ret  = execve(argv[target_i], target_argv, environ);
-	} else {
-		char *no_argv[] = {NULL};
-		ret = execve(argv[target_i], no_argv, environ);
-	}
-	// execve failed
-	fprintf(stderr, "Could not execve : %d - %s\n", errno, strerror(errno));
-	return EXIT_FAILURE;
+  setenv("LD_PRELOAD", ld_preload, 1);
+  setenv("LD_LIBRARY_PATH", ld_library_path, 1);
+
+#define setenv_int(var, value, overwrite) do {	\
+    char str[STRING_LEN];			\
+    snprintf(str, STRING_LEN, "%d", value);	\
+    setenv(var, str, overwrite);		\
+  }while(0)
+  
+  setenv_int("NUMAMMA_VERBOSE", settings.verbose, 1);
+  setenv_int("NUMAMMA_SAMPLING_RATE", settings.sampling_rate, 1);
+  setenv_int("NUMAMMA_ALARM", settings.alarm, 1);
+  setenv_int("NUMAMMA_FLUSH", settings.flush, 1);
+  setenv_int("NUMAMMA_BUFFER_SIZE", settings.buffer_size, 1);
+
+  setenv("NUMAMMA_OUTPUT_DIR", settings.output_dir, 1);
+  setenv_int("NUMAMMA_MATCH_SAMPLES", settings.match_samples, 1);
+  setenv_int("NUMAMMA_ONLINE_ANALYSIS", settings.online_analysis, 1);
+  setenv_int("NUMAMMA_DUMP", settings.dump, 1);
+  setenv_int("NUMAMMA_DUMP_UNMATCHED", settings.dump_unmatched, 1);
+  
+  extern char** environ;
+  int ret;
+  if (target_argv != NULL) {
+    ret  = execve(argv[target_i], target_argv, environ);
+  } else {
+    char *no_argv[] = {NULL};
+    ret = execve(argv[target_i], no_argv, environ);
+  }
+  // execve failed
+  fprintf(stderr, "Could not execve : %d - %s\n", errno, strerror(errno));
+  return EXIT_FAILURE;
 }

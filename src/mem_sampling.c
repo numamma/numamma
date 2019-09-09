@@ -12,17 +12,8 @@
 #include "mem_analyzer.h"
 #include "mem_tools.h"
 
-int sampling_rate = 10000;
-
 // if > 0, ma_get_*_variables functions are called before analysis, and do_get_at_analysis is decremented
 int do_get_at_analysis = 0;
-
-/* if set to one, numamma matches samples with memory objects */
-int match_samples=1;
-
-/* if set to 1, numamma registers a callback that is call each
-   time the sample buffer is full. Otherwise, samples may be lost */
-int sig_refresh_enabled=1;
 
 /* number of memory pages for numap buffer  */
 size_t numap_page_count = 32;
@@ -153,68 +144,34 @@ void mem_sampling_init() {
 #if USE_NUMAP
   clock_gettime(CLOCK_REALTIME, &t_init);
 
-  char* sampling_rate_str = getenv("SAMPLING_RATE");
-  if(sampling_rate_str)
-    sampling_rate=atoi(sampling_rate_str);
-
-  char* dont_match_str = getenv("DONT_MATCH_SAMPLES");
-  if(dont_match_str)
-    match_samples=0;
-
-
   int err = numap_init();
   if(err != 0) {
     fprintf(stderr, "Error while initializing numap: %s\n", numap_error_message(err));
     abort();
   }
 
-  char* str=getenv("ONLINE_ANALYSIS");
-  if(str) {
-    offline_analysis = 0;
-  }
 
-  str=getenv("NUMAMMA_ALARM");
-  long interval = 0;
-  if(str) {
-    interval=atol(str);
-    __alarm_interval = interval* 1000000;
+  if(settings.alarm) {   
+    __alarm_interval = settings.alarm* 1000000;
     alarm_enabled=1;
   }
 
-  str = getenv("NUMAMMA_NO_REFRESH");
-  if(str) {
-    sig_refresh_enabled=0;
-  }
-
-  str = getenv("NUMAMMA_GET_AT_ANALYSIS");
+  char* str = getenv("NUMAMMA_GET_AT_ANALYSIS");
   if (str) {
     do_get_at_analysis = atoi(str);
   }
-  
-  str=getenv("NUMAMMA_BUFFER_SIZE");
+
+  settings.buffer_size *= 1024;
   size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
-  long buffer_size = numap_page_count * page_size;
-  if(str) {
-    buffer_size=atol(str);
-    if(buffer_size % page_size != 0) {
-      printf("[NumaMMA] buffer_size must be a multiple of %lu !\n", page_size);
-      buffer_size -= buffer_size % page_size;
-      printf("[NumaMMA]\tadjusting buffer_size to %lu !\n", buffer_size);
-    }
-
-    numap_page_count = buffer_size / page_size;
+  if(settings.buffer_size % page_size != 0) {
+    printf("[NumaMMA] buffer_size must be a multiple of %lu !\n", page_size);
+    settings.buffer_size -= settings.buffer_size % page_size;
+    printf("[NumaMMA]\tadjusting buffer_size to %lu !\n", settings.buffer_size);
   }
-  pthread_mutex_init(&sample_list_lock, NULL);
 
-  printf("NumaMMA settings:\n");
-  printf("-----------------\n");
-  printf("Sampling rate: %d\n", sampling_rate);
-  printf("Match samples: %s\n", match_samples?"yes":"no");
-  printf("Buffer size: %lu\n", buffer_size);
-  printf("Alarm interval: %ld ms\n", alarm_enabled?interval:0);
-  printf("Memory access analysis: %s\n", offline_analysis?"offline":"online");
-  printf("Refresh: %s\n", sig_refresh_enabled?"enabled":"disabled");
-  printf("-----------------\n");
+  numap_page_count = settings.buffer_size / page_size;
+
+  pthread_mutex_init(&sample_list_lock, NULL);
 
   mem_allocator_init(&sample_mem, sizeof(struct sample_list), 1024);
   init_mem_counter(&global_counters[0]);
@@ -254,13 +211,13 @@ void numap_write_handler(struct numap_sampling_measure *m, int fd) {
 
 void mem_sampling_thread_init() {
   pid_t tid = syscall(SYS_gettid);
-  int res = numap_sampling_init_measure(&sm, 1, sampling_rate, numap_page_count);
+  int res = numap_sampling_init_measure(&sm, 1, settings.sampling_rate, numap_page_count);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
     abort();
   }
 
-  res = numap_sampling_init_measure(&sm_wr, 1, sampling_rate, numap_page_count);
+  res = numap_sampling_init_measure(&sm_wr, 1, settings.sampling_rate, numap_page_count);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
     abort();
@@ -269,7 +226,7 @@ void mem_sampling_thread_init() {
   /* for now, only collect info on the current thread */
   sm.tids[0] = tid;
 
-  if(sig_refresh_enabled) {
+  if(settings.flush) {
     struct sigaction s;  
     s.sa_handler = sig_handler;  
     int signo=SIGALRM;
@@ -313,7 +270,8 @@ void print_counters(struct mem_counters* counters) {
     
     printf("Total count          : \t %"PRIu64"\n", counters[i].total_count);
     printf("Total weigh          : \t %"PRIu64"\n", counters[i].total_weight);
-    printf("N/A                  : \t %"PRIu64" (%f %%)\n", counters[i].na_miss_count, _PERCENT(counters[i].na_miss_count));
+    if(counters[i].na_miss_count)
+      printf("N/A                  : \t %"PRIu64" (%f %%)\n", counters[i].na_miss_count, _PERCENT(counters[i].na_miss_count));
 
     PRINT_COUNTER(cache1_hit, "L1 Hit");
     PRINT_COUNTER(cache2_hit, "L2 Hit");
@@ -336,8 +294,9 @@ void print_counters(struct mem_counters* counters) {
     PRINT_COUNTER(uncached_memory_miss, "Uncached memory Miss");
   }
 }
+
 void mem_sampling_finalize() {
-  printf("%s offline_analysis=%s\n", __FUNCTION__, offline_analysis ? "true" : "false");
+
   if(offline_analysis) {
     if (do_get_at_analysis > 0) {
       ma_get_variables();
@@ -355,9 +314,9 @@ void mem_sampling_finalize() {
       int found_samples = 0;
       if(nb_blocks % 10 == 0) {
         fflush(stdout);
-        printf("\rAnalyzing sample buffer %d/%d [%lx - %lx]. Total samples so far: %d",
+        printf("\rAnalyzing sample buffer %d/%d. Total samples so far: %d",
 	       nb_blocks, nb_sample_buffers,
-	       samples->start_date, samples->stop_date, nb_samples_total);
+	       nb_samples_total);
      }
       __analyze_buffer(samples, &nb_samples, &found_samples);
       nb_samples_total += nb_samples;
@@ -371,8 +330,6 @@ void mem_sampling_finalize() {
     }
     printf("\n");
     printf("Total: %d samples including %d matches in %d blocks (%lu bytes)\n", nb_samples_total, nb_found_samples_total, nb_blocks, total_buffer_size);
-    if(nb_samples_total != 0)
-      printf("avg position: %" PRIu64 "\n", avg_pos/nb_samples_total);
     stop_tick(offline_sample_analysis);
     printf("Offline analysis took %lf s\n",tick_duration(offline_sample_analysis)/1e9);
   }
@@ -735,7 +692,7 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
 
   if(!mem_info) {
     /* no buffer matches sample->addr */
-    if (_verbose) {
+    if (settings.dump_unmatched) {
       // trying to find where the address is located in maps file
       char maps_path[1024];
       sprintf(maps_path, "/proc/%d/maps", getpid());
@@ -761,19 +718,15 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
 	}
       fclose(maps);
       // todo : unmatched_samples.log is never emptied
-      FILE *dump_unmatched;
-      dump_unmatched = fopen("unmatched_samples.log", "a+");
 
-      fprintf(dump_unmatched, "%p ",sample->addr);
-      if (found)
-	{
-	  fprintf(dump_unmatched, "located in %s", strtok(line, "\n"));
-	}
-      else {
-	fprintf(dump_unmatched, "matching no address range in %s", maps_path);
+      fprintf(dump_unmatched_file, "%p ",sample->addr);
+      if (found) {
+	fprintf(dump_unmatched_file, "located in %s", strtok(line, "\n"));
       }
-      fprintf(dump_unmatched, "\n");
-      fclose(dump_unmatched);
+      else {
+	fprintf(dump_unmatched_file, "matching no address range in %s", maps_path);
+      }
+      fprintf(dump_unmatched_file, "\n");
     }
   } else {
 
@@ -817,7 +770,7 @@ static void __analyze_buffer(struct sample_list* samples,
 
       struct memory_info* mem_info = NULL;
 
-      if(match_samples) {
+      if(settings.match_samples) {
 	/* search for the object that correspond to this memory sample */
 	mem_info = __match_sample(sample, access_type);
 	if(mem_info) {
@@ -825,7 +778,7 @@ static void __analyze_buffer(struct sample_list* samples,
 	}
       }
 
-      if(_dump) {
+      if(settings.dump) {
 	/* dump mode is activated, write to content of the sample to a file */
 
 	uintptr_t offset=0;

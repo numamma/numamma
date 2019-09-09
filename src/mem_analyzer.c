@@ -110,7 +110,7 @@ void ma_thread_finalize() {
 
   pid_t tid = syscall(SYS_gettid);
 #if  ENABLE_TICKS
-  if(_verbose) {
+  if(settings.verbose) {
     printf("End of thread %s %d\n", __FUNCTION__, tid);
     for(int i=0; i<NTICKS; i++) {
       if(tick_array[i].nb_calls>0) {
@@ -910,7 +910,7 @@ static void __ma_parse_elf(struct maps_file_list maps_file) {
     return;
   }
 
-  if(_verbose)
+  if(settings.verbose)
     printf("Exploring %s\n", maps_file.pathname);
   elf = elf_begin(fd, ELF_C_READ, NULL); // obtain ELF descriptor
   if (elf == NULL) {
@@ -977,7 +977,7 @@ static void __ma_parse_elf(struct maps_file_list maps_file) {
 
             // the symbol fits in the range, add it
             struct memory_info *mem_info = insert_memory_info(lib, size, addr, symbol);
-	    if(_verbose) {
+	    if(settings.verbose) {
 	      printf("Found a variable (defined at %s). addr=%p, size=%zu, symbol=%s, value=%p\n",
 		     maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller, value);
 	    }
@@ -998,7 +998,7 @@ static void __ma_parse_elf(struct maps_file_list maps_file) {
 	
 	uintptr_t addr = value + addr_begin;
 	struct memory_info *mem_info = insert_memory_info(lib, size, (void*)addr, symbol);
-	if(_verbose)
+	if(settings.verbose)
 	  printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s, value=%p\n",
 		 maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller, value);
 #endif
@@ -1637,12 +1637,12 @@ void ma_finalize() {
 
 	double r_access_frequency;
 	if(total_read_count)
-	  r_access_frequency = (duration/sampling_rate)/total_read_count;
+	  r_access_frequency = (duration/settings.sampling_rate)/total_read_count;
 	else
 	  r_access_frequency = 0;
 	double w_access_frequency;
 	if(total_write_count)
-	  w_access_frequency = (duration/sampling_rate)/total_write_count;
+	  w_access_frequency = (duration/settings.sampling_rate)/total_write_count;
 	else
 	  w_access_frequency = 0;
 
@@ -1665,9 +1665,6 @@ void ma_finalize() {
     print_call_site_summary();
 
     mem_sampling_statistics();
-    if(_dump) {
-      fclose(dump_file);
-    }
     pthread_mutex_unlock(&mem_list_lock);
     UNPROTECT_RECORD;
     //    ma_print_current_buffers();
