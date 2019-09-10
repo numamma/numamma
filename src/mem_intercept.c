@@ -60,8 +60,6 @@ static void* hand_made_malloc(size_t size) {
     /* let's use the real malloc */
     return malloc(size);
 
-  debug_printf("%s(size=%lu) ", __FUNCTION__, size);
-
   struct mem_block_info *p_block = NULL;
   INIT_MEM_INFO(p_block, next_slot, size, 1);
 
@@ -145,7 +143,6 @@ void* realloc(void *ptr, size_t size) {
     return NULL;
   }
 
-  //  FUNCTION_ENTRY;
   if (!librealloc) {
     librealloc = dlsym(RTLD_NEXT, "realloc");
     char* error;
@@ -154,8 +151,6 @@ void* realloc(void *ptr, size_t size) {
       exit(1);
     }
   }
-
-  debug_printf("%s(ptr=%p, size=%lu) ", __FUNCTION__, ptr, size);
 
   if (!CANARY_OK(ptr)) {
     /* we didn't malloc'ed this buffer */
@@ -191,7 +186,6 @@ void* realloc(void *ptr, size_t size) {
     if (!pptr) {
       /* realloc failed */
       UNPROTECT_FROM_RECURSION;
-      debug_printf("--> %p\n", NULL);
       return NULL;
     }
 
@@ -203,8 +197,6 @@ void* realloc(void *ptr, size_t size) {
     /* it is not safe to record information */
     p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
   }
-
-  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
   return p_block->u_ptr;
 }
 
@@ -216,8 +208,6 @@ void* calloc(size_t nmemb, size_t size) {
     }
     return ret;
   }
-
-  debug_printf("calloc(nmemb=%zu, size=%zu) ", nmemb, size);
 
   /* compute the number of blocks for header */
   int nb_memb_header = (HEADER_SIZE  + TAIL_SIZE)/ size;
@@ -241,7 +231,6 @@ void* calloc(size_t nmemb, size_t size) {
     p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
     //  return libcalloc(nmemb, size);
   }
-  debug_printf("--> %p (p_block=%p)\n", p_block->u_ptr, p_block);
   return p_block->u_ptr;
 }
 
@@ -260,8 +249,6 @@ void free(void* ptr) {
     return;
   }
 
-  //  debug_printf("%s(ptr=%lu) ", __FUNCTION__, ptr);
-
   /* first, check wether we malloc'ed the buffer */
   if (!CANARY_OK(ptr)) {
     /* we didn't malloc this buffer */
@@ -278,8 +265,6 @@ void free(void* ptr) {
   if(__memory_initialized && IS_RECURSE_SAFE &&
      (p_block->mem_type == MEM_TYPE_MALLOC || p_block->mem_type == MEM_TYPE_NEW) ) {
     PROTECT_FROM_RECURSION;
-
-    //    debug_printf("free(%p)\n", ptr);
 
     if(!TAIL_CANARY_OK(p_block)) {
       fprintf(stderr, "Warning: tail canary erased :'( (%" PRIu64 " instead of %" PRIu64 ")\n", p_block->tail_block->canary, CANARY_PATTERN);

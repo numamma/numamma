@@ -69,21 +69,17 @@ struct sample_list *samples = NULL;
 pthread_mutex_t sample_list_lock;
 static int nb_sample_buffers = 0;
 
-/* if set to 1, samples are copied to a buffer at runtime and analyzed after the
- * end of the application. -> low overlead, high memory consumption
- * if set to 0, samples are analyzed at runtime. -> high overhead, low memory consumption.
- */
-int offline_analysis = 1;
 
-static void __analyze_sampling(struct numap_sampling_measure *sm,
-			       enum access_type access_type);
-static void __copy_samples_thread(struct numap_sampling_measure *sm,
-			   enum access_type access_type,
-			   int thread);
-static void __copy_samples(struct numap_sampling_measure *sm,
-			   enum access_type access_type);
+/* called at runtime when the sample buffer has to be emptied
+ * depending on the settings, it either calls __copy_buffer, or __analyze_buffer
+ */
+static void __process_samples(struct numap_sampling_measure *sm,
+			      enum access_type access_type);
 
 static void __analyze_buffer(struct sample_list* samples,
+			     int *nb_samples,
+			     int *found_samples);
+static void __copy_buffer(struct sample_list* samples,
 			     int *nb_samples,
 			     int *found_samples);
 
@@ -150,7 +146,6 @@ void mem_sampling_init() {
     abort();
   }
 
-
   if(settings.alarm) {   
     __alarm_interval = settings.alarm* 1000000;
     alarm_enabled=1;
@@ -181,22 +176,12 @@ void mem_sampling_init() {
 #endif
 }
 
-void numap_generic_handler(struct numap_sampling_measure *m, int fd, enum access_type access_type)
-{
+void numap_generic_handler(struct numap_sampling_measure *m,
+			   int fd,
+			   enum access_type access_type) {
   if(IS_RECURSE_SAFE) {
     PROTECT_FROM_RECURSION;
-    int tid_i=-1; // search tid
-    for (int i = 0 ; i < m->nb_threads ; i++)
-    {
-      if (m->fd_per_tid[i] == fd)
-        tid_i = i;
-    }
-    if (tid_i == -1)
-    {
-      fprintf(stderr, "No tid associated with fd %d\n", fd);
-      exit(EXIT_FAILURE);
-    }
-    __copy_samples_thread(m, access_type, tid_i);
+    __process_samples(m, access_type);      
     UNPROTECT_FROM_RECURSION;
   }
 }
@@ -235,10 +220,13 @@ void mem_sampling_thread_init() {
       perror("sigaction failed");  
       abort();  
     }
-
-    numap_sampling_set_measure_handler(&sm, numap_read_handler, 1000);
-    numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1000);
+    printf("flush\n");
+    if(numap_sampling_set_measure_handler(&sm, numap_read_handler, 1000) != 0)
+      printf("numap_sampling_set_measure_handler failed\n");
+    if(numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1000) != 0)
+      printf("numap_sampling_set_measure_handler failed\n");
   }
+
   status_initialized = 1;
   __set_alarm();
   mem_sampling_start();
@@ -297,7 +285,7 @@ void print_counters(struct mem_counters* counters) {
 
 void mem_sampling_finalize() {
 
-  if(offline_analysis) {
+  if(!settings.online_analysis) {
     if (do_get_at_analysis > 0) {
       ma_get_variables();
       do_get_at_analysis--;
@@ -317,7 +305,7 @@ void mem_sampling_finalize() {
         printf("\rAnalyzing sample buffer %d/%d. Total samples so far: %d",
 	       nb_blocks, nb_sample_buffers,
 	       nb_samples_total);
-     }
+      }
       __analyze_buffer(samples, &nb_samples, &found_samples);
       nb_samples_total += nb_samples;
       nb_found_samples_total += found_samples;
@@ -331,7 +319,7 @@ void mem_sampling_finalize() {
     printf("\n");
     printf("Total: %d samples including %d matches in %d blocks (%lu bytes)\n", nb_samples_total, nb_found_samples_total, nb_blocks, total_buffer_size);
     stop_tick(offline_sample_analysis);
-    printf("Offline analysis took %lf s\n",tick_duration(offline_sample_analysis)/1e9);
+    printf("Offline analysis took %lf s\n\n",tick_duration(offline_sample_analysis)/1e9);
   }
 
   print_counters(global_counters);
@@ -350,7 +338,7 @@ void mem_sampling_statistics() {
   float percent = 100.0*(nb_samples_total-nb_found_samples_total)/nb_samples_total;
   printf("%"PRIu64" samples (including %"PRIu64" samples that do not match a known memory buffer / %f%%)\n",
 	 nb_samples_total, nb_samples_total-nb_found_samples_total, percent);
-  if(offline_analysis) {
+  if(!settings.online_analysis) {
     printf("Buffer size for sample: %zu bytes\n", sample_buffer_size);
   }
 }
@@ -364,10 +352,6 @@ void mem_sampling_resume() {
 #if USE_NUMAP
   if(status_finalized)
     return;
-
-  debug_printf("in %s : [tid=%lx][cur_date=%lf] Resume sampling %d\n",
-	       __FUNCTION__,
-	       syscall(SYS_gettid), get_cur_date(), is_sampling);
 
   if(is_sampling) {
     printf("[%lx]is_sampling = %d !\n", syscall(SYS_gettid), is_sampling);
@@ -459,10 +443,6 @@ void mem_sampling_collect_samples() {
   if(status_finalized)
     return;
 
-   debug_printf("in %s : [tid=%lx][cur_date=%lf] Collect samples %d\n",
-	       __FUNCTION__,
-	       syscall(SYS_gettid), get_cur_date(), is_sampling);
-
   if(!is_sampling) {
     printf("[%lx] Trying to collect sampling data, but sampling has not started !\n", syscall(SYS_gettid));
   }
@@ -495,105 +475,14 @@ void mem_sampling_collect_samples() {
 
   // Analyze samples
   start_tick(analyze_samples);
-  __analyze_sampling(&sm, ACCESS_READ);
+  __process_samples(&sm, ACCESS_READ);
   if (numap_sampling_write_supported()) {
-    __analyze_sampling(&sm_wr, ACCESS_WRITE);
+    __process_samples(&sm_wr, ACCESS_WRITE);
   }
-  debug_printf("analyze done\n");
   stop_tick(analyze_samples);
 
   setting_sampling_stuff=0;
 #endif	/* USE_NUMAP */
-}
-
-/* copy the samples to a buffer so that they can be analyzed later for a thread */
-static void __copy_samples_thread(struct numap_sampling_measure *sm,
-			   enum access_type access_type,
-			   int thread) {
-  start_tick(rmb);
-  size_t sample_size = 0;
-  struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
-
-  if(metadata_page->data_tail == metadata_page->data_head)
-    /* nothing to do */
-    return;
-  
-  uint8_t* buffer_addr = (uint8_t *)metadata_page;
-  uint64_t tail = metadata_page->data_tail;
-  uint64_t buffer_size = metadata_page->data_size;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)
-  buffer_addr += metadata_page->data_offset;
-#else
-  static size_t page_size = 0;
-  if(page_size == 0)
-    page_size = (size_t)sysconf(_SC_PAGESIZE);
-  buffer_addr += page_size;
-#endif
-  struct perf_event_header *header = (struct perf_event_header *)buffer_addr;
-  uint64_t head = metadata_page -> data_head;
-
-  /* where the data begins */
-  if (head > buffer_size) {
-    head = (head % buffer_size);
-  }
-  metadata_page -> data_head = head;
-  /* On SMP-capable platforms, after reading the data_head value,
-   * user space should issue an rmb().
-   */
-  rmb();
-
-  if (head > tail) {
-    sample_size =  head - tail;
-  } else {
-    sample_size = (buffer_size - tail) + head;
-  }
-
-  struct sample_list* new_sample_buffer = mem_allocator_alloc(sample_mem);
-  new_sample_buffer->buffer = malloc(sample_size);
-  new_sample_buffer->access_type = access_type;
-  new_sample_buffer->buffer_size = sample_size;
-
-  start_tick(memcpy_samples);
-  if (head > tail) {
-    memcpy(new_sample_buffer->buffer, &buffer_addr[tail], sample_size);
-  } else {
-    memcpy(new_sample_buffer->buffer, &buffer_addr[tail], (buffer_size - tail));
-    memcpy(((uint8_t*)new_sample_buffer->buffer) + (buffer_size - tail),
-	   &buffer_addr[0],
-	   head);
-  }
-
-  metadata_page->data_tail = head;
-  new_sample_buffer->start_date = start_date;
-  new_sample_buffer->stop_date = new_date();
-  new_sample_buffer->thread_rank = thread_rank;
-
-  pthread_mutex_lock(&sample_list_lock);
-  new_sample_buffer->next = samples;
-  samples = new_sample_buffer;
-  nb_sample_buffers++;
-  pthread_mutex_unlock(&sample_list_lock);
-
-
-  int nb_samples=0;
-  int found_samples=0;
-  __analyze_buffer(new_sample_buffer, &nb_samples, &found_samples);
-
-  stop_tick(memcpy_samples);
-
-  debug_printf("[%d] copied %zu bytes\n", thread_rank, sample_size);
-  stop_tick(rmb);
-}
-
-/* calls __copy_samples_thread on each thread */
-static void __copy_samples(struct numap_sampling_measure *sm,
-			   enum access_type access_type) {
-
-  /* well, sm->nb_threads should be 1, but let's make things generic */
-  int thread;
-  for (thread = 0; thread < sm->nb_threads; thread++) {
-    __copy_samples_thread(sm, access_type, thread);
-  }
 }
 
 extern date_t origin_date;
@@ -686,7 +575,8 @@ void update_counters(struct mem_counters* counters,
 }
 
 static struct memory_info* __match_sample(struct mem_sample *sample,
-					  enum access_type access_type) {
+					  enum access_type access_type,
+					  int thread_rank) {
   /* find the memory object that corresponds to the sample*/
   struct memory_info* mem_info = ma_find_mem_info_from_sample(sample);
 
@@ -717,7 +607,6 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
 	    found = 1;
 	}
       fclose(maps);
-      // todo : unmatched_samples.log is never emptied
 
       fprintf(dump_unmatched_file, "%p ",sample->addr);
       if (found) {
@@ -738,11 +627,49 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
     }
 
     /* find the memory pages in the object that corresponds to the sample address */
-    struct block_info *block = ma_get_block(mem_info, samples->thread_rank, sample->addr);
+    struct block_info *block = ma_get_block(mem_info, thread_rank, sample->addr);
     /* update counters */
     update_counters(block->counters, sample, access_type);
+
+    if(!mem_info->call_site) {
+      mem_info->call_site = find_call_site(mem_info);
+      if(!mem_info->call_site) {
+	mem_info->call_site = new_call_site(mem_info);
+      }
+    }
   }
   return mem_info;
+}
+
+static void __copy_buffer(struct sample_list* sample_list,
+			  int *nb_samples,
+			  int *found_samples) {  
+  size_t consumed = 0;
+  struct perf_event_header *event = sample_list->buffer;
+  enum access_type access_type = sample_list->access_type;
+
+  struct sample_list* new_sample_buffer = mem_allocator_alloc(sample_mem);
+  new_sample_buffer->buffer = malloc(sample_list->buffer_size);
+  new_sample_buffer->access_type = sample_list->access_type;
+  new_sample_buffer->buffer_size = sample_list->buffer_size;
+
+  start_tick(memcpy_samples);
+
+  memcpy(new_sample_buffer->buffer, sample_list->buffer, sample_list->buffer_size);
+
+  new_sample_buffer->start_date = sample_list->start_date;
+  new_sample_buffer->stop_date = sample_list->stop_date;
+  new_sample_buffer->thread_rank = sample_list->thread_rank;
+
+  pthread_mutex_lock(&sample_list_lock);
+  new_sample_buffer->next = samples;
+  samples = new_sample_buffer;
+  nb_sample_buffers++;
+  pthread_mutex_unlock(&sample_list_lock);
+
+  stop_tick(memcpy_samples);
+
+  stop_tick(rmb);
 }
 
 /* This function analyzes a set of samples
@@ -753,6 +680,13 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
 static void __analyze_buffer(struct sample_list* samples,
 			     int *nb_samples,
 			     int *found_samples) {
+
+  if (do_get_at_analysis > 0) {
+    ma_get_lib_variables();
+    ma_get_global_variables();
+    do_get_at_analysis = 0;
+  }
+
   size_t consumed = 0;
   struct perf_event_header *event = samples->buffer;
   enum access_type access_type = samples->access_type;
@@ -769,10 +703,11 @@ static void __analyze_buffer(struct sample_list* samples,
       update_counters(global_counters, sample, access_type);
 
       struct memory_info* mem_info = NULL;
+      struct call_site* call_site = NULL;
 
       if(settings.match_samples) {
 	/* search for the object that correspond to this memory sample */
-	mem_info = __match_sample(sample, access_type);
+	mem_info = __match_sample(sample, access_type, samples->thread_rank);
 	if(mem_info) {
 	  (*found_samples)++;
 	}
@@ -791,19 +726,30 @@ static void __analyze_buffer(struct sample_list* samples,
 	    mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
 	  }
 	}
-	
-	if((!mem_info) || mem_info->mem_type != stack) {
-	    /* write the content of the sample to a file */
-	    fprintf(dump_file,
-		    "%d %" PRIu64 " %" PRIu64 " %" PRId64 " %s %" PRIu64 " %s %p\n",
+
+	if(mem_info && mem_info->call_site && mem_info->mem_type != stack) {
+	  if(!mem_info->call_site->dump_file) {
+	    char filename[4096];
+	    char file_basename[STRING_LEN];
+	    snprintf(file_basename, STRING_LEN, "callsite_%d", mem_info->call_site->id);
+	    create_log_filename(file_basename, filename, 4096);
+	    mem_info->call_site->dump_file=fopen(filename, "w");
+	    if(!mem_info->call_site->dump_file) {
+	      fprintf(stderr, "failed to open %s for writing: %s\n", filename, strerror(errno));
+	      abort();
+	    }
+	  }
+	  
+	  /* write the content of the sample to a file */
+	  fprintf(mem_info->call_site->dump_file,
+		    "%d %" PRIu64 " %" PRIu64 " %" PRId64 " %s %" PRIu64 "\n",
 		    samples->thread_rank,
 		    sample->timestamp,
 		    sample->addr,
 		    offset,
 		    get_data_src_level(sample->data_src),
-		    sample->weight,
-		    mem_info?mem_info->caller:"",
-		    mem_info?mem_info->buffer_addr: NULL);
+		    sample->weight);
+
 	}
       }
     }
@@ -812,19 +758,11 @@ static void __analyze_buffer(struct sample_list* samples,
     consumed += event->size;
     event = (struct perf_event_header *)((uint8_t *)event + event->size);
   }
+  //  printf("Buffer %p : %d samples including %d that match\n", samples, *nb_samples, *found_samples);
 }
 
-void __analyze_sampling(struct numap_sampling_measure *sm,
+void __process_samples(struct numap_sampling_measure *sm,
 			enum access_type access_type) {
-  if(offline_analysis) {
-    __copy_samples(sm, access_type);
-    return;
-  }
-  if (do_get_at_analysis > 0) {
-    ma_get_lib_variables();
-    ma_get_global_variables();
-    do_get_at_analysis--;
-  }
   int thread;
   int nb_samples = 0;
   int found_samples = 0;
@@ -843,7 +781,11 @@ void __analyze_sampling(struct numap_sampling_measure *sm,
       .thread_rank = thread_rank,
     };
 
-    __analyze_buffer(&samples, &nb_samples, &found_samples);
+    if(settings.online_analysis) {
+      __analyze_buffer(&samples, &nb_samples, &found_samples);
+    } else {
+      __copy_buffer(&samples, &nb_samples, &found_samples);
+    }
   }
 
   if(nb_samples>0) {

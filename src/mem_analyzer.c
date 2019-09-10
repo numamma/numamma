@@ -555,7 +555,7 @@ static void __ma_register_stack_range(uintptr_t stack_base_addr,
   mem_info->buffer_addr = (void*)stack_base_addr;
   mem_info->caller = mem_allocator_alloc(string_allocator);
   snprintf(mem_info->caller, 1024, "[stack]");
-  if(! offline_analysis) {
+  if(settings.online_analysis) {
     __allocate_counters(mem_info);
     __init_counters(mem_info);
   }
@@ -638,7 +638,7 @@ struct memory_info* insert_memory_info(enum mem_type mem_type,
 	mem_info->caller = mem_allocator_alloc(string_allocator);
 	snprintf(mem_info->caller, 1024, "%s", caller);
 
-	if(! offline_analysis) {
+	if(settings.online_analysis) {
 	  __allocate_counters(mem_info);
 	  __init_counters(mem_info);
 	}
@@ -1089,20 +1089,14 @@ void ma_record_malloc(struct mem_block_info* info) {
    * So, we need to get the name of the function in frame 3.
    */
   //  mem_info->caller = get_caller_function(3);
+  mem_info->call_site = NULL;
   mem_info->caller = NULL;
   mem_info->caller_rip = get_caller_rip(3);
-  if(!offline_analysis) {
+  if(settings.online_analysis) {
     /* todo: when implementing offline analysis, make sure counters are initialized */
     __allocate_counters(mem_info);
     __init_counters(mem_info);
   }
-
-  debug_printf("in %s: [tid=%lx][rdtsc=%lu] malloc(%lu bytes) -> u_ptr=%p\n",
-	       __FUNCTION__,
-	       syscall(SYS_gettid),
-	       mem_info->alloc_date,
-	       mem_info->initial_buffer_size,
-	       mem_info->buffer_addr);
 
   stop_tick(init_block);
 
@@ -1215,10 +1209,6 @@ void ma_record_free(struct mem_block_info* info) {
   assert(mem_info);
   mem_info->buffer_size = info->size;
   mem_info->free_date = new_date();
-  debug_printf("[%lu] [%lx] free(%p)\n",
-	       mem_info->free_date,
-	       pthread_self(),
-	       mem_info->buffer_addr);
 
   set_buffer_free(info);
 
@@ -1230,20 +1220,11 @@ void ma_record_free(struct mem_block_info* info) {
   UNPROTECT_RECORD;
 }
 
-struct call_site {
-  char* caller;
-  void* caller_rip;
-  size_t buffer_size;
-  unsigned nb_mallocs;
-  struct memory_info mem_info;
-  struct block_info cumulated_counters;
-  struct call_site *next;
-};
 struct call_site* call_sites = NULL;
 
 struct call_site *find_call_site(struct memory_info* mem_info) {
-  if(mem_info->mem_type != dynamic_allocation)
-    return NULL;
+//  if(mem_info->mem_type != dynamic_allocation)
+//    return NULL;
 
   struct call_site * cur_site = call_sites;
   while(cur_site) {
@@ -1261,11 +1242,16 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
   if(!mem_info->caller) {
     mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
   }
+
+  static _Atomic uint32_t next_call_site_id = 1;
+  site->id = next_call_site_id++;
+
   site->caller_rip = mem_info->caller_rip;
   site->caller = mem_allocator_alloc(string_allocator);
   strcpy(site->caller, mem_info->caller);
   site->buffer_size =  mem_info->initial_buffer_size;
   site->nb_mallocs = 0;
+  site->dump_file = NULL;
 
   site->mem_info.mem_type = mem_info->mem_type;
   site->mem_info.alloc_date = 0;
@@ -1291,9 +1277,8 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
   return site;
 }
 
-void update_call_sites(struct memory_info* mem_info) {
+struct call_site*  update_call_sites(struct memory_info* mem_info) {
   struct call_site* site = find_call_site(mem_info);
-
   if(!site) {
     site = new_call_site(mem_info);
   }
@@ -1347,6 +1332,7 @@ void update_call_sites(struct memory_info* mem_info) {
       block = block->next;
     }
   }
+  return site;
 }
 
 /* remove site from the list of callsites */
@@ -1355,16 +1341,21 @@ static void __remove_site(struct call_site*site) {
   if(cur_site == site) {
     /* remove the first site */
     call_sites = cur_site->next;
-    return;
+    goto out;
   }
 
   while(cur_site->next) {
     if(cur_site->next == site) {
       /* remove cur_site->next */
       cur_site->next = site->next;
-      return;
+      goto out;
     }
     cur_site = cur_site->next;
+  }
+ out:
+  if(cur_site &&cur_site->dump_file) {
+    fclose(cur_site->dump_file);
+    cur_site->dump_file = NULL;
   }
 }
 
@@ -1441,12 +1432,6 @@ void print_call_site_summary() {
   __sort_sites();
   struct call_site* site = call_sites;
   int nb_threads = next_thread_rank;
-  int site_no=0;
-
-  char summary_filename[1024];
-  create_log_filename("summary.log", summary_filename, 1024);
-  FILE* summary_file=fopen(summary_filename, "w");
-  assert(summary_file != NULL);
 
   char callsite_filename[1024];
   create_log_filename("call_sites.log", callsite_filename, 1024);
@@ -1462,24 +1447,21 @@ void print_call_site_summary() {
       }
 
       fprintf(callsite_file, "%d\t%s (size=%zu) - %d buffers. %d read access (total weight: %u, avg weight: %f). %d wr_access\n",
-	      site_no, site->caller, site->buffer_size, site->nb_mallocs,
+	      site->id, site->caller, site->buffer_size, site->nb_mallocs,
 	      site->cumulated_counters.counters[ACCESS_READ].total_count,
 	      site->cumulated_counters.counters[ACCESS_READ].total_weight,
 	      avg_read_weight,
 	      site->cumulated_counters.counters[ACCESS_WRITE].total_count);
       printf("%d\t%s (size=%zu) - %d buffers. %d read access (total weight: %u, avg weight: %f). %d wr_access\n",
-	     site_no, site->caller, site->buffer_size, site->nb_mallocs,
+	     site->id, site->caller, site->buffer_size, site->nb_mallocs,
 	     site->cumulated_counters.counters[ACCESS_READ].total_count,
 	     site->cumulated_counters.counters[ACCESS_READ].total_weight,
 	     avg_read_weight,
 	     site->cumulated_counters.counters[ACCESS_WRITE].total_count);
 
-      fprintf(summary_file, "%d\t%s\t%zu\n", site_no, site->caller, site->buffer_size);
-
       if(site->mem_info.mem_type != stack) {
 	char filename[1024];
-	sprintf(filename, "%s/counters_%d.dat", get_log_dir(), site_no);
-	site_no++;
+	sprintf(filename, "%s/counters_%d.dat", get_log_dir(), site->id);
 	__plot_counters(&site->mem_info, nb_threads, filename);
       }
 #if 0
@@ -1516,7 +1498,6 @@ void print_call_site_summary() {
     }
     site = site->next;
   }
-  fclose(summary_file);
   fclose(callsite_file);
   //  print_buffer_list();
 }
@@ -1646,6 +1627,7 @@ void ma_finalize() {
 	else
 	  w_access_frequency = 0;
 
+#if 0
 	debug_printf("buffer %p (%lu bytes, %zu blocks with samples), duration = %lu ticks, %"PRIu64" writes, %"PRIu64" reads, allocated : %s, read operation every %lf ticks\n",
 		     mem_info->buffer_addr,
 		     mem_info->initial_buffer_size,
@@ -1655,6 +1637,7 @@ void ma_finalize() {
 		     total_read_count,
 		     mem_info->caller,
 		     r_access_frequency);
+#endif
       }
 #ifdef USE_HASHTABLE
       e = e->next;

@@ -63,6 +63,8 @@ enum mem_type {
   lib,
 };
 
+struct call_site;
+
 struct memory_info {
   enum mem_type mem_type;
   date_t alloc_date;
@@ -74,6 +76,7 @@ struct memory_info {
   void* buffer_addr;
   void* caller_rip;		/* adress of the instruction that called malloc */
   char* caller;			/* callsite (function name+line) of the instruction that called malloc */
+  struct call_site* call_site;
   /* TODO: numa node ? thread that allocates */
   struct block_info **blocks;
   //  struct mem_counters count[MAX_THREADS][ACCESS_MAX];
@@ -129,5 +132,22 @@ struct memory_info* ma_find_past_mem_info_from_addr(uint64_t ptr,
 void ma_print_current_buffers();
 void ma_print_past_buffers();
 void ma_print_mem_info(FILE*f, struct memory_info*mem);
+
+
+struct call_site {
+  uint32_t id;
+  char* caller;
+  void* caller_rip;
+  size_t buffer_size;
+  unsigned nb_mallocs;
+  struct memory_info mem_info;
+  struct block_info cumulated_counters;
+  FILE* dump_file;
+  struct call_site *next;
+};
+
+struct call_site*  update_call_sites(struct memory_info* mem_info);
+struct call_site *find_call_site(struct memory_info* mem_info);
+struct call_site * new_call_site(struct memory_info* mem_info);
 
 #endif	/* MEM_ANALYZER */

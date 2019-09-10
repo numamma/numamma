@@ -3,7 +3,7 @@
 #include <time.h>
 #include "mem_intercept.h"
 
-#define  ENABLE_TICKS 1
+//#define  ENABLE_TICKS 1
 
 /* return the address of the instruction that called the current function */
 void* get_caller_rip(int depth);
