@@ -294,7 +294,6 @@ void mem_sampling_finalize() {
     ma_register_stack();
 
     printf("Analyzing %d sample buffers\n", nb_sample_buffers);
-    start_tick(offline_sample_analysis);
     int nb_blocks = 0;
     size_t total_buffer_size = 0;
     while(samples) {
@@ -318,8 +317,7 @@ void mem_sampling_finalize() {
     }
     printf("\n");
     printf("Total: %d samples including %d matches in %d blocks (%lu bytes)\n", nb_samples_total, nb_found_samples_total, nb_blocks, total_buffer_size);
-    stop_tick(offline_sample_analysis);
-    printf("Offline analysis took %lf s\n\n",tick_duration(offline_sample_analysis)/1e9);
+
   }
 
   print_counters(global_counters);
@@ -687,6 +685,8 @@ static void __analyze_buffer(struct sample_list* samples,
     do_get_at_analysis = 0;
   }
 
+  start_tick(sample_analysis);
+
   size_t consumed = 0;
   struct perf_event_header *event = samples->buffer;
   enum access_type access_type = samples->access_type;
@@ -758,7 +758,8 @@ static void __analyze_buffer(struct sample_list* samples,
     consumed += event->size;
     event = (struct perf_event_header *)((uint8_t *)event + event->size);
   }
-  //  printf("Buffer %p : %d samples including %d that match\n", samples, *nb_samples, *found_samples);
+
+  stop_tick(sample_analysis);
 }
 
 void __process_samples(struct numap_sampling_measure *sm,

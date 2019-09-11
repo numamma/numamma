@@ -1561,8 +1561,6 @@ void ma_finalize() {
   warn_non_freed_buffers();
   mem_sampling_finalize();
 
-
-
   printf("---------------------------------\n");
   printf("         MEM ANALYZER\n");
   printf("---------------------------------\n");

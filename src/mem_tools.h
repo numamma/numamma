@@ -3,7 +3,7 @@
 #include <time.h>
 #include "mem_intercept.h"
 
-//#define  ENABLE_TICKS 1
+#define  ENABLE_TICKS 1
 
 /* return the address of the instruction that called the current function */
 void* get_caller_rip(int depth);
@@ -62,7 +62,7 @@ static inline uint64_t new_date() {
   TICK(sampling_resume)				\
   TICK(record_free)				\
   TICK(sampling_start)				\
-  TICK(offline_sample_analysis)
+  TICK(sample_analysis)
 
 enum tick_ids{
   FOREACH_TICK(GENERATE_ENUM)
@@ -100,7 +100,7 @@ extern __thread struct tick tick_array[NTICKS];
     struct tick*t = &tick_array[tick_id];			\
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t->stop_tick);	\
     t->nb_calls++;						\
-    t->total_duration+=TIME_DIFF(t->start_tick, t->stop_tick);	\
+    t->total_duration += TIME_DIFF(t->start_tick, t->stop_tick);	\
   } while(0)
 #else
 
