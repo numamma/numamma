@@ -61,6 +61,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
     settings->alarm = atoi(arg);
     break;
   case 'f':
+    printf("f: %s\n", arg?arg:"(null)");
     if(arg && strcmp(arg, "=no")==0)
       settings->flush = 0;
     else
