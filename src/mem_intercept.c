@@ -500,17 +500,8 @@ static void __memory_init(void) {
   read_settings();
   print_settings();
 
-  if(settings.dump) {
-    create_log_filename("memory_dump.log", dump_filename, STRING_LEN);
-    dump_file = fopen(dump_filename, "w");
-    if(!dump_file) {
-      fprintf(stderr, "Cannot create %s: %s\n", dump_filename, strerror(errno));
-      abort();
-    }
-  }
-
   if(settings.dump_unmatched) {
-    create_log_filename("unmatched.log", dump_unmatched_filename, STRING_LEN);
+    create_log_filename("unmatched_samples.log", dump_unmatched_filename, STRING_LEN);
     dump_unmatched_file = fopen(dump_unmatched_filename, "w");
     if(!dump_unmatched_file) {
       fprintf(stderr, "Cannot create %s: %s\n", dump_unmatched_filename, strerror(errno));
@@ -562,13 +553,10 @@ static void __memory_conclude(void) {
   printf("NumaMMA report:\n");
   
   ma_finalize();
-  if(settings.dump) {
-    fclose(dump_file);
-    printf("Samples were written to %s\n", dump_filename);
-  }
 
   if(settings.dump_unmatched) {
     fclose(dump_unmatched_file);
-    printf("Unmatched samples were written to %s\n", dump_unmatched_filename);
   }
+
+  printf("Output directory: %s\n", get_log_dir());
 }

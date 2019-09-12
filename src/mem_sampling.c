@@ -232,56 +232,6 @@ void mem_sampling_thread_init() {
   mem_sampling_start();
 }
 
-extern uint64_t avg_pos;
-void print_counters(struct mem_counters* counters) {
-  for(int i=0; i< ACCESS_MAX; i++){
-    if(i==ACCESS_READ) {
-      printf("--------------------------------------\n");
-      printf("Summary of all the read memory access:\n");
-    } else {
-      printf("--------------------------------------\n");
-      printf("Summary of all the write memory access:\n");
-    }
-
-#define _PERCENT(c) (100.*c / counters[i].total_count)
-#define PERCENT(__c) (_PERCENT(counters[i].__c.count))
-#define MIN_COUNT(__c) (counters[i].__c.min_weight)
-#define MAX_COUNT(__c) (counters[i].__c.max_weight)
-#define AVG_COUNT(__c) (counters[i].__c.count? counters[i].__c.sum_weight / counters[i].__c.count : 0)
-#define WEIGHT(__c) (counters[i].__c.sum_weight)
-#define PERCENT_WEIGHT(__c) (counters[i].total_weight?100.*counters[i].__c.sum_weight/counters[i].total_weight:0)
-    
-#define PRINT_COUNTER(__c, str) \
-    if(counters[i].__c.count) printf("%s\t: %ld (%f %%) \tmin: %llu cycles\tmax: %llu cycles\t avg: %llu cycles\ttotal weight: % "PRIu64" (%f %%)\n", \
-				     str, counters[i].__c.count, PERCENT(__c), MIN_COUNT(__c), MAX_COUNT(__c), AVG_COUNT(__c), \
-				     WEIGHT(__c), PERCENT_WEIGHT(__c))
-    
-    printf("Total count          : \t %"PRIu64"\n", counters[i].total_count);
-    printf("Total weigh          : \t %"PRIu64"\n", counters[i].total_weight);
-    if(counters[i].na_miss_count)
-      printf("N/A                  : \t %"PRIu64" (%f %%)\n", counters[i].na_miss_count, _PERCENT(counters[i].na_miss_count));
-
-    PRINT_COUNTER(cache1_hit, "L1 Hit");
-    PRINT_COUNTER(cache2_hit, "L2 Hit");
-    PRINT_COUNTER(cache3_hit, "L3 Hit");
-
-    PRINT_COUNTER(lfb_hit, "LFB Hit");
-    PRINT_COUNTER(local_ram_hit, "Local RAM Hit");
-    PRINT_COUNTER(remote_ram_hit, "Remote RAM Hit");
-    PRINT_COUNTER(remote_cache_hit, "Remote cache Hit");
-    PRINT_COUNTER(io_memory_hit, "IO memory Hit");
-    PRINT_COUNTER(uncached_memory_hit, "Uncached memory Hit");
-
-    printf("\n");
-
-    PRINT_COUNTER(lfb_miss, "LFB Miss");
-    PRINT_COUNTER(local_ram_miss, "Local RAM Miss");
-    PRINT_COUNTER(remote_ram_miss, "Remote RAM Miss");
-    PRINT_COUNTER(remote_cache_miss, "Remote cache Miss");
-    PRINT_COUNTER(io_memory_miss, "IO memory Miss");
-    PRINT_COUNTER(uncached_memory_miss, "Uncached memory Miss");
-  }
-}
 
 void mem_sampling_finalize() {
 
@@ -316,11 +266,7 @@ void mem_sampling_finalize() {
       mem_allocator_free(sample_mem, prev);
     }
     printf("\n");
-    printf("Total: %d samples including %d matches in %d blocks (%lu bytes)\n", nb_samples_total, nb_found_samples_total, nb_blocks, total_buffer_size);
-
   }
-
-  print_counters(global_counters);
 }
 
 void mem_sampling_thread_finalize() {
@@ -336,9 +282,6 @@ void mem_sampling_statistics() {
   float percent = 100.0*(nb_samples_total-nb_found_samples_total)/nb_samples_total;
   printf("%"PRIu64" samples (including %"PRIu64" samples that do not match a known memory buffer / %f%%)\n",
 	 nb_samples_total, nb_samples_total-nb_found_samples_total, percent);
-  if(!settings.online_analysis) {
-    printf("Buffer size for sample: %zu bytes\n", sample_buffer_size);
-  }
 }
 
 /* make sure this function is not called by collect_samples or start_sampling.
@@ -581,21 +524,25 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
   if(!mem_info) {
     /* no buffer matches sample->addr */
     if (settings.dump_unmatched) {
-      // trying to find where the address is located in maps file
+      int found=0;
+      char line[1024];
       char maps_path[1024];
       sprintf(maps_path, "/proc/%d/maps", getpid());
-      FILE *maps = fopen(maps_path, "r");
-      if (maps == NULL)
-	{
+
+      static int maps_read = 0;	/* only read the maps file once */
+      if(!maps_read) {
+	// trying to find where the address is located in maps file
+	FILE *maps = fopen(maps_path, "r");
+	if (maps == NULL)	{
 	  fprintf(stderr, "Could not read %s\n", maps_path);
 	  abort();
 	}
-      char line[1024];
-      int found=0;
-      void *addr = (void*)sample->addr;
-      while (!found && !feof(maps))
-	{
+	fprintf(dump_unmatched_file, "# %s content:\n", maps_path);
+	void *addr = (void*)sample->addr;
+	while (!feof(maps)) {
 	  fgets(line, sizeof(line), maps);
+	  fprintf(dump_unmatched_file, "# %s", line);
+#if 0
 	  char cut_line[1024];
 	  strncpy(cut_line, line, sizeof(cut_line));
 	  void *begin = NULL;
@@ -603,16 +550,23 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
 	  sscanf(strtok(cut_line, " "), "%p-%p", &begin, &end);
 	  if (addr >= begin && addr <= end)
 	    found = 1;
+#endif
 	}
-      fclose(maps);
+	fclose(maps);
+	fprintf(dump_unmatched_file, "#\n");
 
+	maps_read = 1;
+      }
+      
       fprintf(dump_unmatched_file, "%p ",sample->addr);
+      #if 0
       if (found) {
 	fprintf(dump_unmatched_file, "located in %s", strtok(line, "\n"));
       }
       else {
-	fprintf(dump_unmatched_file, "matching no address range in %s", maps_path);
+	fprintf(dump_unmatched_file, "no match");
       }
+#endif
       fprintf(dump_unmatched_file, "\n");
     }
   } else {
@@ -731,13 +685,17 @@ static void __analyze_buffer(struct sample_list* samples,
 	  if(!mem_info->call_site->dump_file) {
 	    char filename[4096];
 	    char file_basename[STRING_LEN];
-	    snprintf(file_basename, STRING_LEN, "callsite_%d", mem_info->call_site->id);
+	    snprintf(file_basename, STRING_LEN, "callsite_dump_%d.dat", mem_info->call_site->id);
 	    create_log_filename(file_basename, filename, 4096);
 	    mem_info->call_site->dump_file=fopen(filename, "w");
 	    if(!mem_info->call_site->dump_file) {
 	      fprintf(stderr, "failed to open %s for writing: %s\n", filename, strerror(errno));
 	      abort();
 	    }
+
+	    /* write the content of the sample to a file */
+	    fprintf(mem_info->call_site->dump_file,
+		    "#thread_rank timestamp addr offset mem_level access_weight\n");
 	  }
 	  
 	  /* write the content of the sample to a file */

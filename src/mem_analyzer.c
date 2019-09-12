@@ -38,6 +38,8 @@ static mem_info_node_t mem_list = NULL; // malloc'd buffers currently in use
 static mem_info_node_t past_mem_list = NULL; // malloc'd buffers that were freed
 static pthread_mutex_t mem_list_lock;
 
+extern struct mem_counters global_counters[2];
+
 __thread unsigned thread_rank;
 unsigned next_thread_rank = 0;
 #define PROGRAM_FILE_LEN 4096 // used for readlink cmd
@@ -1335,6 +1337,73 @@ struct call_site*  update_call_sites(struct memory_info* mem_info) {
   return site;
 }
 
+static void __print_counters(FILE*f, struct mem_counters* counters) {
+  for(int i=0; i< ACCESS_MAX; i++){
+    if(i==ACCESS_READ) {
+      fprintf(f, "\n");
+      fprintf(f, "# --------------------------------------\n");
+      fprintf(f, "# Summary of all the read memory access:\n");
+    } else {
+      fprintf(f, "# --------------------------------------\n");
+      fprintf(f, "# Summary of all the write memory access:\n");
+    }
+
+#define _PERCENT(c) (100.*c / counters[i].total_count)
+#define PERCENT(__c) (_PERCENT(counters[i].__c.count))
+#define MIN_COUNT(__c) (counters[i].__c.min_weight)
+#define MAX_COUNT(__c) (counters[i].__c.max_weight)
+#define AVG_COUNT(__c) (counters[i].__c.count? counters[i].__c.sum_weight / counters[i].__c.count : 0)
+#define WEIGHT(__c) (counters[i].__c.sum_weight)
+#define PERCENT_WEIGHT(__c) (counters[i].total_weight?100.*counters[i].__c.sum_weight/counters[i].total_weight:0)
+    
+#define PRINT_COUNTER(__c, str) \
+    if(counters[i].__c.count) fprintf(f, "# %s\t: %ld (%f %%) \tmin: %llu cycles\tmax: %llu cycles\t avg: %llu cycles\ttotal weight: % "PRIu64" (%f %%)\n", \
+				     str, counters[i].__c.count, PERCENT(__c), MIN_COUNT(__c), MAX_COUNT(__c), AVG_COUNT(__c), \
+				     WEIGHT(__c), PERCENT_WEIGHT(__c))
+    
+    fprintf(f, "# Total count          : \t %"PRIu64"\n", counters[i].total_count);
+    fprintf(f, "# Total weigh          : \t %"PRIu64"\n", counters[i].total_weight);
+    if(counters[i].na_miss_count)
+      fprintf(f, "# N/A                  : \t %"PRIu64" (%f %%)\n", counters[i].na_miss_count, _PERCENT(counters[i].na_miss_count));
+
+    PRINT_COUNTER(cache1_hit, "L1 Hit");
+    PRINT_COUNTER(cache2_hit, "L2 Hit");
+    PRINT_COUNTER(cache3_hit, "L3 Hit");
+
+    PRINT_COUNTER(lfb_hit, "LFB Hit");
+    PRINT_COUNTER(local_ram_hit, "Local RAM Hit");
+    PRINT_COUNTER(remote_ram_hit, "Remote RAM Hit");
+    PRINT_COUNTER(remote_cache_hit, "Remote cache Hit");
+    PRINT_COUNTER(io_memory_hit, "IO memory Hit");
+    PRINT_COUNTER(uncached_memory_hit, "Uncached memory Hit");
+
+    fprintf(f, "\n");
+
+    PRINT_COUNTER(lfb_miss, "LFB Miss");
+    PRINT_COUNTER(local_ram_miss, "Local RAM Miss");
+    PRINT_COUNTER(remote_ram_miss, "Remote RAM Miss");
+    PRINT_COUNTER(remote_cache_miss, "Remote cache Miss");
+    PRINT_COUNTER(io_memory_miss, "IO memory Miss");
+    PRINT_COUNTER(uncached_memory_miss, "Uncached memory Miss");
+  }
+}
+
+static void __print_call_site_stats(struct call_site*site) {
+
+  char filename[4096];
+  char file_basename[STRING_LEN];
+  snprintf(file_basename, STRING_LEN, "callsite_summary_%d.dat", site->id);
+  create_log_filename(file_basename, filename, 4096);
+  FILE* f = fopen(filename, "w");
+  if(! f) {
+    fprintf(stderr, "failed to open %s for writing: %s\n", filename, strerror(errno));
+    abort();
+  }
+
+  __print_counters(f, site->cumulated_counters.counters);
+  fclose(f);
+}
+
 /* remove site from the list of callsites */
 static void __remove_site(struct call_site*site) {
   struct call_site*cur_site = call_sites;
@@ -1354,6 +1423,7 @@ static void __remove_site(struct call_site*site) {
   }
  out:
   if(cur_site &&cur_site->dump_file) {
+    __print_call_site_stats(cur_site);
     fclose(cur_site->dump_file);
     cur_site->dump_file = NULL;
   }
@@ -1461,40 +1531,9 @@ void print_call_site_summary() {
 
       if(site->mem_info.mem_type != stack) {
 	char filename[1024];
-	sprintf(filename, "%s/counters_%d.dat", get_log_dir(), site->id);
+	sprintf(filename, "%s/callsite_counters_%d.dat", get_log_dir(), site->id);
 	__plot_counters(&site->mem_info, nb_threads, filename);
       }
-#if 0
-#define PRINT_COUNTERS(access_type, counter) do {			\
-	if(site->cumulated_counters.counters[access_type].counter) {	\
-	  printf("\t%s:\t", #counter);					\
-	  for(int i=0; i< nb_threads; i++) {				\
-	    printf("%d\t", site->mem_info.blocks[i]->counters[access_type].counter); \
-	  }								\
-	  printf("\n");							\
-	}								\
-      } while(0)
-
-      printf("\tREAD accesses:\n");
-      PRINT_COUNTERS(ACCESS_READ, na_miss_count);
-      PRINT_COUNTERS(ACCESS_READ, cache1_count);
-      PRINT_COUNTERS(ACCESS_READ, cache2_count);
-      PRINT_COUNTERS(ACCESS_READ, cache3_count);
-      PRINT_COUNTERS(ACCESS_READ, lfb_count);
-      PRINT_COUNTERS(ACCESS_READ, memory_count);
-      PRINT_COUNTERS(ACCESS_READ, remote_memory_count);
-      PRINT_COUNTERS(ACCESS_READ, remote_cache_count);
-
-      printf("\tWRITE accesses:\n");
-      PRINT_COUNTERS(ACCESS_WRITE, na_miss_count);
-      PRINT_COUNTERS(ACCESS_WRITE, cache1_count);
-      PRINT_COUNTERS(ACCESS_WRITE, cache2_count);
-      PRINT_COUNTERS(ACCESS_WRITE, cache3_count);
-      PRINT_COUNTERS(ACCESS_WRITE, lfb_count);
-      PRINT_COUNTERS(ACCESS_WRITE, memory_count);
-      PRINT_COUNTERS(ACCESS_WRITE, remote_memory_count);
-      PRINT_COUNTERS(ACCESS_WRITE, remote_cache_count);
-#endif
     }
     site = site->next;
   }
@@ -1583,59 +1622,45 @@ void ma_finalize() {
       mem_info = &p_node->mem_info;
 #endif
 
-      if(!mem_info->blocks) {
-	/* not a single memory access on this buffer was detected */
-	ma_allocate_counters(mem_info);
-	ma_init_counters(mem_info);
-      }
-      update_call_sites(mem_info);
+      if(mem_info->blocks) {
+	/* at least one memory access was detected */
+	update_call_sites(mem_info);
 
-      uint64_t duration = mem_info->free_date?
-	mem_info->free_date-mem_info->alloc_date:
-	0;
+	uint64_t duration = mem_info->free_date?
+	  mem_info->free_date-mem_info->alloc_date:
+	  0;
 
-      int nb_threads = next_thread_rank;
-      uint64_t total_read_count = 0;
-      uint64_t total_write_count = 0;
-      size_t nb_blocks_with_samples = 0;
-      for(int i=0; i<nb_threads; i++) {
-	struct block_info* block = mem_info->blocks[i];
-	while (block) {
-	  total_read_count += block->counters[ACCESS_READ].total_count;
-	  total_write_count += block->counters[ACCESS_WRITE].total_count;
-	  if (block->counters[ACCESS_READ].total_count != 0 ||
-	      block->counters[ACCESS_WRITE].total_count != 0) {
-	    nb_blocks_with_samples++;
+	int nb_threads = next_thread_rank;
+	uint64_t total_read_count = 0;
+	uint64_t total_write_count = 0;
+	size_t nb_blocks_with_samples = 0;
+	for(int i=0; i<nb_threads; i++) {
+	  struct block_info* block = mem_info->blocks[i];
+	  while (block) {
+	    total_read_count += block->counters[ACCESS_READ].total_count;
+	    total_write_count += block->counters[ACCESS_WRITE].total_count;
+	    if (block->counters[ACCESS_READ].total_count != 0 ||
+		block->counters[ACCESS_WRITE].total_count != 0) {
+	      nb_blocks_with_samples++;
+	    }
+	    block = block->next;
 	  }
-	  block = block->next;
 	}
-      }
 
-      if(total_read_count > 0 ||
-	 total_write_count > 0) {
+	if(total_read_count > 0 ||
+	   total_write_count > 0) {
 
-	double r_access_frequency;
-	if(total_read_count)
-	  r_access_frequency = (duration/settings.sampling_rate)/total_read_count;
-	else
-	  r_access_frequency = 0;
-	double w_access_frequency;
-	if(total_write_count)
-	  w_access_frequency = (duration/settings.sampling_rate)/total_write_count;
-	else
-	  w_access_frequency = 0;
-
-#if 0
-	debug_printf("buffer %p (%lu bytes, %zu blocks with samples), duration = %lu ticks, %"PRIu64" writes, %"PRIu64" reads, allocated : %s, read operation every %lf ticks\n",
-		     mem_info->buffer_addr,
-		     mem_info->initial_buffer_size,
-		     nb_blocks_with_samples,
-		     duration,
-		     total_write_count,
-		     total_read_count,
-		     mem_info->caller,
-		     r_access_frequency);
-#endif
+	  double r_access_frequency;
+	  if(total_read_count)
+	    r_access_frequency = (duration/settings.sampling_rate)/total_read_count;
+	  else
+	    r_access_frequency = 0;
+	  double w_access_frequency;
+	  if(total_write_count)
+	    w_access_frequency = (duration/settings.sampling_rate)/total_write_count;
+	  else
+	    w_access_frequency = 0;
+	}
       }
 #ifdef USE_HASHTABLE
       e = e->next;
@@ -1643,11 +1668,11 @@ void ma_finalize() {
 #endif
     }
 
+    __print_counters(stdout, global_counters);
     print_call_site_summary();
 
     mem_sampling_statistics();
     pthread_mutex_unlock(&mem_list_lock);
     UNPROTECT_RECORD;
-    //    ma_print_current_buffers();
   }
 
