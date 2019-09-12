@@ -24,8 +24,14 @@
 #include "mem_intercept.h"
 #include "mem_tools.h"
 
-//#define INTERCEPT_MALLOC 1
+#define INTERCEPT_MALLOC 1
+
 //#define CHECK_PLACEMENT 1
+
+
+// not used, but me need to define the symbol
+struct numamma_settings settings;
+
 
 int _dump = 0;
 FILE* dump_file = NULL; // useless
@@ -431,7 +437,7 @@ pthread_create (pthread_t *__restrict thread,
       CPU_SET(thread_bindings[thread_rank], &cpuset);
 #if 0
       if(_verbose)
-	printf("[MemRun] Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
+	printf("[Mem_run] Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
 #endif
       int ret = pthread_attr_setaffinity_np(&local_attr,
 					    sizeof(cpuset),
@@ -474,7 +480,7 @@ static void bind_current_thread(int cpu) {
 static void get_thread_binding() {
   char* str=getenv("NUMAMMA_THREAD_BIND");
   if(str) {
-    printf("[MemRun] Thread binding activated: %s\n", str);
+    printf("[Mem_run] Thread binding activated: %s\n", str);
 
     if(getenv("GOMP_CPU_AFFINITY")) {
       fprintf(stderr, "Error: NUMAMMA_THREAD_BIND conflicts with GOMP_CPU_AFFINITY\n");
@@ -497,7 +503,7 @@ static void get_thread_binding() {
     bind_threads=1;
     if(_verbose) {
       for(int i=0; i<nb_thread_max; i++) {
-	printf("[MemRun] Thread %d is bound to %d\n", i, thread_bindings[i]);
+	printf("[Mem_run] Thread %d is bound to %d\n", i, thread_bindings[i]);
       }
     }
 
@@ -506,12 +512,12 @@ static void get_thread_binding() {
 
 #if 0
     if(_verbose)
-      printf("[MemRun] Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
+      printf("[Mem_run] Binding %d to %d\n", thread_rank, thread_bindings[thread_rank]);
 #endif
     bind_current_thread(thread_bindings[thread_rank]);
   } else {
-    printf("[MemRun] No thread binding policy selected.\n");
-    printf("[MemRun] \tYou can use NUMAMMA_THREAD_BIND\n");
+    printf("[Mem_run] No thread binding policy selected.\n");
+    printf("[Mem_run] \tYou can use NUMAMMA_THREAD_BIND\n");
   }
 }
 
@@ -610,8 +616,8 @@ static void read_options() {
       printf("Memory binding (custom) enabled\n");
     } 
   } else {
-    printf("[MemRun] No memory binding policy selected.\n");
-    printf("[MemRun] \tYou can use NUMAMMA_MBIND_POLICY=interleaved|block|custom\n");
+    printf("[Mem_run] No memory binding policy selected.\n");
+    printf("[Mem_run] \tYou can use NUMAMMA_MBIND_POLICY=interleaved|block|custom\n");
   }
 
   get_thread_binding();
@@ -698,7 +704,7 @@ static void bind_buffer_blocks(void*buffer, size_t len,
   uintptr_t base_addr=align_ptr((uintptr_t)buffer, page_size);
 
   if(_verbose)
-    printf("[MemRun] Binding %d blocks. starting at %p\n", n_blocks, base_addr);
+    printf("[Mem_run] Binding %d blocks. starting at %p\n", n_blocks, base_addr);
 
 
   for(int i=0; i<n_blocks; i++) {
@@ -712,7 +718,7 @@ static void bind_buffer_blocks(void*buffer, size_t len,
       abort();
     }
     if(_verbose)
-      printf("\t[MemRun] Binding pages %d-%d to node %d\n", blocks[i].start_page, blocks[i].end_page, blocks[i].numa_node);
+      printf("\t[Mem_run] Binding pages %d-%d to node %d\n", blocks[i].start_page, blocks[i].end_page, blocks[i].numa_node);
 
     if(start_addr+block_len > (uintptr_t)buffer+len) {
       /* make sure there's no overflow */
