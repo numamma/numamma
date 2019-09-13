@@ -9,11 +9,11 @@ int var_globale[1024];
 void mat_mul(double**A, double**B, double**C, int n) {
   int i, j, k;
   var_globale[0]++;
-  for(i=0; i<n; i++) {
-    for(j=0; j<n; j++) {
+#pragma omp parallel for
+  for(int i=0; i<n; i++) {
+    for(int j=0; j<n; j++) {
       C[i][j] = 0;
-      plop++;
-      for(k=0; k<n; k++) {
+      for(int k=0; k<n; k++) {
 	C[i][j] += A[i][k] * B[k][j];
       }
     }
