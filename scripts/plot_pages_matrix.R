@@ -22,7 +22,7 @@ if(length(args)>1){
 }
 
 d <- read.table(input_file)
-names(d) <- c("Thread 0", "Thread 1", " Thread 2", " Thread 3")
+names(d) <- paste("Thread", seq(length(d))-1)
 d$page <- 1:nrow(d)
 
 t <- melt(d, id.vars=c("page"))

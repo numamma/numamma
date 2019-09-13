@@ -27,17 +27,11 @@ add_library(numa_run SHARED
 target_link_libraries(numa_run ${NUMAP_LIBRARY} -lnuma -ldl -lpthread)
 
 configure_file (
-  "${PROJECT_SOURCE_DIR}/src/mem_intercept.in"
-  "${PROJECT_BINARY_DIR}/src/mem_intercept"
-  )
-
-configure_file (
   "${PROJECT_SOURCE_DIR}/src/mem_run.in"
   "${PROJECT_BINARY_DIR}/src/mem_run"
   )
 
 list(APPEND SCRIPTS
-  ${PROJECT_BINARY_DIR}/src/mem_intercept
   ${PROJECT_BINARY_DIR}/src/mem_run
   )
 

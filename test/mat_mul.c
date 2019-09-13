@@ -1,6 +1,9 @@
 #include <stdio.h>
 #include <time.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <omp.h>
+#include <inttypes.h>
 
 static int plop = 0;
 
@@ -9,14 +12,28 @@ int var_globale[1024];
 void mat_mul(double**A, double**B, double**C, int n) {
   int i, j, k;
   var_globale[0]++;
-#pragma omp parallel for
-  for(int i=0; i<n; i++) {
-    for(int j=0; j<n; j++) {
-      C[i][j] = 0;
-      for(int k=0; k<n; k++) {
-	C[i][j] += A[i][k] * B[k][j];
+#pragma omp parallel
+  {
+    int cur_thread = omp_get_thread_num();
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &t);
+    uint64_t cur_time = t.tv_sec*1e9 + t.tv_nsec;
+    
+    printf("[%d] cur_time=%"PRIu64" \n", cur_thread, cur_time);
+#pragma omp for
+    for(int i=0; i<n; i++) {
+      for(int j=0; j<n; j++) {
+	C[i][j] = 0;
+	for(int k=0; k<n; k++) {
+	  C[i][j] += A[i][k] * B[k][j];
+	}
       }
     }
+
+    clock_gettime(CLOCK_MONOTONIC_RAW, &t);
+    cur_time = t.tv_sec*1e9 + t.tv_nsec;
+    printf("[%d] cur_time=%"PRIu64" \n", cur_thread, cur_time);
+
   }
 }
 

@@ -153,6 +153,8 @@ static void mem_allocator_finalize(struct mem_allocator *mem) {
 static void* mem_allocator_alloc(struct mem_allocator *mem) {
   while(mem->nb_free == 0) {
     /* find a mem block with available blocks */
+    assert(mem->nb_allocated > 0);
+    assert(mem->block_size > 0);
     if(mem->next_mem == NULL) {
       /* no more blocks in the current mem block, allocate a new one */
       mem_allocator_init(&mem->next_mem, mem->block_size, mem->nb_allocated);
@@ -164,6 +166,8 @@ static void* mem_allocator_alloc(struct mem_allocator *mem) {
   /* return the first available block */
   assert(mem);
   assert(mem->nb_free > 0);
+  assert(mem->nb_allocated > 0);
+  assert(mem->block_size > 0);
   assert(mem->first_block);
   void* retval = mem->first_block;
   mem->first_block = *(void**)mem->first_block;
