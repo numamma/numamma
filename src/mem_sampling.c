@@ -59,6 +59,8 @@ struct mem_allocator *sample_mem = NULL;
 struct sample_list {
   struct sample_list*next;
   struct perf_event_header *buffer;
+  uint64_t data_tail;
+  uint64_t data_head;
   size_t buffer_size;
   enum access_type access_type;
   date_t start_date;
@@ -597,19 +599,46 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
 static void __copy_buffer(struct sample_list* sample_list,
 			  int *nb_samples,
 			  int *found_samples) {  
-  size_t consumed = 0;
-  struct perf_event_header *event = sample_list->buffer;
   enum access_type access_type = sample_list->access_type;
 
+  if(sample_list->data_head == sample_list->data_tail)
+    /* nothing to do */
+    return;
+  
   struct sample_list* new_sample_buffer = mem_allocator_alloc(sample_mem);
+  size_t buffer_size = sample_list->data_head - sample_list->data_tail;
+  
+  if(sample_list->data_head < sample_list->data_tail) {
+    /* the buffer is a ring buffer and we need to explore both parts of the "ring": */
+    // ------------------------------------------------------
+    // | second_block   |                  |first_block      |
+    // -------------------------------------------------------
+    //               data_head          data_tail        buffer_size
+    buffer_size = sample_list->buffer_size - sample_list->data_tail + sample_list->data_head;
+  }
   new_sample_buffer->buffer = malloc(sample_list->buffer_size);
   new_sample_buffer->access_type = sample_list->access_type;
-  new_sample_buffer->buffer_size = sample_list->buffer_size;
+  new_sample_buffer->buffer_size = buffer_size;
+
+  new_sample_buffer->data_tail = 0;
+  new_sample_buffer->data_head = buffer_size;
 
   start_tick(memcpy_samples);
+  if(sample_list->data_head < sample_list->data_tail) {
+    /* copy the first block */
+    size_t first_block_size = sample_list->buffer_size - sample_list->data_tail;
+    uintptr_t start_addr = (uintptr_t)sample_list->buffer +(uintptr_t)sample_list->data_tail;
+    memcpy(new_sample_buffer->buffer, (void*)start_addr, first_block_size);
 
-  memcpy(new_sample_buffer->buffer, sample_list->buffer, sample_list->buffer_size);
-
+    size_t second_block_size = sample_list->data_head;
+    start_addr = (uintptr_t)new_sample_buffer->buffer + (uintptr_t)first_block_size;
+    memcpy((void*)start_addr, &sample_list->buffer[0], second_block_size);
+    
+  } else {
+    /* data is already contiguous */
+    uintptr_t start_addr = (uintptr_t)sample_list->buffer +(uintptr_t)sample_list->data_tail;
+    memcpy(new_sample_buffer->buffer, (void*)start_addr, buffer_size);
+  }
   new_sample_buffer->start_date = sample_list->start_date;
   new_sample_buffer->stop_date = sample_list->stop_date;
   new_sample_buffer->thread_rank = sample_list->thread_rank;
@@ -642,18 +671,60 @@ static void __analyze_buffer(struct sample_list* samples,
 
   start_tick(sample_analysis);
 
-  size_t consumed = 0;
-  struct perf_event_header *event = samples->buffer;
-  enum access_type access_type = samples->access_type;
+  if(samples->data_tail ==  samples->data_head)
+    /* nothing to do */
+    return;
 
+  unsigned start_cpt = samples->data_tail;
+  unsigned stop_cpt = samples->data_head;
+  uintptr_t reset_cpt = samples->buffer_size;
+  unsigned cur_cpt = start_cpt;
+
+  enum access_type access_type = samples->access_type;
+  if(stop_cpt < start_cpt) {
+    /* the buffer is a ring buffer and we need to explore both parts of the "ring": */
+
+    // ------------------------------------------------------
+    // | second_block   |                  |first_block      |
+    // -------------------------------------------------------
+    //               stop_cpt            start_cpt         reset_cpt
+
+    /* in order to make the while condition easier to understand, let's first analyze
+     * the first block. When the end of the buffer is reached, we reset counters so that
+     * the second block is analyzed
+     */
+    stop_cpt = reset_cpt;
+  }
+    
   /* browse the buffer and process each sample */
-  while(consumed < samples->buffer_size) {
+  while(cur_cpt < stop_cpt) {
+
+    struct perf_event_header *event = (struct perf_event_header*) ((uintptr_t)samples->buffer + cur_cpt);
+
     if(event->size == 0) {
-      fprintf(stderr, "Error: invalid header size = 0\n");
+      fprintf(stderr, "Error: invalid header size = 0. %p\n", samples);
       abort();
     }
+
     if (event->type == PERF_RECORD_SAMPLE) {
       struct mem_sample *sample = (struct mem_sample *)((char *)(event) + 8); /* todo: remplace 8 with sizeof(ptr) ? */
+
+      uint8_t frontier_buffer[event->size];
+      if(cur_cpt + event->size > reset_cpt) {
+	// we reached the end of the buffer. The event is split in two parts:
+	// ------------------------------------------------------
+	// | second_part    |                  | first_part      |
+	// -------------------------------------------------------
+	//                                   cur_cpt         reset_cpt
+	size_t first_part_size = reset_cpt-cur_cpt;
+	size_t second_part_size = event->size -first_part_size;
+
+	// copy the event in a contiguous buffer
+	memcpy(frontier_buffer, sample, first_part_size);// copy the first part
+	memcpy(&frontier_buffer[first_part_size], samples->buffer, second_part_size);
+	sample = (struct mem_sample *)frontier_buffer;
+      }
+
       (*nb_samples)++;
       update_counters(global_counters, sample, access_type);
 
@@ -713,10 +784,14 @@ static void __analyze_buffer(struct sample_list* samples,
     }
   next_sample:
     /* go to the next sample */
-    consumed += event->size;
-    event = (struct perf_event_header *)((uint8_t *)event + event->size);
-  }
+    cur_cpt += event->size;
 
+    if(cur_cpt >= reset_cpt && reset_cpt != samples->data_head) {
+      cur_cpt -= reset_cpt;
+      stop_cpt = samples->data_head;
+    }
+  }
+  
   stop_tick(sample_analysis);
 }
 
@@ -727,12 +802,15 @@ void __process_samples(struct numap_sampling_measure *sm,
   int found_samples = 0;
   for (thread = 0; thread < sm->nb_threads; thread++) {
     struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
+    uint64_t data_head = metadata_page->data_head % metadata_page->data_size;
     rmb();
 
     struct sample_list samples = {
       .next = NULL,
       .buffer = (struct perf_event_header *)((uint8_t *)metadata_page+metadata_page->data_offset),
-      .buffer_size = metadata_page -> data_head,
+      .data_tail = metadata_page->data_tail,
+      .data_head = data_head,
+      .buffer_size = metadata_page -> data_size,
       .access_type = access_type,
       .start_date = start_date,
       .stop_date = new_date(),
@@ -744,6 +822,7 @@ void __process_samples(struct numap_sampling_measure *sm,
     } else {
       __copy_buffer(&samples, &nb_samples, &found_samples);
     }
+    metadata_page -> data_tail = data_head;
   }
 
   if(nb_samples>0) {
