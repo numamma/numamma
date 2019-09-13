@@ -33,10 +33,10 @@ struct timespec t_init;
 struct mem_counters global_counters[2];
 void init_mem_counter(struct mem_counters* counters);
 
-double get_cur_date() {
+static double get_cur_date() {
   struct timespec t1;
   clock_gettime(CLOCK_REALTIME, &t1);
-  double duration = ((t1.tv_sec-t_init.tv_sec)*1e9+(t1.tv_nsec-t_init.tv_nsec))/1e9;
+  double duration =  (t1.tv_sec-t_init.tv_sec)+((t1.tv_nsec-t_init.tv_nsec)/1e9);
   return duration;
 }
 
@@ -220,10 +220,10 @@ void mem_sampling_thread_init() {
       perror("sigaction failed");  
       abort();  
     }
-    printf("flush\n");
-    if(numap_sampling_set_measure_handler(&sm, numap_read_handler, 1000) != 0)
+
+    if(numap_sampling_set_measure_handler(&sm, numap_read_handler, 1) != 0)
       printf("numap_sampling_set_measure_handler failed\n");
-    if(numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1000) != 0)
+    if(numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1) != 0)
       printf("numap_sampling_set_measure_handler failed\n");
   }
 
@@ -266,6 +266,7 @@ void mem_sampling_finalize() {
       mem_allocator_free(sample_mem, prev);
     }
     printf("\n");
+    printf("%llu bytes processed\n", total_buffer_size);
   }
 }
 
@@ -695,18 +696,17 @@ static void __analyze_buffer(struct sample_list* samples,
 
 	    /* write the content of the sample to a file */
 	    fprintf(mem_info->call_site->dump_file,
-		    "#thread_rank timestamp addr offset mem_level access_weight\n");
+		    "#thread_rank timestamp offset mem_level access_weight\n");
 	  }
 	  
 	  /* write the content of the sample to a file */
 	  fprintf(mem_info->call_site->dump_file,
-		    "%d %" PRIu64 " %" PRIu64 " %" PRId64 " %s %" PRIu64 "\n",
-		    samples->thread_rank,
-		    sample->timestamp,
-		    sample->addr,
-		    offset,
-		    get_data_src_level(sample->data_src),
-		    sample->weight);
+		  "%d %" PRIu64 " %" PRIu64 " %s %" PRIu64 "\n",
+		  samples->thread_rank,
+		  sample->timestamp,
+		  offset,
+		  get_data_src_level(sample->data_src),
+		  sample->weight);
 
 	}
       }
@@ -725,7 +725,6 @@ void __process_samples(struct numap_sampling_measure *sm,
   int thread;
   int nb_samples = 0;
   int found_samples = 0;
-
   for (thread = 0; thread < sm->nb_threads; thread++) {
     struct perf_event_mmap_page *metadata_page = sm->metadata_pages_per_tid[thread];
     rmb();

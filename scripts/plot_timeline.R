@@ -8,7 +8,7 @@ input_file=args[1]
 
 # Read input file, rename columns, change type
 data <- read.table(input_file, sep=" ", colClasses="character")
-names(data) <- c("Thread", "timestamp", "addr", "offset")
+names(data) <- c("Thread", "timestamp", "offset")
 data["offset"] = lapply(data["offset"], function(x) {as.numeric(x);})
 data["timestamp"] = lapply(data["timestamp"], function(x) {as.numeric(x);})
 
