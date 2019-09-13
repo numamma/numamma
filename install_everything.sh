@@ -4,7 +4,7 @@
 ROOT_DIR=$PWD
 
 if [ "$1" == "-h" ]; then
-  echo "Usage: `basename $0` absolute/path/to/build_and_install/dir/"
+  echo "Usage: `basename $0` [absolute/path/to/build_and_install/dir/]"
   exit 0
 fi
 
@@ -82,6 +82,28 @@ else
     echo "numactl is already installed"
 fi
 
+#libelf
+LIBELF_ROOT=$ROOT_DIR/libelf
+LIBELF_INSTALL_ROOT=$ROOT_INSTALL_DIR/libelf
+if ! [ -d $LIBELF_INSTALL_ROOT ]; then
+    echo "Installing libelf..."
+    rm -rf $LIBELF_ROOT || exit 1
+    cd $ROOT_DIR
+    wget https://sourceware.org/elfutils/ftp/0.177/elfutils-0.177.tar.bz2 || exit 1
+    tar xjf elfutils-0.177.tar.bz2 || exit 1
+    mv elfutils-0.177 $LIBELF_ROOT || exit 1
+    cd $LIBELF_ROOT  || exit 1
+    mkdir build || exit 1
+    cd build
+    ../configure --prefix=$LIBELF_INSTALL_ROOT || exit 1
+    make || exit 1
+    make install || exit 1
+else
+    echo "numap is already installed"
+fi
+
+
+
 #numap
 NUMAP_ROOT=$ROOT_DIR/numap
 NUMAP_INSTALL_ROOT=$ROOT_INSTALL_DIR/numap
@@ -111,7 +133,7 @@ if ! [ -d  $NUMAMMA_INSTALL_ROOT ]; then
     mkdir build || exit 1
     cd build || exit 1
     export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$NUMAP_INSTALL_ROOT/lib/pkgconfig
-    cmake  -DCMAKE_INSTALL_PREFIX=$NUMAMMA_INSTALL_ROOT -DBACKTRACE_DIR=$LIBBACKTRACE_INSTALL_ROOT -DNUMACTL_DIR=$NUMACTL_INSTALL_ROOT  $NUMAMMA_ROOT || exit 1
+    cmake  -DCMAKE_INSTALL_PREFIX=$NUMAMMA_INSTALL_ROOT -DBACKTRACE_DIR=$LIBBACKTRACE_INSTALL_ROOT -DNUMACTL_DIR=$NUMACTL_INSTALL_ROOT -DLIBELF_DIR=$LIBELF_INSTALL_ROOT  $NUMAMMA_ROOT || exit 1
     make || exit 1
     make install || exit 1
 else
