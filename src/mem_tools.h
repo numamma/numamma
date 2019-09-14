@@ -1,6 +1,7 @@
 #ifndef MEM_TOOLS_H
 #define MEM_TOOLS_H
 #include <time.h>
+#include <pthread.h>
 #include "mem_intercept.h"
 
 #define  ENABLE_TICKS 1
@@ -120,6 +121,7 @@ struct mem_allocator {
   size_t block_size; /* size of each block */
   unsigned long nb_allocated; /* number of blocks allocated in this buffer */
   unsigned long nb_free; /* number of available blocks */
+  pthread_spinlock_t lock;
 };
 
 static void mem_allocator_init(struct mem_allocator **mem,
@@ -132,6 +134,7 @@ static void mem_allocator_init(struct mem_allocator **mem,
   (*mem)->block_size = block_size;
   (*mem)->nb_allocated = nb_blocks;
   (*mem)->nb_free = nb_blocks;
+  pthread_spin_init(&(*mem)->lock, PTHREAD_PROCESS_PRIVATE);
   int i;
   void**ptr = (*mem)->first_block;
   /* create a linked list of blocks */
@@ -151,6 +154,7 @@ static void mem_allocator_finalize(struct mem_allocator *mem) {
 }
 
 static void* mem_allocator_alloc(struct mem_allocator *mem) {
+  pthread_spin_lock(&mem->lock);
   while(mem->nb_free == 0) {
     /* find a mem block with available blocks */
     assert(mem->nb_allocated > 0);
@@ -158,11 +162,15 @@ static void* mem_allocator_alloc(struct mem_allocator *mem) {
     if(mem->next_mem == NULL) {
       /* no more blocks in the current mem block, allocate a new one */
       mem_allocator_init(&mem->next_mem, mem->block_size, mem->nb_allocated);
+      pthread_spin_unlock(&mem->lock);
+
       return mem_allocator_alloc(mem->next_mem);
     }
+    pthread_spin_lock(&mem->next_mem->lock);
+    pthread_spin_unlock(&mem->lock);
     mem = mem->next_mem;
   }
-
+  
   /* return the first available block */
   assert(mem);
   assert(mem->nb_free > 0);
@@ -172,14 +180,17 @@ static void* mem_allocator_alloc(struct mem_allocator *mem) {
   void* retval = mem->first_block;
   mem->first_block = *(void**)mem->first_block;
   mem->nb_free--;
+  pthread_spin_unlock(&mem->lock);
   return retval;
 }
 
 static void mem_allocator_free(struct mem_allocator *mem, void* ptr) {
   assert(mem);
+  pthread_spin_lock(&mem->lock);
   *(void**)ptr = mem->first_block;
   mem->first_block = ptr;
   mem->nb_free++;
+  pthread_spin_unlock(&mem->lock);
 }
 
 #endif

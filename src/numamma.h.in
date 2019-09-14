@@ -51,20 +51,20 @@ char* get_log_dir();
  * if != 0, don't try to record information, just call libmalloc()/libfree()
  *
  */
-extern __thread int is_recurse_unsafe;
+extern __thread volatile int is_recurse_unsafe;
 
 /* test whether is to safe to record memory information
  */
 #define IS_RECURSE_SAFE (is_recurse_unsafe == 0)
 
 #define PROTECT_FROM_RECURSION do {		\
-    assert(is_recurse_unsafe == 0);		\
-    is_recurse_unsafe = 1;			\
+    is_recurse_unsafe ++;			\
+    assert(is_recurse_unsafe < 100);		\
   } while(0)
 
 #define UNPROTECT_FROM_RECURSION do {		\
-    assert(is_recurse_unsafe > 0);		\
-    is_recurse_unsafe = 0;			\
+    is_recurse_unsafe --;			\
+    assert(is_recurse_unsafe >=0);		\
   } while(0)
 
 #define FUNCTION_ENTRY do {			\

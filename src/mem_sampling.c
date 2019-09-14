@@ -72,6 +72,29 @@ pthread_mutex_t sample_list_lock;
 static int nb_sample_buffers = 0;
 
 
+pid_t *thread_ranks = NULL;
+_Atomic int nthreads = 0;
+int allocated_threads = 0;
+
+static int thread_pid_to_rank(pid_t pid) {
+  for(int i=0; i<nthreads; i++)
+    if(thread_ranks[i] == pid)
+      return i;
+  return -1;
+}
+
+static void register_thread_pid(pid_t pid) {
+  if(allocated_threads == 0) {
+    thread_ranks = malloc(sizeof(pid_t)* 128);
+    allocated_threads = 128;
+  }
+  while(nthreads >= allocated_threads) {
+    allocated_threads *= 2;
+    thread_ranks = realloc(thread_ranks, sizeof(pid_t)*allocated_threads);
+  }
+  thread_ranks[nthreads++] = pid;
+}
+
 /* called at runtime when the sample buffer has to be emptied
  * depending on the settings, it either calls __copy_buffer, or __analyze_buffer
  */
@@ -198,6 +221,8 @@ void numap_write_handler(struct numap_sampling_measure *m, int fd) {
 
 void mem_sampling_thread_init() {
   pid_t tid = syscall(SYS_gettid);
+  register_thread_pid(tid);
+
   int res = numap_sampling_init_measure(&sm, 1, settings.sampling_rate, numap_page_count);
   if(res < 0) {
     fprintf(stderr, "numap_sampling_init error : %s\n", numap_error_message(res));
@@ -212,6 +237,7 @@ void mem_sampling_thread_init() {
 
   /* for now, only collect info on the current thread */
   sm.tids[0] = tid;
+  sm_wr.tids[0] = tid;
 
   if(settings.flush) {
     struct sigaction s;  
@@ -616,7 +642,8 @@ static void __copy_buffer(struct sample_list* sample_list,
     //               data_head          data_tail        buffer_size
     buffer_size = sample_list->buffer_size - sample_list->data_tail + sample_list->data_head;
   }
-  new_sample_buffer->buffer = malloc(sample_list->buffer_size);
+
+  new_sample_buffer->buffer = malloc(buffer_size);
   new_sample_buffer->access_type = sample_list->access_type;
   new_sample_buffer->buffer_size = buffer_size;
 
@@ -639,6 +666,11 @@ static void __copy_buffer(struct sample_list* sample_list,
     uintptr_t start_addr = (uintptr_t)sample_list->buffer +(uintptr_t)sample_list->data_tail;
     memcpy(new_sample_buffer->buffer, (void*)start_addr, buffer_size);
   }
+
+  struct perf_event_header *event = (struct perf_event_header*) (new_sample_buffer->buffer);
+  assert(event->type < 20);
+  assert(event->size > 0);
+  
   new_sample_buffer->start_date = sample_list->start_date;
   new_sample_buffer->stop_date = sample_list->stop_date;
   new_sample_buffer->thread_rank = sample_list->thread_rank;
@@ -805,6 +837,8 @@ void __process_samples(struct numap_sampling_measure *sm,
     uint64_t data_head = metadata_page->data_head % metadata_page->data_size;
     rmb();
 
+    int rank = thread_pid_to_rank(sm->tids[thread]);
+    assert(rank >=0);
     struct sample_list samples = {
       .next = NULL,
       .buffer = (struct perf_event_header *)((uint8_t *)metadata_page+metadata_page->data_offset),
@@ -814,8 +848,9 @@ void __process_samples(struct numap_sampling_measure *sm,
       .access_type = access_type,
       .start_date = start_date,
       .stop_date = new_date(),
-      .thread_rank = thread_rank,
+      .thread_rank = rank,
     };
+
 
     if(settings.online_analysis) {
       __analyze_buffer(&samples, &nb_samples, &found_samples);

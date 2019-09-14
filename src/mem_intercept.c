@@ -24,7 +24,7 @@ static char dump_filename[STRING_LEN];
 FILE* dump_file = NULL;
 static char dump_unmatched_filename[STRING_LEN];
 FILE* dump_unmatched_file = NULL;
-__thread int is_recurse_unsafe = 0;
+__thread volatile int is_recurse_unsafe = 0;
 
 /* set to 1 when all the hooks are set.
  * This is useful in order to avoid recursive calls
@@ -104,7 +104,9 @@ static void* hand_made_malloc(size_t size) {
     }									\
 									\
     /* allocate a buffer */						\
+    PROTECT_FROM_RECURSION;						\
     void* pptr = CALLBACK(size + HEADER_SIZE + TAIL_SIZE);		\
+    UNPROTECT_FROM_RECURSION;						\
     /* fill the information on the malloc'd buffer */			\
     struct mem_block_info *p_block = NULL;				\
     INIT_MEM_INFO(p_block, pptr, size, 1);				\
@@ -144,7 +146,9 @@ void* realloc(void *ptr, size_t size) {
   }
 
   if (!librealloc) {
+    PROTECT_FROM_RECURSION;
     librealloc = dlsym(RTLD_NEXT, "realloc");
+    UNPROTECT_FROM_RECURSION;
     char* error;
     if ((error = dlerror()) != NULL) {
       fputs(error, stderr);
@@ -215,8 +219,10 @@ void* calloc(size_t nmemb, size_t size) {
     nb_memb_header++;
 
   /* allocate buffer + header */
+  PROTECT_FROM_RECURSION;
   void* p_ptr = libcalloc(nmemb + nb_memb_header, size);
-
+  UNPROTECT_FROM_RECURSION;
+  
   struct mem_block_info *p_block = NULL;
   INIT_MEM_INFO(p_block, p_ptr, nmemb, size);
 
@@ -237,7 +243,9 @@ void* calloc(size_t nmemb, size_t size) {
 void free(void* ptr) {
 
   if (!libfree) {
+    PROTECT_FROM_RECURSION;
     libfree = dlsym(RTLD_NEXT, "free");
+    UNPROTECT_FROM_RECURSION;
     char* error;
     if ((error = dlerror()) != NULL) {
       fputs(error, stderr);
@@ -245,7 +253,9 @@ void free(void* ptr) {
     }
   }
   if (!ptr) {
+    PROTECT_FROM_RECURSION;
     libfree(ptr);
+    UNPROTECT_FROM_RECURSION;	
     return;
   }
 
@@ -254,7 +264,9 @@ void free(void* ptr) {
     /* we didn't malloc this buffer */
     fprintf(stderr, "%s(%p). I don't know this malloc !\n", __FUNCTION__, ptr);
     //    abort();
+    PROTECT_FROM_RECURSION;
     libfree(ptr);
+    UNPROTECT_FROM_RECURSION;
     return;
   }
 
@@ -276,7 +288,9 @@ void free(void* ptr) {
   } else {
     /* internal malloc or hand made malloc, nothing to do */
   }
+  PROTECT_FROM_RECURSION;
   libfree(p_block->p_ptr);
+  UNPROTECT_FROM_RECURSION;     
 }
 
 /* Internal structure used for transmitting the function and argument

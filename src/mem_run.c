@@ -36,7 +36,7 @@ struct numamma_settings settings;
 int _dump = 0;
 FILE* dump_file = NULL; // useless
 int _verbose = 0;
-__thread int is_recurse_unsafe = 0;
+__thread volatile int is_recurse_unsafe = 0;
 
 /* set to 1 if thread binding is activated */
 int bind_threads=0;
