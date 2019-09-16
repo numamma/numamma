@@ -4,8 +4,8 @@ find_package(PkgConfig)
 
 
 project (NumaMMa)
-set (NumaMMa_VERSION_MAJOR 0)
-set (NumaMMa_VERSION_MINOR 9)
+set (NumaMMa_VERSION_MAJOR 1)
+set (NumaMMa_VERSION_MINOR 0)
 SET(PROJECT_VERSION "${NumaMMa_VERSION_MAJOR}.${NumaMMa_VERSION_MINOR}")
 SET(PROJECT_DESCRIPTION "NumaMMA is a memory manager for NUMA architectures")
 
