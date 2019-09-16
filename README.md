@@ -218,29 +218,16 @@ The data produced by NumaMMA at runtime can be plotted using R scripts:
   + Provides functions to start / stop mem sampling.
 - `mem_analyzer.c`
   + The main file gluing together all the other ones.
-- `mem_intercept.in` 
-  + Shell  script parametric  file  used  to ld_preload  `libnumama.so`
-    before running a program.
+- `numamma.c` 
+  + This file implement the launcher. It checks the options and sets a few environment variables before executing the application.
 
 #### libnuma_run
 
 - `mem_run.c`
-
+  + This file intercepts calls to pthread/memory functions and modifies their behavior. For instance, it can apply a binding policy on the memory (possibly different binding policies for several objects). [Experimental/buggous].
+  
+  
 ### `tools` folder
-
-#### count_events
-
-The  two  files `count_events.c`  and  `count_events.in`  are used  to
-generate  a dynamic  library, `libcount_events.so`  and an  executable
-script.   This  scripts   takes  a  program  as   argument,  adds  the
-`libcount_events.so` to the list of  libraries loaded when the process
-is started and starts the program.
-
-The `libcount_events.so` contains constructor and destructor functions
-automatically called when  the process is started  and terminated. The
-constructor  function starts  the counting  of 28  events through  the
-`perf_event_open`  system call.   The  destructor  function stops  the
-counting and prints the count of each event on stdout.
 
 #### libnumamma-tools
 
