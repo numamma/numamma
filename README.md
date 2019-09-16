@@ -191,12 +191,12 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
 The data produced by NumaMMA at runtime can be plotted using R scripts:
 
 - `plot_pages_matrix.R`
-  + this script takes a `counter_X.dat` as a parameter and generates a matrix plot that represent the number of memory access that each thread issued to each pages of an object
-  Usage: `plot_pages_matrix.R counters_0.dat` generates `counters_0.dat.png`
+  + this script takes a `callsite_counters_X.dat` as a parameter and generates a matrix plot that represent the number of memory access that each thread issued to each pages of an object
+  Usage: `plot_pages_matrix.R callsite_counters_1.dat` generates `callsite_counters_1.dat.png`
 
 - `plot_timeline`
-  + this script takes the `counters_${USER}` directory as a parameter and generates a timeline plot that corresponds to the symbols.
-  Example of usage: `plot_timeline -i /tmp/counters_trahay -o /tmp/counters_trahay_output -s  "fields_"`
+  + this script takes a `callsite_dump_X.dat` file as a parameter and generates a timeline plot.
+  Example of usage: `plot_timeline -i callsite_dump_1.dat -o callsite_dump_1.png
 
 ## Content of this repository
 
