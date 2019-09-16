@@ -72,27 +72,40 @@ pthread_mutex_t sample_list_lock;
 static int nb_sample_buffers = 0;
 
 
-pid_t *thread_ranks = NULL;
+struct thread_info {
+  struct numap_sampling_measure *sm;
+  struct numap_sampling_measure* sm_wr;
+  pid_t tid;
+  int rank;
+};
+
+struct thread_info *thread_ranks = NULL;
 _Atomic int nthreads = 0;
 int allocated_threads = 0;
 
-static int thread_pid_to_rank(pid_t pid) {
+static struct thread_info * get_thread_info(pid_t pid) {
   for(int i=0; i<nthreads; i++)
-    if(thread_ranks[i] == pid)
-      return i;
-  return -1;
+    if(thread_ranks[i].tid == pid)
+      return &thread_ranks[i];
+  return NULL;
 }
 
-static void register_thread_pid(pid_t pid) {
+static void register_thread_pid(pid_t pid,
+				struct numap_sampling_measure *sm,
+				struct numap_sampling_measure *sm_wr) {
   if(allocated_threads == 0) {
-    thread_ranks = malloc(sizeof(pid_t)* 128);
+    thread_ranks = malloc(sizeof(struct thread_info)* 128);
     allocated_threads = 128;
   }
   while(nthreads >= allocated_threads) {
     allocated_threads *= 2;
-    thread_ranks = realloc(thread_ranks, sizeof(pid_t)*allocated_threads);
+    thread_ranks = realloc(thread_ranks, sizeof(struct thread_info)*allocated_threads);
   }
-  thread_ranks[nthreads++] = pid;
+  int rank = nthreads++;
+  thread_ranks[rank].tid = pid;
+  thread_ranks[rank].rank = rank;
+  thread_ranks[rank].sm = sm;
+  thread_ranks[rank].sm_wr = sm_wr;
 }
 
 /* called at runtime when the sample buffer has to be emptied
@@ -201,12 +214,41 @@ void mem_sampling_init() {
 #endif
 }
 
+_Thread_local size_t copied_size = 0;
 void numap_generic_handler(struct numap_sampling_measure *m,
 			   int fd,
 			   enum access_type access_type) {
   if(IS_RECURSE_SAFE) {
     PROTECT_FROM_RECURSION;
-    __process_samples(m, access_type);      
+    pid_t tid =  syscall(SYS_gettid);
+    debug_printf("[%d] [%lf] %s starts\n", get_thread_info(tid)->rank, get_cur_date(), __func__);
+#if 1
+    /* collect samples for all the threads */
+    for(int i=0; i<nthreads; i++) {
+      size_t read_size, write_size;
+      copied_size = 0;
+      numap_sampling_read_stop(thread_ranks[i].sm);
+      __process_samples(thread_ranks[i].sm, ACCESS_READ);
+      read_size = copied_size;
+      numap_sampling_resume(thread_ranks[i].sm);
+
+
+      copied_size = 0;
+      numap_sampling_write_stop(thread_ranks[i].sm_wr);
+      __process_samples(thread_ranks[i].sm_wr, ACCESS_WRITE);
+      numap_sampling_resume(thread_ranks[i].sm_wr);
+
+      write_size = copied_size;
+      debug_printf("\tThread %d: %llu bytes read, %llu bytes write\n", i, read_size, write_size);
+    }
+#else
+    /* collect samples from the buffer that was signaled */
+    numap_sampling_read_stop(m);
+    __process_samples(m, access_type);
+    numap_sampling_resume(m);
+    debug_printf("\tThread %d: %llu bytes read\n", get_thread_info(m->tids[0])->rank, copied_size);
+    copied_size = 0;
+#endif
     UNPROTECT_FROM_RECURSION;
   }
 }
@@ -221,7 +263,7 @@ void numap_write_handler(struct numap_sampling_measure *m, int fd) {
 
 void mem_sampling_thread_init() {
   pid_t tid = syscall(SYS_gettid);
-  register_thread_pid(tid);
+  register_thread_pid(tid, &sm, &sm_wr);
 
   int res = numap_sampling_init_measure(&sm, 1, settings.sampling_rate, numap_page_count);
   if(res < 0) {
@@ -249,9 +291,12 @@ void mem_sampling_thread_init() {
       abort();  
     }
 
-    if(numap_sampling_set_measure_handler(&sm, numap_read_handler, 1) != 0)
+    int page_size=4096;
+    /* number of samples that fit in one sample buffer */
+    int nsamples = numap_page_count * page_size / (sizeof(struct mem_sample)+sizeof(struct perf_event_header));
+    if(numap_sampling_set_measure_handler(&sm, numap_read_handler, nsamples) != 0)
       printf("numap_sampling_set_measure_handler failed\n");
-    if(numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, 1) != 0)
+    if(numap_sampling_set_measure_handler(&sm_wr, numap_write_handler, nsamples) != 0)
       printf("numap_sampling_set_measure_handler failed\n");
   }
 
@@ -684,6 +729,7 @@ static void __copy_buffer(struct sample_list* sample_list,
   stop_tick(memcpy_samples);
 
   stop_tick(rmb);
+  copied_size = buffer_size;
 }
 
 /* This function analyzes a set of samples
@@ -739,7 +785,7 @@ static void __analyze_buffer(struct sample_list* samples,
     }
 
     if (event->type == PERF_RECORD_SAMPLE) {
-      struct mem_sample *sample = (struct mem_sample *)((char *)(event) + 8); /* todo: remplace 8 with sizeof(ptr) ? */
+      struct mem_sample *sample = (struct mem_sample *)((char *)(event) + sizeof(struct perf_event_header));
 
       uint8_t frontier_buffer[event->size];
       if(cur_cpt + event->size > reset_cpt) {
@@ -837,7 +883,7 @@ void __process_samples(struct numap_sampling_measure *sm,
     uint64_t data_head = metadata_page->data_head % metadata_page->data_size;
     rmb();
 
-    int rank = thread_pid_to_rank(sm->tids[thread]);
+    int rank = get_thread_info(sm->tids[thread])->rank;
     assert(rank >=0);
     struct sample_list samples = {
       .next = NULL,
@@ -850,7 +896,6 @@ void __process_samples(struct numap_sampling_measure *sm,
       .stop_date = new_date(),
       .thread_rank = rank,
     };
-
 
     if(settings.online_analysis) {
       __analyze_buffer(&samples, &nb_samples, &found_samples);
