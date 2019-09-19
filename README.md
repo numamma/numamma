@@ -23,6 +23,10 @@ In case of a problem, don't hesitate to contact us !
 
 *Memory accesses over time, by each thread, to the pages of cvar_ in NPB LU*
 
+![NPB FT memory accesses made by threads over time](https://github.com/numamma/numamma/blob/master/doc/screenshots/numamma-npb-ft-interactive-timeline.png)
+
+*Memory accesses over time, by each thread, to the pages of bigarrays_ in NPB FT*
+
 
 ## Dependencies
 
