@@ -11,19 +11,19 @@ In case of a problem, don't hesitate to contact us !
 
 ## Output Examples
 
-![NPB CG Per pages accesses made by threads](https://github.com/numamma/numamma/blob/master/doc/screenshots/numamma-npb-cg-pages-threads.png)
+![NPB CG Per pages accesses made by threads](https://numamma.github.io/numamma/doc/screenshots/numamma-npb-cg-pages-threads.png)
 
 *Number of memory accesses, by each thread, to the pages of main_flt_mem in NPB CG*
 
-![NPB LU Per pages accesses made by threads over time](https://github.com/numamma/numamma/blob/master/doc/screenshots/numamma-npb-cg-pages-threads-time.png)
+![NPB LU Per pages accesses made by threads over time](https://numamma.github.io/numamma/doc/screenshots/numamma-npb-cg-pages-threads-time.png)
 
 *Memory accesses over time, by each thread, to the pages of of main_flt_mem in NPB CG*
 
-![NPB LU Per pages accesses made by threads over time](https://github.com/numamma/numamma/blob/master/doc/screenshots/numamma-npb-lu-pages-threads-time.png)
+![NPB LU Per pages accesses made by threads over time](https://numamma.github.io/numamma/doc/screenshots/numamma-npb-lu-pages-threads-time.png)
 
 *Memory accesses over time, by each thread, to the pages of cvar_ in NPB LU*
 
-![NPB FT memory accesses made by threads over time](https://github.com/numamma/numamma/blob/master/doc/screenshots/numamma-npb-ft-interactive-timeline.png)
+![NPB FT memory accesses made by threads over time](https://numamma.github.io/numamma/doc/screenshots/numamma-npb-ft-interactive-timeline.png)
 
 *Memory accesses over time, by each thread, to the pages of bigarrays_ in NPB FT*
 
