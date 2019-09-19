@@ -2,10 +2,6 @@
 
 NumaMMa is both a NUMA memory profiler/analyzer and a NUMA application execution engine. The profiler allows to run an application while gathering information about memory accesses. The analyzer visually reports information about the memory behavior of the application allowing to identify memory access patterns. Based on the results of the analyzer, the execution engine is capable of executing the application in an efficient way by allocating memory pages in a clever way.
 
-## Demo
-
-[Hello](https://numamma.github.io/numamma/demo/hello.html)
-
 ## Contact
 
 In case of a problem, don't hesitate to contact us !
@@ -192,6 +188,7 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
 - `-u` or `--dump-unmatched`
   + Dump the samples that did not match a memory object (default: disabled)
   + When this option is enabled, numamma writes the addresses that did not match any memory object in `unmatched_samples.log`.
+  + [Demo](https://numamma.github.io/numamma/demo/tab.html)
 
 
 ### Plotting data
