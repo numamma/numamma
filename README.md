@@ -155,7 +155,8 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
 
 
   + When the `-d` option is enabled, numamma also writes a summary of the memory access to a memory object in `callsite_summary_<ID>.dat`. For example:
-```# --------------------------------------
+```
+# --------------------------------------
 # Summary of all the read memory access:
 # Total count          :         6265665
 # Total weigh          :         499271856
