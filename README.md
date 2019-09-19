@@ -4,7 +4,7 @@ NumaMMa is both a NUMA memory profiler/analyzer and a NUMA application execution
 
 ## Demo
 
-[Hello](demo/hello.html)
+[Hello](https://numamma.github.io/numamma/demo/hello.html)
 
 ## Contact
 
