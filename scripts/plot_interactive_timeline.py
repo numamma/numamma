@@ -18,8 +18,11 @@ df['#thread_rank']=df['#thread_rank'].astype('str')
 # set the access_weight to 1 to all the line with access_weight=0
 #df['access_weight']=df.loc[df['access_weight'==0]]=1
 df['plot_size'] = df['access_weight']
-df.loc[df['plot_size'] == 0,"plot_size"]=1
-df.loc[df['plot_size'] > 200,"plot_size"]=200
+
+plot_min_size=4
+plot_max_size=200
+df.loc[df['plot_size'] < plot_min_size,"plot_size"]=plot_min_size
+df.loc[df['plot_size'] > plot_max_size,"plot_size"]=plot_max_size
 print("start_time:"+str(start_time));
 print("end_time:"+str(end_time));
 
