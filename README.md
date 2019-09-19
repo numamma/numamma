@@ -198,6 +198,10 @@ The data produced by NumaMMA at runtime can be plotted using R scripts:
   + this script takes a `callsite_dump_X.dat` file as a parameter and generates a timeline plot.
   Example of usage: `plot_timeline -i callsite_dump_1.dat -o callsite_dump_1.png
 
+- `plot_interactive_timeline.py`
+  + this script takes a `callsite_dump_X.dat` file as a parameter and generates an interactive timeline plot.
+  + Example of usage: `plot_interactive_timeline.py callsite_dump_1.dat`
+
 ## Content of this repository
 
 ### `src` folder
