@@ -15,6 +15,7 @@ list(APPEND SCRIPTS
   ${PROJECT_BINARY_DIR}/scripts/plot_timeline
   ${PROJECT_SOURCE_DIR}/scripts/counters_to_binding.py
   ${PROJECT_SOURCE_DIR}/scripts/plot_timeline.R
+  ${PROJECT_SOURCE_DIR}/scripts/plot_interactive_timeline.py
   ${PROJECT_SOURCE_DIR}/scripts/plot_pages_matrix.R
   )
 
