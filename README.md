@@ -146,7 +146,7 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
 0 14088660667040 5776 L3_Hit 50
 0 14088923322555 6376 L2_Hit 46
 ```
-
+  + In this file, each line corresponds to a sample
     + `thread_rank` is the thread that performed the memory access
     + `timestamp` is the date at which the memory access occured
     + `offset` is the part of the memory object that was accessed
