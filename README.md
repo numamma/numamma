@@ -146,14 +146,11 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
 0 14088660667040 5776 L3_Hit 50
 0 14088923322555 6376 L2_Hit 46
 ```
-
     + `thread_rank` is the thread that performed the memory access
     + `timestamp` is the date at which the memory access occured
     + `offset` is the part of the memory object that was accessed
     + `mem_level` is the part of the memory hierarchy that was accessed
     + `access_weight` is the 'cost' of the memory access. This is (more or less) the number of CPU cycles that were required for this memory access
-
-
   + When the `-d` option is enabled, numamma also writes a summary of the memory access to a memory object in `callsite_summary_<ID>.dat`. For example:
 
 ```
