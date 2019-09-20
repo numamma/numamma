@@ -25,7 +25,7 @@ In case of a problem, don't hesitate to contact us !
 
 ![NPB FT memory accesses made by threads over time](https://numamma.github.io/numamma/doc/screenshots/numamma-npb-ft-interactive-timeline.png)
 
-*Memory accesses over time, by each thread, to the pages of bigarrays_ in NPB FT*
+*Interactive plot of memory accesses over the time. Each point is a memory access performed by a thread, to the `bigarrays` buffer in NPB FT*
 
 
 ## Dependencies
