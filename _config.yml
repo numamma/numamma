@@ -1,5 +1,6 @@
 theme: jekyll-theme-slate
 show_downloads: ["true"]
 
-site.github.zip_url : https://github.com/numamma/numamma/archive/1.0.zip
-site.github.tar_url : https://github.com/numamma/numamma/archive/1.0.tar.gz
+github:
+  zip_url: https://github.com/numamma/numamma/archive/1.0.zip
+  tar_url: https://github.com/numamma/numamma/archive/1.0.tar.gz
