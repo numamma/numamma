@@ -34,7 +34,7 @@ print("start_time:"+str(start_time));
 print("end_time:"+str(end_time));
 
 ymax=max(df['offset']);
-fig = px.scatter(df,  x='timestamp', y='offset', color='#thread_rank', size='plot_size', hover_data=['mem_level','access_weight'], hover_name="mem_level", range_y=[0,ymax])
+fig = px.scatter(df,  x='timestamp', y='offset', color='#thread_rank', size='plot_size', hover_data=['mem_level','access_weight', 'acces_type'], hover_name="mem_level", range_y=[0,ymax])
 
 fig.update_layout(title_text='Memory access to buffer '+args.inputFile);
 if args.output != None:

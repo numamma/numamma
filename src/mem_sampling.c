@@ -632,7 +632,7 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
 	maps_read = 1;
       }
       
-      fprintf(dump_unmatched_file, "%p ",sample->addr);
+      fprintf(dump_unmatched_file, "%p %c ",sample->addr, access_type==ACCESS_READ?'r':'w');
       #if 0
       if (found) {
 	fprintf(dump_unmatched_file, "located in %s", strtok(line, "\n"));
@@ -845,17 +845,18 @@ static void __analyze_buffer(struct sample_list* samples,
 
 	    /* write the content of the sample to a file */
 	    fprintf(mem_info->call_site->dump_file,
-		    "#thread_rank timestamp offset mem_level access_weight\n");
+		    "#thread_rank timestamp offset mem_level access_weight acces_type\n");
 	  }
 	  
 	  /* write the content of the sample to a file */
 	  fprintf(mem_info->call_site->dump_file,
-		  "%d %" PRIu64 " %" PRIu64 " %s %" PRIu64 "\n",
+		  "%d %" PRIu64 " %" PRIu64 " %s %" PRIu64 " %c\n",
 		  samples->thread_rank,
 		  sample->timestamp,
 		  offset,
 		  get_data_src_level(sample->data_src),
-		  sample->weight);
+		  sample->weight,
+		  access_type==ACCESS_READ?'r':'w');
 
 	}
       }
