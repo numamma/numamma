@@ -188,7 +188,6 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
 - `-u` or `--dump-unmatched`
   + Dump the samples that did not match a memory object (default: disabled)
   + When this option is enabled, numamma writes the addresses that did not match any memory object in `unmatched_samples.log`.
-  + [Demo](https://numamma.github.io/numamma/demo/tab.html)
 
 
 ### Plotting data
@@ -202,6 +201,11 @@ The data produced by NumaMMA at runtime can be plotted using R scripts:
 - `plot_timeline`
   + this script takes a `callsite_dump_X.dat` file as a parameter and generates a timeline plot.
   Example of usage: `plot_timeline -i callsite_dump_1.dat -o callsite_dump_1.png
+
+- `plot_interactive_timeline.py`
+  + this script takes a `callsite_dump_X.dat` file as a parameter and generates an interactive timeline plot.
+  + Example of usage: `plot_interactive_timeline.py [-o output.html] callsite_dump_1.dat
+  + [Example of output](https://numamma.github.io/numamma/demo/tab.html)
 
 ## Content of this repository
 
