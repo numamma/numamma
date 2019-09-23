@@ -41,7 +41,7 @@ NumaMMa relies on the folowing libraries:
 
 The above dependencies must be installed first. Then NumaMMa itself can be built.
 
-You can also run the `install_everything.sh` script that installs NumaMMa and its dependencies. You can also run the following commands to download and build NumaMMa with all its dependencies.
+You can also run the `[install_everything.sh](https://github.com/numamma/numamma/blob/master/install_everything.sh)` script that installs NumaMMa and its dependencies. You can also run the following commands to download and build NumaMMa with all its dependencies.
 
 ## Profiling an application
 
