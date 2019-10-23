@@ -243,3 +243,11 @@ The data produced by NumaMMA at runtime can be plotted using R scripts:
 The   file    `hash.c`   is    compiled   into   a    shared   library
 `libnumamma-tools.so`.  This file  provides  functions  to create  and
 manipulate a has map.
+
+
+## Presentations
+
+There has been several presentations of NumaMMA during conferences or seminars. Here are the corresponding slides:
+
+- [NumaMMA memory profiler](https://numamma.github.io/numamma/doc/presentations/numamma_inpact_seminar_2019.pdf). Presented during the Inp@ct seminar at <a href="http://www.teratec.eu/">Ter@tec</a> in 2019.
+- [NumaMMA memory profiler](https://numamma.github.io/numamma/doc/presentations/numamma_icpp_2018.pdf). Presented at ICPP 2018
