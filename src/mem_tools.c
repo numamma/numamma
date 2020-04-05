@@ -9,8 +9,8 @@
 
 #define HAVE_LIBBACKTRACE 1
 #if HAVE_LIBBACKTRACE
-#include <libbacktrace/backtrace.h>
-#include <libbacktrace/backtrace-supported.h>
+#include <backtrace.h>
+#include <backtrace-supported.h>
 #endif
 
 

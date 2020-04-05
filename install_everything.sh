@@ -37,9 +37,6 @@ if ! [ -d $LIBBACKTRACE_INSTALL_ROOT ]; then
     git checkout 177940370e4a6b2509e92a0aaa9749184e64af43 || exit 1
     ./configure --prefix=$LIBBACKTRACE_INSTALL_ROOT || exit 1
     make -j4 install|| exit 1
-    cd $LIBBACKTRACE_INSTALL_ROOT/include|| exit 1
-    mkdir $LIBBACKTRACE_INSTALL_ROOT/include/libbacktrace|| exit 1
-    mv $LIBBACKTRACE_INSTALL_ROOT/include/backtrace.h  $LIBBACKTRACE_INSTALL_ROOT/include/backtrace-supported.h $LIBBACKTRACE_INSTALL_ROOT/include/libbacktrace|| exit 1
 else
     echo "libbacktrace is already installed"
 fi
