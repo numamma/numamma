@@ -6,7 +6,9 @@ find_package(PkgConfig)
 project (NumaMMa)
 set (NumaMMa_VERSION_MAJOR 1)
 set (NumaMMa_VERSION_MINOR 1)
-SET(PROJECT_VERSION "${NumaMMa_VERSION_MAJOR}.${NumaMMa_VERSION_MINOR}")
+set (NumaMMa_PATCH_VERSION 1)
+
+SET(PROJECT_VERSION "${NumaMMa_VERSION_MAJOR}.${NumaMMa_VERSION_MINOR}.${NumaMMa_PATCH_VERSION}")
 SET(PROJECT_DESCRIPTION "NumaMMA is a memory manager for NUMA architectures")
 
 SET(PKG_CONFIG_LIBDIR  "\${prefix}/lib"  )
