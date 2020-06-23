@@ -627,21 +627,24 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
 #endif
 	}
 	fclose(maps);
-	fprintf(dump_unmatched_file, "#\n");
+	fprintf(dump_unmatched_file, "#\n#\n#\n");
 
 	maps_read = 1;
+
+	fprintf(dump_unmatched_file,
+		"#thread_rank timestamp address mem_level access_weight acces_type\n");
       }
       
-      fprintf(dump_unmatched_file, "%p %c ",sample->addr, access_type==ACCESS_READ?'r':'w');
-      #if 0
-      if (found) {
-	fprintf(dump_unmatched_file, "located in %s", strtok(line, "\n"));
-      }
-      else {
-	fprintf(dump_unmatched_file, "no match");
-      }
-#endif
-      fprintf(dump_unmatched_file, "\n");
+      /* write the content of the sample to a file */
+      fprintf(dump_unmatched_file,
+	      // thread_rank timestamp addresse mem_level access_weight acces_type
+	      "%d %" PRIu64 " %p %s %" PRIu64 " %c\n",
+		  samples->thread_rank,
+		  sample->timestamp,
+		  sample->addr,
+		  get_data_src_level(sample->data_src),
+		  sample->weight,
+		  access_type==ACCESS_READ?'r':'w');
     }
   } else {
 
