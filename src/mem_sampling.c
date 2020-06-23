@@ -716,7 +716,7 @@ static void __copy_buffer(struct sample_list* sample_list,
   }
 
   struct perf_event_header *event = (struct perf_event_header*) (new_sample_buffer->buffer);
-  assert(event->type < 20);
+  assert(event->type < PERF_RECORD_MAX);
   assert(event->size > 0);
   
   new_sample_buffer->start_date = sample_list->start_date;
