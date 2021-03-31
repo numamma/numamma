@@ -255,7 +255,7 @@ __ma_find_mem_info_from_sample_generic(mem_info_node_t list,
   struct memory_info_list * p_node = list;
   while(p_node) {
     if(is_sample_in_buffer(sample, &p_node->mem_info)) {
-      retval = p_node->value;
+      retval = &p_node->mem_info;
       goto out;
     }
     n++;
