@@ -9,9 +9,9 @@ extern void* (*libcalloc)(size_t nmemb, size_t size);
 extern void* (*libmalloc)(size_t size);
 extern void (*libfree)(void *ptr);
 extern void* (*librealloc)(void *ptr, size_t size);
-int  (*libpthread_create) (pthread_t * thread, const pthread_attr_t * attr,
+extern int  (*libpthread_create) (pthread_t * thread, const pthread_attr_t * attr,
 			   void *(*start_routine) (void *), void *arg);
-void (*libpthread_exit) (void *thread_return);
+extern void (*libpthread_exit) (void *thread_return);
 
 #define CANARY_PATTERN 0xdeadbeefdeadbeef
 
