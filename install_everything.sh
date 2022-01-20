@@ -86,13 +86,13 @@ if ! [ -d $LIBELF_INSTALL_ROOT ]; then
     echo "Installing libelf..."
     rm -rf $LIBELF_ROOT || exit 1
     cd $ROOT_DIR
-    wget https://sourceware.org/elfutils/ftp/0.177/elfutils-0.177.tar.bz2 || exit 1
-    tar xjf elfutils-0.177.tar.bz2 || exit 1
-    mv elfutils-0.177 $LIBELF_ROOT || exit 1
+    wget https://sourceware.org/elfutils/ftp/0.186/elfutils-0.186.tar.bz2 || exit 1
+    tar xjf elfutils-0.186.tar.bz2 || exit 1
+    mv elfutils-0.186 $LIBELF_ROOT || exit 1
     cd $LIBELF_ROOT  || exit 1
     mkdir build || exit 1
     cd build
-    ../configure --prefix=$LIBELF_INSTALL_ROOT || exit 1
+    ../configure --prefix=$LIBELF_INSTALL_ROOT --disable-debuginfod || exit 1
     make || exit 1
     make install || exit 1
 else
