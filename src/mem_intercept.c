@@ -288,9 +288,11 @@ void free(void* ptr) {
   } else {
     /* internal malloc or hand made malloc, nothing to do */
   }
-  PROTECT_FROM_RECURSION;
-  libfree(p_block->p_ptr);
-  UNPROTECT_FROM_RECURSION;     
+  if(p_block->mem_type != MEM_TYPE_HAND_MADE_MALLOC) {
+    PROTECT_FROM_RECURSION;
+    libfree(p_block->p_ptr);
+    UNPROTECT_FROM_RECURSION;
+  }
 }
 
 /* Internal structure used for transmitting the function and argument
