@@ -214,18 +214,21 @@ void* calloc(size_t nmemb, size_t size) {
   }
 
   /* compute the number of blocks for header */
-  int nb_memb_header = (HEADER_SIZE  + TAIL_SIZE)/ size;
-  if (size * nb_memb_header < HEADER_SIZE + TAIL_SIZE)
+  int nb_memb_header = (HEADER_SIZE)/ size;
+  if (size * nb_memb_header < HEADER_SIZE)
     nb_memb_header++;
+
+  int nb_memb_tail = (TAIL_SIZE)/ size;
+  if (size * nb_memb_tail < TAIL_SIZE)
+    nb_memb_tail++;
 
   /* allocate buffer + header */
   PROTECT_FROM_RECURSION;
-  void* p_ptr = libcalloc(nmemb + nb_memb_header, size);
+  void* p_ptr = libcalloc(nmemb + nb_memb_header + nb_memb_tail, size);
   UNPROTECT_FROM_RECURSION;
   
   struct mem_block_info *p_block = NULL;
   INIT_MEM_INFO(p_block, p_ptr, nmemb, size);
-
 
   if(__memory_initialized && IS_RECURSE_SAFE) {
     PROTECT_FROM_RECURSION;
@@ -235,8 +238,8 @@ void* calloc(size_t nmemb, size_t size) {
     UNPROTECT_FROM_RECURSION;
   } else {
     p_block->mem_type = MEM_TYPE_INTERNAL_MALLOC;
-    //  return libcalloc(nmemb, size);
   }
+
   return p_block->u_ptr;
 }
 
