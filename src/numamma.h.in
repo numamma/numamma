@@ -21,6 +21,7 @@ struct numamma_settings {
 
   /* size (in KB per thread) of the buffer that contains the samples */
   int buffer_size;
+  int canary_check;
 
   char* output_dir;
   int match_samples; /* if set, numamma matches samples with memory objects */
@@ -35,6 +36,7 @@ extern struct numamma_settings settings;
 #define SETTINGS_ALARM_DEFAULT           0
 #define SETTINGS_FLUSH_DEFAULT           1
 #define SETTINGS_BUFFER_SIZE_DEFAULT     128
+#define SETTINGS_CANARY_CHECK_DEFAULT    0
 #define SETTINGS_MATCH_SAMPLES_DEFAULT   1
 #define SETTINGS_ONLINE_ANALYSIS_DEFAULT 0
 #define SETTINGS_DUMP_DEFAULT            0

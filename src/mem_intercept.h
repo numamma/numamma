@@ -13,7 +13,9 @@ extern int  (*libpthread_create) (pthread_t * thread, const pthread_attr_t * att
 				  void *(*start_routine) (void *), void *arg);
 extern void (*libpthread_exit) (void *thread_return);
 
-#define CANARY_PATTERN 0xdeadbeefdeadbeef
+#define _CANARY_PATTERN 0xdeadbeefdeadbeef
+#define _NO_CANARY_PATTERN 0x0000000000000000
+#define CANARY_PATTERN (settings.canary_check?_CANARY_PATTERN:_NO_CANARY_PATTERN)
 
 typedef uint64_t canary_t;
 
@@ -63,8 +65,8 @@ struct mem_block_info {
 #define TAIL_SIZE       (sizeof(struct mem_tail_block))
 
 //#define CANARY_OK(u_ptr) ((*(canary_t*)((u_ptr) - sizeof(canary_t))) == CANARY_PATTERN)
-#define CANARY_OK(u_ptr) (((struct mem_block_info*)((u_ptr) - (void*)sizeof(struct mem_block_info)))->canary == CANARY_PATTERN)
-#define TAIL_CANARY_OK(b_info) ((b_info)->tail_block->canary == CANARY_PATTERN)
+#define CANARY_OK(u_ptr) (settings.canary_check?(((struct mem_block_info*)((u_ptr) - (void*)sizeof(struct mem_block_info)))->canary == CANARY_PATTERN):1)
+#define TAIL_CANARY_OK(b_info) (settings.canary_check?((b_info)->tail_block->canary == CANARY_PATTERN):1)
 
 #define ERASE_CANARY(u_ptr) (memset(&((struct mem_block_info*)((u_ptr) - (void*)sizeof(struct mem_block_info)))->canary, 0x00, sizeof(CANARY_PATTERN)))
 

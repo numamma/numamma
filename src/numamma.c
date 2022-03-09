@@ -33,6 +33,7 @@ static struct argp_option options[] = {
 	{"alarm", 'a', "INTERVAL", 0, "Collect samples every INTERVAL ms (default: disabled)"},
 	{"flush", 'f', "yes|no", OPTION_ARG_OPTIONAL, "Flush the sample buffer when full (default: yes)"},
 	{"buffer-size", 's', "SIZE", 0, "Set the sample buffer size (default: 128 KB per thread)"},
+	{"canary-check", 'c', 0, 0, "Check for memory corruption (default: disabled)"},
 
 	{0, 0, 0, 0, "Report options:"},
 	{"outputdir", 'o', "dir", 0, "Specify the directory where files are written (default: /tmp/numamma_$USER"},
@@ -68,6 +69,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
     break;
   case 's':
     settings->buffer_size = atoi(arg);
+    break;
+  case 'c':
+    settings->canary_check = 1;
     break;
 			
   case 'o':
@@ -114,6 +118,7 @@ int main(int argc, char **argv) {
   settings.alarm = SETTINGS_ALARM_DEFAULT;
   settings.flush = SETTINGS_FLUSH_DEFAULT;
   settings.buffer_size = SETTINGS_BUFFER_SIZE_DEFAULT;
+  settings.canary_check = SETTINGS_CANARY_CHECK_DEFAULT;
 
   settings.output_dir = malloc(STRING_LENGTH);
   snprintf(settings.output_dir, STRING_LENGTH, "/tmp/numamma_%s", getenv("USER"));
@@ -168,6 +173,7 @@ int main(int argc, char **argv) {
   setenv_int("NUMAMMA_ALARM", settings.alarm, 1);
   setenv_int("NUMAMMA_FLUSH", settings.flush, 1);
   setenv_int("NUMAMMA_BUFFER_SIZE", settings.buffer_size, 1);
+  setenv_int("NUMAMMA_CANARY_CHECK", settings.canary_check, 1);
 
   setenv("NUMAMMA_OUTPUT_DIR", settings.output_dir, 1);
   setenv_int("NUMAMMA_MATCH_SAMPLES", settings.match_samples, 1);

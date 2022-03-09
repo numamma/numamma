@@ -426,6 +426,7 @@ static void read_settings() {
   getenv_int(settings.alarm, "NUMAMMA_ALARM", SETTINGS_ALARM_DEFAULT);
   getenv_int(settings.flush, "NUMAMMA_FLUSH", SETTINGS_FLUSH_DEFAULT);
   getenv_int(settings.buffer_size, "NUMAMMA_BUFFER_SIZE", SETTINGS_BUFFER_SIZE_DEFAULT);
+  getenv_int(settings.canary_check, "NUMAMMA_CANARY_CHECK", SETTINGS_CANARY_CHECK_DEFAULT);
 
   char* str = getenv("NUMAMMA_OUTPUT_DIR");
   settings.output_dir = malloc(STRING_LEN);
@@ -450,6 +451,7 @@ static void print_settings() {
   printf("flush          : %s\n", settings.flush? "yes":"no");
   printf("buffer_size    : %d KB\n", settings.buffer_size);
   printf("output_dir     : %s\n", settings.output_dir);
+  printf("canary_check   : %d\n", settings.canary_check);
   printf("match_samples  : %s\n", settings.match_samples? "yes":"no");
   printf("online_analysis: %s\n", settings.online_analysis? "yes":"no");
   printf("dump           : %s\n", settings.dump? "yes":"no");
