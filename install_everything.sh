@@ -48,9 +48,8 @@ PFM_INSTALL_ROOT=$ROOT_INSTALL_DIR/libpfm
 if ! [ -d $PFM_INSTALL_ROOT ]; then
     echo "Installing libpfm..."
     rm -rf $PFM_ROOT
-    git clone https://git.code.sf.net/p/perfmon2/libpfm4 $PFM_ROOT || exit 1
+	git clone git://git.code.sf.net/u/jklinkenberg/perfmon2 $PFM_ROOT || exit 1
     cd $PFM_ROOT || exit 1
-    git checkout v4.11.1 || exit 1
     make PREFIX=$PFM_INSTALL_ROOT -j4 install || exit 1
 else
     echo "libpfm is already installed"
