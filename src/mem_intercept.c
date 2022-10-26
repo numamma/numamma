@@ -438,6 +438,7 @@ static void read_settings() {
 
   getenv_int(settings.match_samples, "NUMAMMA_MATCH_SAMPLES", SETTINGS_MATCH_SAMPLES_DEFAULT);
   getenv_int(settings.online_analysis, "NUMAMMA_ONLINE_ANALYSIS", SETTINGS_ONLINE_ANALYSIS_DEFAULT);
+  getenv_int(settings.dump_all, "NUMAMMA_DUMP_ALL", SETTINGS_DUMP_ALL_DEFAULT);
   getenv_int(settings.dump, "NUMAMMA_DUMP", SETTINGS_DUMP_DEFAULT);
   getenv_int(settings.dump_unmatched, "NUMAMMA_DUMP_UNMATCHED", SETTINGS_DUMP_UNMATCHED_DEFAULT);
 }
@@ -454,6 +455,7 @@ static void print_settings() {
   printf("canary_check   : %d\n", settings.canary_check);
   printf("match_samples  : %s\n", settings.match_samples? "yes":"no");
   printf("online_analysis: %s\n", settings.online_analysis? "yes":"no");
+  printf("dump_all       : %s\n", settings.dump_all? "yes":"no");
   printf("dump           : %s\n", settings.dump? "yes":"no");
   printf("dump_unmatched : %s\n", settings.dump_unmatched? "yes":"no");
   printf("-----------------------------------\n");

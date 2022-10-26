@@ -520,6 +520,41 @@ struct block_info* ma_get_block(struct memory_info* mem_info,
 }
 
 
+static void _init_mem_info(struct memory_info* mem_info,
+			   enum mem_type mem_type,
+			   date_t alloc_date,
+			   size_t initial_buffer_size,
+			   void* buffer_addr,
+			   void* caller_rip,
+			   const char* caller) {
+
+  mem_info->mem_type = mem_type;
+  mem_info->alloc_date = alloc_date;
+  mem_info->free_date = 0;
+  mem_info->initial_buffer_size =   initial_buffer_size;
+  mem_info->buffer_size =   initial_buffer_size;
+  mem_info->buffer_addr =   buffer_addr;
+  mem_info->caller_rip =   caller_rip;
+  if(caller) {
+    mem_info->caller = mem_allocator_alloc(string_allocator);
+    snprintf(mem_info->caller, 1024, "%s", caller);
+  } else {
+    mem_info->caller = NULL;
+  }
+
+  mem_info->call_site =  NULL;
+  mem_info->blocks = NULL;
+
+  static _Atomic int next_mem_info_id = 1;
+  mem_info->id = next_mem_info_id++;
+
+  if(settings.online_analysis) {
+    __allocate_counters(mem_info);
+    __init_counters(mem_info);
+  }
+}
+
+
 char null_str[]="";
 
 /* unset LD_PRELOAD
@@ -549,6 +584,7 @@ static void __ma_register_stack_range(uintptr_t stack_base_addr,
   mem_info = &p_node->mem_info;
 #endif
 
+#if 0
   mem_info->mem_type=stack;
   mem_info->alloc_date = 0;
   mem_info->free_date = 0;
@@ -561,6 +597,10 @@ static void __ma_register_stack_range(uintptr_t stack_base_addr,
     __allocate_counters(mem_info);
     __init_counters(mem_info);
   }
+#else
+  _init_mem_info(mem_info, stack, 0, stack_size, (void*)stack_base_addr, NULL, "[stack]");
+#endif
+
   pthread_mutex_lock(&mem_list_lock);
 #ifdef USE_HASHTABLE
   mem_list = ht_insert(mem_list, (uint64_t) mem_info->buffer_addr, mem_info);
@@ -615,7 +655,8 @@ void ma_register_stack() {
     }
   }
   fclose(f);
-}  
+}
+
 
 /* writes given information into a new memory_info struct and adds it to list or hashtable, and returns the inserted element */
 struct memory_info* insert_memory_info(enum mem_type mem_type,
@@ -630,6 +671,11 @@ struct memory_info* insert_memory_info(enum mem_type mem_type,
 	struct memory_info_list * p_node = mem_allocator_alloc(mem_info_allocator);
 	mem_info = &p_node->mem_info;
 #endif
+
+#if 0
+	static _Atomic int next_mem_info_id = 1;
+	mem_info->id = next_mem_info_id++;
+
 	mem_info->mem_type = mem_type;
 	mem_info->alloc_date = 0;
 	mem_info->free_date = 0;
@@ -644,6 +690,9 @@ struct memory_info* insert_memory_info(enum mem_type mem_type,
 	  __allocate_counters(mem_info);
 	  __init_counters(mem_info);
 	}
+#else
+	_init_mem_info(mem_info, mem_type, 0, initial_buffer_size, buffer_addr, NULL, caller);
+#endif
 
 	pthread_mutex_lock(&mem_list_lock);
 #ifdef USE_HASHTABLE
@@ -1073,6 +1122,7 @@ void ma_record_malloc(struct mem_block_info* info) {
   stop_tick(fast_alloc);
   start_tick(init_block);
 
+#if 0
   mem_info->mem_type = dynamic_allocation;
   mem_info->alloc_date = new_date();
   mem_info->free_date = 0;
@@ -1099,7 +1149,11 @@ void ma_record_malloc(struct mem_block_info* info) {
     __allocate_counters(mem_info);
     __init_counters(mem_info);
   }
-
+#else
+  _init_mem_info(mem_info, dynamic_allocation, new_date(), info->size, info->u_ptr, get_caller_rip(3), NULL);
+#endif
+  info->record_info = mem_info;
+  
   stop_tick(init_block);
 
   start_tick(insert_in_tree);
@@ -1255,6 +1309,7 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
   site->nb_mallocs = 0;
   site->dump_file = NULL;
 
+#if 0
   site->mem_info.mem_type = mem_info->mem_type;
   site->mem_info.alloc_date = 0;
   site->mem_info.free_date = 0;
@@ -1263,9 +1318,13 @@ struct call_site * new_call_site(struct memory_info* mem_info) {
   site->mem_info.buffer_addr = mem_info->buffer_addr;
   site->mem_info.caller = site->caller;
   site->mem_info.caller_rip = site->caller_rip;
+#else
+  _init_mem_info(&site->mem_info, mem_info->mem_type, 0, mem_info->initial_buffer_size,
+		 mem_info->buffer_addr, site->caller_rip, site->caller);
+  site->mem_info.buffer_size = mem_info->buffer_size;
+#endif
   ma_allocate_counters(&site->mem_info);
   ma_init_counters(&site->mem_info);
-
   site->cumulated_counters.block_id = 0;
   site->cumulated_counters.next = NULL;
   int i, j;
@@ -1541,6 +1600,66 @@ void print_call_site_summary() {
   //  print_buffer_list();
 }
 
+static void _print_object_summary(FILE* f, struct memory_info* mem_info) {
+  long long rd_count = 0;
+  long long wr_count = 0;
+
+  if(!mem_info->caller) {
+    mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
+  }
+
+  char* caller = NULL;
+  if(mem_info->caller)
+    caller = mem_info->caller;
+  fprintf(f, "%d\t0x%"PRIx64"\t%ld\t%"PRIu64"\t%"PRIu64"\t0x%"PRIx64"\t%s\n",
+	  mem_info->id, mem_info->buffer_addr, mem_info->buffer_size,
+	  mem_info->alloc_date, mem_info->free_date, mem_info->caller_rip, caller);
+}
+
+static void print_object_summary_from_list(FILE* f, mem_info_node_t list) {
+#ifdef USE_HASHTABLE
+  /* todo */
+  struct ht_node*p_node = NULL;
+  FOREACH_HASH(mem_list, p_node) {
+    struct ht_entry*e = p_node->entries;
+    while(e) {
+      struct memory_info* mem_info = e->value;
+      _print_object_summary(f, mem_info);
+      e = e->next;
+    }
+
+  }
+#else
+  struct memory_info_list * p_node = list;
+  while(p_node) {
+    _print_object_summary(f, &p_node->mem_info);
+    p_node = p_node->next;
+  }
+#endif
+}
+
+void print_object_summary() {
+  if(settings.dump_all) {
+
+    char filename[4096];
+    char file_basename[STRING_LEN];
+    snprintf(file_basename, STRING_LEN, "all_memory_objects.dat");
+    create_log_filename(file_basename, filename, 4096);
+    FILE * all_objects_file=fopen(filename, "w");
+    if(!all_objects_file) {
+      fprintf(stderr, "failed to open %s for writing: %s\n", filename, strerror(errno));
+      abort();
+    }
+
+    /* write the content of the sample to a file */
+    fprintf(all_objects_file,
+	    "#object_id\taddress\tsize\tallocation_date\tdeallocation_date\tcallsite_rip\tcallsite\n");
+
+    print_object_summary_from_list(all_objects_file, mem_list);
+    print_object_summary_from_list(all_objects_file, past_mem_list);
+  }
+}
+
 /* browse the list of malloc'd buffers that were not freed */
 void warn_non_freed_buffers() {
 
@@ -1670,6 +1789,7 @@ void ma_finalize() {
 
     __print_counters(stdout, global_counters);
     print_call_site_summary();
+    print_object_summary();
 
     mem_sampling_statistics();
     pthread_mutex_unlock(&mem_list_lock);

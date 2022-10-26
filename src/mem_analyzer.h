@@ -80,6 +80,7 @@ struct memory_info {
   /* TODO: numa node ? thread that allocates */
   struct block_info **blocks;
   //  struct mem_counters count[MAX_THREADS][ACCESS_MAX];
+  unsigned int id;
 };
 
 

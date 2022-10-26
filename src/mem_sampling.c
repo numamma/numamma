@@ -21,6 +21,8 @@ size_t numap_page_count = 32;
 uint64_t nb_samples_total = 0;
 uint64_t nb_found_samples_total = 0;
 
+static FILE* dump_all_file = NULL;
+
 /* set to 1 if we are currently sampling memory accesses */
 static __thread volatile int is_sampling = 0;
 
@@ -632,12 +634,12 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
 	maps_read = 1;
 
 	fprintf(dump_unmatched_file,
-		"#thread_rank timestamp address mem_level access_weight acces_type\n");
+		"#thread_rank timestamp address mem_level access_weight access_type\n");
       }
       
       /* write the content of the sample to a file */
       fprintf(dump_unmatched_file,
-	      // thread_rank timestamp addresse mem_level access_weight acces_type
+	      // thread_rank timestamp address mem_level access_weight access_type
 	      "%d %" PRIu64 " %p %s %" PRIu64 " %c\n",
 		  samples->thread_rank,
 		  sample->timestamp,
@@ -735,6 +737,76 @@ static void __copy_buffer(struct sample_list* sample_list,
   copied_size = buffer_size;
 }
 
+static void _dump_mem_info(struct mem_sample *sample,
+			   enum access_type access_type,
+			   struct memory_info* mem_info,
+			   uintptr_t offset) {
+  if(settings.dump_all && mem_info->mem_type != stack) {
+    if(!dump_all_file) {
+      char filename[4096];
+      char file_basename[STRING_LEN];
+      snprintf(file_basename, STRING_LEN, "all_memory_accesses.dat");
+      create_log_filename(file_basename, filename, 4096);
+      dump_all_file=fopen(filename, "w");
+      if(!dump_all_file) {
+	fprintf(stderr, "failed to open %s for writing: %s\n", filename, strerror(errno));
+	abort();
+      }
+
+      /* write the content of the sample to a file */
+      fprintf(dump_all_file,
+	      "#thread_rank timestamp object_id offset mem_level access_weight access_type\n");
+    }
+
+    /* write the content of the sample to a file */
+    fprintf(dump_all_file,
+	    "%d %" PRIu64 " %d %" PRIu64 " %s %" PRIu64 " %c\n",
+	    samples->thread_rank,
+	    sample->timestamp,
+	    mem_info->id,
+	    offset,
+	    get_data_src_level(sample->data_src),
+	    sample->weight,
+	    access_type==ACCESS_READ?'r':'w');
+
+  }
+}
+
+static void _dump_call_site(struct mem_sample *sample,
+			    enum access_type access_type,
+			    struct memory_info* mem_info,
+			    uintptr_t offset) {
+  if(mem_info && mem_info->call_site && mem_info->mem_type != stack) {
+    if(!mem_info->call_site->dump_file) {
+      char filename[4096];
+      char file_basename[STRING_LEN];
+      snprintf(file_basename, STRING_LEN, "callsite_dump_%d.dat", mem_info->call_site->id);
+      create_log_filename(file_basename, filename, 4096);
+      mem_info->call_site->dump_file=fopen(filename, "w");
+      if(!mem_info->call_site->dump_file) {
+	fprintf(stderr, "failed to open %s for writing: %s\n", filename, strerror(errno));
+	abort();
+      }
+
+      /* write the content of the sample to a file */
+      fprintf(mem_info->call_site->dump_file,
+	      "#thread_rank timestamp offset mem_level access_weight access_type\n");
+    }
+	  
+    /* write the content of the sample to a file */
+    fprintf(mem_info->call_site->dump_file,
+	    "%d %" PRIu64 " %" PRIu64 " %s %" PRIu64 " %c\n",
+	    samples->thread_rank,
+	    sample->timestamp,
+	    offset,
+	    get_data_src_level(sample->data_src),
+	    sample->weight,
+	    access_type==ACCESS_READ?'r':'w');
+
+  }
+
+}
+
 /* This function analyzes a set of samples
  * @param samples : a buffer that contains samples
  * @return nb_samples : the number of samples that were in the buffer
@@ -820,7 +892,7 @@ static void __analyze_buffer(struct sample_list* samples,
 	}
       }
 
-      if(settings.dump) {
+      if(settings.dump || settings.dump_all) {
 	/* dump mode is activated, write to content of the sample to a file */
 
 	uintptr_t offset=0;
@@ -832,35 +904,10 @@ static void __analyze_buffer(struct sample_list* samples,
 	    /* search for the function that allocated the memory object */
 	    mem_info->caller = get_caller_function_from_rip(mem_info->caller_rip);
 	  }
-	}
 
-	if(mem_info && mem_info->call_site && mem_info->mem_type != stack) {
-	  if(!mem_info->call_site->dump_file) {
-	    char filename[4096];
-	    char file_basename[STRING_LEN];
-	    snprintf(file_basename, STRING_LEN, "callsite_dump_%d.dat", mem_info->call_site->id);
-	    create_log_filename(file_basename, filename, 4096);
-	    mem_info->call_site->dump_file=fopen(filename, "w");
-	    if(!mem_info->call_site->dump_file) {
-	      fprintf(stderr, "failed to open %s for writing: %s\n", filename, strerror(errno));
-	      abort();
-	    }
-
-	    /* write the content of the sample to a file */
-	    fprintf(mem_info->call_site->dump_file,
-		    "#thread_rank timestamp offset mem_level access_weight acces_type\n");
-	  }
-	  
-	  /* write the content of the sample to a file */
-	  fprintf(mem_info->call_site->dump_file,
-		  "%d %" PRIu64 " %" PRIu64 " %s %" PRIu64 " %c\n",
-		  samples->thread_rank,
-		  sample->timestamp,
-		  offset,
-		  get_data_src_level(sample->data_src),
-		  sample->weight,
-		  access_type==ACCESS_READ?'r':'w');
-
+	  /* if needed, write the sample into files */
+	  _dump_mem_info(sample, access_type, mem_info, offset);
+	  _dump_call_site(sample, access_type, mem_info, offset);
 	}
       }
     }
