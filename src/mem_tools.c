@@ -67,19 +67,25 @@ static int backtrace_callback (void *data, uintptr_t pc,
 }
 #endif /* HAVE_LIBBACKTRACE */
 
+void** get_caller_rip(int depth, int* size_callstack, void** caller_rip) {
+    static int max_depth = 20;
+    int backtrace_depth=max_depth+1;
+    void** buffer = (void**) malloc(sizeof(void*)*backtrace_depth);
 
-void* get_caller_rip(int depth) {
-  int backtrace_depth=depth+1;
-  void* buffer[backtrace_depth];
+    /* TODO: calling backtrace seems to be very expensive (~7.5 usec)
+    * maybe we should implement it to make it faster
+    */
+    int nb_calls = backtrace(buffer, backtrace_depth);
+    if(nb_calls < depth) {
+        *size_callstack = 0;
+        *caller_rip = NULL;
+        free(buffer);
+        return NULL;
+    }
 
-  /* TODO: calling backtrace seems to be very expensive (~7.5 usec)
-   * maybe we should implement it to make it faster
-   */
-  int nb_calls = backtrace(buffer, backtrace_depth);
-  if(nb_calls < depth) {
-    return NULL;
-  }
-  return buffer[depth];
+    *size_callstack = nb_calls;
+    *caller_rip = buffer[depth];
+    return buffer;
 }
 
 char* get_caller_function_from_rip(void* rip) {

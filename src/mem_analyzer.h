@@ -74,6 +74,8 @@ struct memory_info {
   size_t buffer_size;		/* size of the buffer when it was freed */
 
   void* buffer_addr;
+  void** callstack_rip;
+  int callstack_size;
   void* caller_rip;		/* adress of the instruction that called malloc */
   char* caller;			/* callsite (function name+line) of the instruction that called malloc */
   struct call_site* call_site;
@@ -139,6 +141,8 @@ struct call_site {
   uint32_t id;
   char* caller;
   void* caller_rip;
+  void** callstack_rip;
+  int callstack_size;
   size_t buffer_size;
   unsigned nb_mallocs;
   struct memory_info mem_info;
