@@ -159,21 +159,25 @@ void ma_print_mem_info(FILE*f, struct memory_info *mem) {
       mem->caller = get_caller_function_from_rip(mem->caller_rip);
     }
 
-    char callsite_rip_str[1024];
-    callsite_rip_str[0] = '\0';
+    char callstack_rip_str[1024];
+    callstack_rip_str[0] = '\0';
     if(mem->callstack_rip) {
         for(int i = 3; i < mem->callstack_size; i++) {
-        char cur_str[16];
-        sprintf(cur_str, "0x%"PRIx64"", mem->callstack_rip[i]);
-        strcat(callsite_rip_str, cur_str);
+            char cur_str[16];
+            if(i == 3) {
+                sprintf(cur_str, "0x%"PRIx64"", mem->callstack_rip[i]);
+            } else {
+                sprintf(cur_str, ",0x%"PRIx64"", mem->callstack_rip[i]);
+            }        
+            strcat(callstack_rip_str, cur_str);
         }
     } else {
-        strcat(callsite_rip_str, "NULL");
+        strcat(callstack_rip_str, "NULL");
     }
 
     fprintf(f, "mem %p = {.addr=0x%"PRIx64", .alloc_date=%" PRIu64 ", .free_date=%" PRIu64 ", size=%ld, callstack_rip=%s, alloc_site=%p / %s}\n", mem,
 	   mem->buffer_addr, mem->alloc_date?DATE(mem->alloc_date):0, mem->free_date?DATE(mem->free_date):0,
-	   mem->buffer_size, callsite_rip_str, mem->caller_rip, mem->caller?mem->caller:"");
+	   mem->buffer_size, callstack_rip_str, mem->caller_rip, mem->caller?mem->caller:"");
   }
 }
 
@@ -1650,21 +1654,25 @@ static void _print_object_summary(FILE* f, struct memory_info* mem_info) {
     caller = mem_info->caller;
   }
 
-  char callsite_rip_str[1024];
-  callsite_rip_str[0] = '\0';
-  if(mem->callstack_rip) {
-    for(int i = 3; i < mem->callstack_size; i++) {
+  char callstack_rip_str[1024];
+  callstack_rip_str[0] = '\0';
+  if(mem_info->callstack_rip) {
+    for(int i = 3; i < mem_info->callstack_size; i++) {
       char cur_str[16];
-      sprintf(cur_str, "0x%"PRIx64"", mem->callstack_rip[i]);
-      strcat(callsite_rip_str, cur_str);
+      if(i == 3) {
+        sprintf(cur_str, "0x%"PRIx64"", mem_info->callstack_rip[i]);
+      } else {
+        sprintf(cur_str, ",0x%"PRIx64"", mem_info->callstack_rip[i]);
+      }        
+      strcat(callstack_rip_str, cur_str);
     }
   } else {
-    strcat(callsite_rip_str, "NULL");
+    strcat(callstack_rip_str, "NULL");
   }
 
   fprintf(f, "%d\t0x%"PRIx64"\t%ld\t%"PRIu64"\t%"PRIu64"\t%s\t0x%"PRIx64"\t%s\n",
 	  mem_info->id, mem_info->buffer_addr, mem_info->buffer_size,
-	  mem_info->alloc_date, mem_info->free_date, callsite_rip_str, mem_info->caller_rip, caller);
+	  mem_info->alloc_date, mem_info->free_date, callstack_rip_str, mem_info->caller_rip, caller);
 }
 
 static void print_object_summary_from_list(FILE* f, mem_info_node_t list) {
@@ -1704,7 +1712,7 @@ void print_object_summary() {
 
     /* write the content of the sample to a file */
     fprintf(all_objects_file,
-	    "#object_id\taddress\tsize\tallocation_date\tdeallocation_date\tcallsite_rip\tcallsite\n");
+	    "#object_id\taddress\tsize\tallocation_date\tdeallocation_date\tcallstack_rip\tcallsite_rip\tcallsite\n");
 
     print_object_summary_from_list(all_objects_file, mem_list);
     print_object_summary_from_list(all_objects_file, past_mem_list);
