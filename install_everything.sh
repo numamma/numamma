@@ -41,15 +41,16 @@ else
     echo "libbacktrace is already installed"
 fi
 
-#libpfm
-PFM_ROOT=$ROOT_DIR/libpfm
-PFM_INSTALL_ROOT=$ROOT_INSTALL_DIR/libpfm
+#libpfm-4.10.1
+PFM_ROOT=$ROOT_DIR/libpfm-4.12.0
+PFM_INSTALL_ROOT=$ROOT_INSTALL_DIR/libpfm-4.12.0
 
 if ! [ -d $PFM_INSTALL_ROOT ]; then
     echo "Installing libpfm..."
     rm -rf $PFM_ROOT
-    git clone git://git.code.sf.net/u/jklinkenberg/perfmon2 $PFM_ROOT || exit 1
+    git clone https://git.code.sf.net/p/perfmon2/libpfm4 $PFM_ROOT || exit 1
     cd $PFM_ROOT || exit 1
+    git checkout v4.12.0 || exit 1
     make PREFIX=$PFM_INSTALL_ROOT -j4 install || exit 1
 else
     echo "libpfm is already installed"
@@ -107,7 +108,7 @@ if ! [ -d $NUMAP_INSTALL_ROOT ]; then
     echo "Installing numap..."
     rm -rf $NUMAP_ROOT || exit 1
 
-    git clone https://github.com/jklinkenberg/numap.git $NUMAP_ROOT || exit 1
+    git clone https://github.com/numap-library/numap.git $NUMAP_ROOT || exit 1
     cd $NUMAP_ROOT  || exit 1
     mkdir build || exit 1
     cd build
@@ -124,9 +125,8 @@ NUMAMMA_INSTALL_ROOT=$ROOT_INSTALL_DIR/numamma
 if ! [ -d  $NUMAMMA_INSTALL_ROOT ]; then
     echo "Installing numamma..."
     rm -rf $NUMAMMA_ROOT || exit 1
-    git clone https://github.com/jklinkenberg/numamma.git $NUMAMMA_ROOT || exit 1
+    git clone https://github.com/numamma/numamma.git $NUMAMMA_ROOT || exit 1
     cd $NUMAMMA_ROOT || exit 1
-    git checkout callsite-rip || exit 1
     mkdir build || exit 1
     cd build || exit 1
     export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$NUMAP_INSTALL_ROOT/lib/pkgconfig
