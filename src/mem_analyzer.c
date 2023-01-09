@@ -13,6 +13,7 @@
 #include <link.h>
 #include <unistd.h>
 #include <gelf.h>
+#include <stddef.h>
 
 #include "mem_intercept.h"
 #include "mem_analyzer.h"
@@ -1655,24 +1656,56 @@ static void _print_object_summary(FILE* f, struct memory_info* mem_info) {
   }
 
   char callstack_rip_str[1024];
+  char callstack_offset_str[16384];
   callstack_rip_str[0] = '\0';
+  callstack_offset_str[0] = '\0';
+
   if(mem_info->callstack_rip) {
     for(int i = 3; i < mem_info->callstack_size; i++) {
-      char cur_str[16];
+      char cur_str_rip[16];
+      char cur_str_offset[256];
+
+      // get information about base address of executable or shared library for code location
+      int rc;
+      Dl_info info;
+      rc = dladdr(mem_info->callstack_rip[i], &info);
+      
+      // === DEBUG ===
+      //   printf("Output for callstack item 0x%"PRIx64":\n", mem_info->callstack_rip[i]);
+      //   // provides more information about loaded libraries
+      //   rc = dladdr1(mem_info->callstack_rip[i], &info, (void**)&map, RTLD_DL_LINKMAP);
+      //   struct link_map *map = (struct link_map *)malloc(1000*sizeof(struct link_map));
+      //   void *start_ptr = (void*)map;
+      //   struct link_map *cur_entry = &map[0];
+      //   while(cur_entry) {
+      //     printf("-- l_name = %s; l_addr=%ld; l_ld=%p\n", cur_entry->l_name, cur_entry->l_addr, (void*)cur_entry->l_ld);
+      //     cur_entry = cur_entry->l_next;
+      //   }
+      //   free(start_ptr)
+      //   printf("Found in: 0x%"PRIx64"\t%s\n", info.dli_fbase, info.dli_fname);
+      // === DEBUG ===
+
+      // calculate offset to where shared library / executable has been loaded into memory
+      ptrdiff_t offset = (uintptr_t)mem_info->callstack_rip[i] - (uintptr_t)info.dli_fbase;
+
       if(i == 3) {
-        sprintf(cur_str, "0x%"PRIx64"", mem_info->callstack_rip[i]);
+        sprintf(cur_str_rip, "0x%"PRIx64"", mem_info->callstack_rip[i]);
+        sprintf(cur_str_offset, "%s:%td", info.dli_fname, offset);
       } else {
-        sprintf(cur_str, ",0x%"PRIx64"", mem_info->callstack_rip[i]);
+        sprintf(cur_str_rip, ",0x%"PRIx64"", mem_info->callstack_rip[i]);
+        sprintf(cur_str_offset, ",%s:%td", info.dli_fname, offset);
       }        
-      strcat(callstack_rip_str, cur_str);
+      strcat(callstack_rip_str, cur_str_rip);
+      strcat(callstack_offset_str, cur_str_offset);
     }
   } else {
     strcat(callstack_rip_str, "NULL");
+    strcat(callstack_offset_str, "NULL");
   }
 
-  fprintf(f, "%d\t0x%"PRIx64"\t%ld\t%"PRIu64"\t%"PRIu64"\t%s\t0x%"PRIx64"\t%s\n",
+  fprintf(f, "%d\t0x%"PRIx64"\t%ld\t%"PRIu64"\t%"PRIu64"\t%s\t%s\t0x%"PRIx64"\t%s\n",
 	  mem_info->id, mem_info->buffer_addr, mem_info->buffer_size,
-	  mem_info->alloc_date, mem_info->free_date, callstack_rip_str, mem_info->caller_rip, caller);
+	  mem_info->alloc_date, mem_info->free_date, callstack_rip_str, callstack_offset_str, mem_info->caller_rip, caller);
 }
 
 static void print_object_summary_from_list(FILE* f, mem_info_node_t list) {
@@ -1712,7 +1745,7 @@ void print_object_summary() {
 
     /* write the content of the sample to a file */
     fprintf(all_objects_file,
-	    "#object_id\taddress\tsize\tallocation_date\tdeallocation_date\tcallstack_rip\tcallsite_rip\tcallsite\n");
+	    "#object_id\taddress\tsize\tallocation_date\tdeallocation_date\tcallstack_rip\tcallstack_offsets\tcallsite_rip\tcallsite\n");
 
     print_object_summary_from_list(all_objects_file, mem_list);
     print_object_summary_from_list(all_objects_file, past_mem_list);
