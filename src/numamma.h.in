@@ -26,6 +26,7 @@ struct numamma_settings {
   char* output_dir;
   int match_samples; /* if set, numamma matches samples with memory objects */
   int online_analysis;
+  int dump_all; 		/* if set, numamma dumps all memory objects samples (not only callsites)  */
   int dump;
   int dump_unmatched;
 };
@@ -39,6 +40,7 @@ extern struct numamma_settings settings;
 #define SETTINGS_CANARY_CHECK_DEFAULT    0
 #define SETTINGS_MATCH_SAMPLES_DEFAULT   1
 #define SETTINGS_ONLINE_ANALYSIS_DEFAULT 0
+#define SETTINGS_DUMP_ALL_DEFAULT        0
 #define SETTINGS_DUMP_DEFAULT            0
 #define SETTINGS_DUMP_UNMATCHED_DEFAULT  0
 

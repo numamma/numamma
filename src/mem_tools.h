@@ -7,7 +7,7 @@
 #define  ENABLE_TICKS 1
 
 /* return the address of the instruction that called the current function */
-void* get_caller_rip(int depth);
+void** get_caller_rip(int depth, int* size_callstack, void** caller_rip);
 
 /* return the name (function name +line) of the instruction that called the current function */
 char* get_caller_function(int depth);

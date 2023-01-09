@@ -41,6 +41,7 @@ else
     echo "libbacktrace is already installed"
 fi
 
+
 #libpfm
 PFM_ROOT=$ROOT_DIR/libpfm
 PFM_INSTALL_ROOT=$ROOT_INSTALL_DIR/libpfm
@@ -48,7 +49,7 @@ PFM_INSTALL_ROOT=$ROOT_INSTALL_DIR/libpfm
 if ! [ -d $PFM_INSTALL_ROOT ]; then
     echo "Installing libpfm..."
     rm -rf $PFM_ROOT
-	git clone git://git.code.sf.net/u/jklinkenberg/perfmon2 $PFM_ROOT || exit 1
+    git clone git://git.code.sf.net/u/jklinkenberg/perfmon2 $PFM_ROOT || exit 1
     cd $PFM_ROOT || exit 1
     make PREFIX=$PFM_INSTALL_ROOT -j4 install || exit 1
 else
@@ -124,12 +125,12 @@ NUMAMMA_INSTALL_ROOT=$ROOT_INSTALL_DIR/numamma
 if ! [ -d  $NUMAMMA_INSTALL_ROOT ]; then
     echo "Installing numamma..."
     rm -rf $NUMAMMA_ROOT || exit 1
-    git clone https://github.com/numamma/numamma.git $NUMAMMA_ROOT || exit 1
+    git clone https://github.com/jklinkenberg/numamma.git $NUMAMMA_ROOT || exit 1
     cd $NUMAMMA_ROOT || exit 1
     mkdir build || exit 1
     cd build || exit 1
     export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$NUMAP_INSTALL_ROOT/lib/pkgconfig
-    cmake  -DCMAKE_INSTALL_PREFIX=$NUMAMMA_INSTALL_ROOT -DBACKTRACE_DIR=$LIBBACKTRACE_INSTALL_ROOT -DNUMACTL_DIR=$NUMACTL_INSTALL_ROOT -DLIBELF_DIR=$LIBELF_INSTALL_ROOT  $NUMAMMA_ROOT || exit 1
+    cmake  -DCMAKE_INSTALL_PREFIX=$NUMAMMA_INSTALL_ROOT -DBACKTRACE_DIR=$LIBBACKTRACE_INSTALL_ROOT -DNUMACTL_DIR=$NUMACTL_INSTALL_ROOT -DLIBELF_DIR=$LIBELF_INSTALL_ROOT -DPFM_DIR=$PFM_INSTALL_ROOT  $NUMAMMA_ROOT || exit 1
     make || exit 1
     make install || exit 1
 else

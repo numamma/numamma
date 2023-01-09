@@ -39,6 +39,7 @@ static struct argp_option options[] = {
 	{"outputdir", 'o', "dir", 0, "Specify the directory where files are written (default: /tmp/numamma_$USER"},
 	{"match-samples", 'm', "yes|no", OPTION_ARG_OPTIONAL, "Match samples with the corresponding memory object (default: yes)"},
 	{"online-analysis", ONLINE_ANALYSIS, 0, 0, "Analyze samples at runtime (default: disabled)"},
+	{"dump-all", 'D', 0, 0, "dump all memory objects (default: disabled)"},
 	{"dump", 'd', 0, 0, "Dump the collected memory access (default: disabled)"},
 	{"dump-unmatched", 'u', 0, 0, "Dump the samples that did not match a memory object (default: disabled)"},
 	{0}
@@ -89,6 +90,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
   case 'd':
     settings->dump = 1;
     break;
+  case 'D':
+    settings->dump_all = 1;
+    break;
   case 'u':
     settings->dump_unmatched = 1;
     break;
@@ -124,6 +128,7 @@ int main(int argc, char **argv) {
   snprintf(settings.output_dir, STRING_LENGTH, "/tmp/numamma_%s", getenv("USER"));
   settings.match_samples = SETTINGS_MATCH_SAMPLES_DEFAULT;
   settings.online_analysis = SETTINGS_ONLINE_ANALYSIS_DEFAULT;
+  settings.dump_all = SETTINGS_DUMP_ALL_DEFAULT;
   settings.dump = SETTINGS_DUMP_DEFAULT;
   settings.dump_unmatched = SETTINGS_DUMP_UNMATCHED_DEFAULT;
 
@@ -178,6 +183,7 @@ int main(int argc, char **argv) {
   setenv("NUMAMMA_OUTPUT_DIR", settings.output_dir, 1);
   setenv_int("NUMAMMA_MATCH_SAMPLES", settings.match_samples, 1);
   setenv_int("NUMAMMA_ONLINE_ANALYSIS", settings.online_analysis, 1);
+  setenv_int("NUMAMMA_DUMP_ALL", settings.dump_all, 1);
   setenv_int("NUMAMMA_DUMP", settings.dump, 1);
   setenv_int("NUMAMMA_DUMP_UNMATCHED", settings.dump_unmatched, 1);
   
