@@ -96,7 +96,7 @@ if ! [ -d $LIBELF_INSTALL_ROOT ]; then
     make || exit 1
     make install || exit 1
 else
-    echo "numap is already installed"
+    echo "libelf is already installed"
 fi
 
 
@@ -108,7 +108,7 @@ if ! [ -d $NUMAP_INSTALL_ROOT ]; then
     echo "Installing numap..."
     rm -rf $NUMAP_ROOT || exit 1
 
-    git clone https://github.com/jklinkenberg/numap.git $NUMAP_ROOT || exit 1
+    git clone https://github.com/numap-library/numap.git $NUMAP_ROOT || exit 1
     cd $NUMAP_ROOT  || exit 1
     mkdir build || exit 1
     cd build
