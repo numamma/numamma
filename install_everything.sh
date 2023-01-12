@@ -49,7 +49,7 @@ PFM_INSTALL_ROOT=$ROOT_INSTALL_DIR/libpfm
 if ! [ -d $PFM_INSTALL_ROOT ]; then
     echo "Installing libpfm..."
     rm -rf $PFM_ROOT
-    git clone git://git.code.sf.net/u/jklinkenberg/perfmon2 $PFM_ROOT || exit 1
+    git clone https://git.code.sf.net/p/perfmon2/libpfm4 $PFM_ROOT || exit 1
     cd $PFM_ROOT || exit 1
     make PREFIX=$PFM_INSTALL_ROOT -j4 install || exit 1
 else
@@ -125,7 +125,7 @@ NUMAMMA_INSTALL_ROOT=$ROOT_INSTALL_DIR/numamma
 if ! [ -d  $NUMAMMA_INSTALL_ROOT ]; then
     echo "Installing numamma..."
     rm -rf $NUMAMMA_ROOT || exit 1
-    git clone https://github.com/jklinkenberg/numamma.git $NUMAMMA_ROOT || exit 1
+    git clone https://github.com/numamma/numamma.git $NUMAMMA_ROOT || exit 1
     cd $NUMAMMA_ROOT || exit 1
     mkdir build || exit 1
     cd build || exit 1
