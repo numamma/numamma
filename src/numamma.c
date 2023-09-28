@@ -76,7 +76,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
     break;
 			
   case 'o':
-    settings->output_dir = &arg[1];
+    settings->output_dir = arg;
     break;
   case 'm':
     if(arg && strcmp(arg, "no")==0)
