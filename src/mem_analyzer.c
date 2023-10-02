@@ -144,7 +144,7 @@ int is_sample_in_buffer(struct mem_sample *sample, struct memory_info *buffer){
   if(buffer->buffer_addr <= addr_ptr &&
      addr_ptr < buffer->buffer_addr + buffer->buffer_size) {
     /* address matches */
-    return 1;
+    // return 1; ==> address alone is not sufficient
     if(buffer->alloc_date <=sample->timestamp &&
        sample->timestamp <= buffer->free_date) {
       /* timestamp matches */
