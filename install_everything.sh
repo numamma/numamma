@@ -34,7 +34,7 @@ if ! [ -d $LIBBACKTRACE_INSTALL_ROOT ]; then
     cd $LIBBACKTRACE_ROOT || exit 1
 
     # any version should work, but to be sure, specify a revision that was tested
-    git checkout 177940370e4a6b2509e92a0aaa9749184e64af43 || exit 1
+    git checkout 14818b7783eeb9a56c3f0fca78cefd3143f8c5f6 || exit 1
     ./configure --prefix=$LIBBACKTRACE_INSTALL_ROOT || exit 1
     make -j4 install|| exit 1
 else
@@ -86,9 +86,9 @@ if ! [ -d $LIBELF_INSTALL_ROOT ]; then
     echo "Installing libelf..."
     rm -rf $LIBELF_ROOT || exit 1
     cd $ROOT_DIR
-    wget https://sourceware.org/elfutils/ftp/0.186/elfutils-0.186.tar.bz2 || exit 1
-    tar xjf elfutils-0.186.tar.bz2 || exit 1
-    mv elfutils-0.186 $LIBELF_ROOT || exit 1
+    wget https://sourceware.org/elfutils/ftp/0.190/elfutils-0.190.tar.bz2 || exit 1
+    tar xjf elfutils-0.190.tar.bz2 || exit 1
+    mv elfutils-0.190 $LIBELF_ROOT || exit 1
     cd $LIBELF_ROOT  || exit 1
     mkdir build || exit 1
     cd build
