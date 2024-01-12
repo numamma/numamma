@@ -18,7 +18,7 @@ set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${NUMACTL_LIBRARIES}
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  ${NUMACTL_LIBRARIES}   ${NUMAP_LDFLAGS} ${NUMAP_LDFLAGS_OTHER}  -L${BACKTRACE_DIR}/lib -lbacktrace")
 
 
-target_link_libraries(numamma ${NUMAP_LIBRARY} -lbacktrace -lnumap -ldl -lpthread numamma-tools -lrt -lelf)
+target_link_libraries(numamma ${NUMAP_LIBRARY} -lbacktrace -lnumap -ldl -lpthread numamma-tools -lrt ${LIBELF_LIBRARIES})
 
 add_library(numa_run SHARED
   mem_run.c

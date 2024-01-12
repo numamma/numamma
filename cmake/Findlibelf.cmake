@@ -21,6 +21,8 @@ endif (LIBELF_LIBRARIES AND LIBELF_INCLUDE_DIRS)
 find_path (LIBELF_INCLUDE_DIRS
   NAMES
     libelf.h
+  HINTS
+    ${LIBELF_DIR}/include
   PATHS
     /usr/include
     /usr/include/libelf
@@ -35,6 +37,8 @@ find_path (LIBELF_INCLUDE_DIRS
 find_library (LIBELF_LIBRARIES
   NAMES
     elf
+  HINTS
+    ${LIBELF_DIR}/lib
   PATHS
     /usr/lib
     /usr/local/lib
@@ -47,7 +51,7 @@ include (FindPackageHandleStandardArgs)
 
 
 # handle the QUIETLY and REQUIRED arguments and set LIBELF_FOUND to TRUE if all listed variables are TRUE
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(LibElf DEFAULT_MSG
+FIND_PACKAGE_HANDLE_STANDARD_ARGS(libelf DEFAULT_MSG
   LIBELF_LIBRARIES
   LIBELF_INCLUDE_DIRS)
 
