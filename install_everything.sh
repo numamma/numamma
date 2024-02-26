@@ -35,7 +35,7 @@ if ! [ -d $LIBBACKTRACE_INSTALL_ROOT ]; then
 
     # any version should work, but to be sure, specify a revision that was tested
     git checkout 14818b7783eeb9a56c3f0fca78cefd3143f8c5f6 || exit 1
-    ./configure --prefix=$LIBBACKTRACE_INSTALL_ROOT || exit 1
+    ./configure --prefix=$LIBBACKTRACE_INSTALL_ROOT --enable-shared || exit 1
     make -j4 install|| exit 1
 else
     echo "libbacktrace is already installed"
