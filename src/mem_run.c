@@ -223,7 +223,7 @@ void* realloc(void *ptr, size_t size) {
     fprintf(stderr,"%s(%p). I can't find this pointer !\n", __FUNCTION__, ptr);
     abort();
     void* retval = librealloc(ptr, size);
-    debug_printf("%s returns --> %p\n", retval, __FUNCTION__);
+    debug_printf("%s returns --> %p\n", __FUNCTION__, retval);
     return retval;
   }
 

@@ -165,18 +165,14 @@ void ma_print_mem_info(FILE*f, struct memory_info *mem) {
     if(mem->callstack_rip) {
         for(int i = 3; i < mem->callstack_size; i++) {
             char cur_str[16];
-            if(i == 3) {
-                sprintf(cur_str, "0x%"PRIx64"", mem->callstack_rip[i]);
-            } else {
-                sprintf(cur_str, ",0x%"PRIx64"", mem->callstack_rip[i]);
-            }        
+            sprintf(cur_str, "%s0x%p", (i == 3 ? "" : ","), mem->callstack_rip[i]);
             strcat(callstack_rip_str, cur_str);
         }
     } else {
         strcat(callstack_rip_str, "NULL");
     }
 
-    fprintf(f, "mem %p = {.addr=0x%"PRIx64", .alloc_date=%" PRIu64 ", .free_date=%" PRIu64 ", size=%ld, callstack_rip=%s, alloc_site=%p / %s}\n", mem,
+    fprintf(f, "mem %p = {.addr=0x%p, .alloc_date=%" PRIu64 ", .free_date=%" PRIu64 ", size=%zu, callstack_rip=%s, alloc_site=%p / %s}\n", mem,
 	   mem->buffer_addr, mem->alloc_date?DATE(mem->alloc_date):0, mem->free_date?DATE(mem->free_date):0,
 	   mem->buffer_size, callstack_rip_str, mem->caller_rip, mem->caller?mem->caller:"");
   }
@@ -593,7 +589,7 @@ static void __ma_register_stack_range(uintptr_t stack_base_addr,
 				      uintptr_t stack_end_addr) {
   size_t stack_size = stack_end_addr - stack_base_addr;
 
-  debug_printf("Stack address range: %p-%p (stack size: %lu bytes)\n",
+  debug_printf("Stack address range: %"PRIxPTR"-%"PRIxPTR" (stack size: %zu bytes)\n",
 	       stack_base_addr, stack_end_addr, stack_size);
 
   /* create a mem_info record */
@@ -663,7 +659,7 @@ void ma_register_stack() {
     int inode;
     char file[4096];
       
-    int nfields = sscanf(line, "%p-%p %s %x %x:%x %d %s",
+    int nfields = sscanf(line, "%p-%p %s %zx %x:%x %d %s",
 		     &stack_base_addr, &stack_end_addr, permission, &offset,
 		     &device1, &device2, &inode, file);
     if(nfields == 7 || (inode == 0 && strcmp(file, "[stack]")==0)) {
@@ -762,7 +758,7 @@ struct maps_file_list* insert_new_maps_file_from_line(char *line, struct maps_fi
   uint64_t inode;
   char pathname[1024];
 
-  sscanf(line, "%p-%p %s %p %s %ld %s\n", &addr_begin, &addr_end, permissions, &offset, device, &inode, pathname);
+  sscanf(line, "%"SCNuPTR"-%"SCNuPTR" %s %"SCNxPTR" %s %"SCNu64" %s\n", &addr_begin, &addr_end, permissions, &offset, device, &inode, pathname);
   if (pathname == NULL) return current_list;
   struct maps_file_list* current_file = current_list;
   while (current_file != NULL) {
@@ -810,10 +806,10 @@ void fprint_maps_file(FILE *f, struct maps_file_list* list) {
   fprintf(f, "\tinode : %ld\n", list->inode);
   struct maps_addr_ranges* current_range = list->addr_ranges;
   do {
-    fprintf(f, "\t%p-%p (%p) : %p : %s\n",
+    fprintf(f, "\t%" PRIxPTR "-%" PRIxPTR " (%" PRIxPTR ") : %" PRIxPTR " : %s\n",
 	    current_range->addr_begin,
 	    current_range->addr_end,
-	    (void*) ((size_t) current_range->addr_end - (size_t) current_range->addr_begin),
+	    current_range->addr_end - current_range->addr_begin,
 	    current_range->offset,
 	    current_range->permissions);
   } while((current_range = current_range->next) != NULL);
@@ -831,9 +827,9 @@ void print_elf_header(GElf_Ehdr header) {
   printf("\te_type : %d\n", header.e_type);
   printf("\te_machine : %d\n", header.e_machine);
   printf("\te_version : %d\n", header.e_version);
-  printf("\te_entry : %d\n", header.e_entry);
-  printf("\te_phoff : %d\n", header.e_phoff);
-  printf("\te_shoff : %p\n", (void*)header.e_shoff);
+  printf("\te_entry : %"PRIuPTR"\n", header.e_entry);
+  printf("\te_phoff : %"PRIu64"\n", header.e_phoff);
+  printf("\te_shoff : %"PRIx64"\n", header.e_shoff);
   printf("\te_flags : %d\n", header.e_flags);
   printf("\te_ehsize : %d\n", header.e_ehsize);
   printf("\te_phentsize : %d\n", header.e_phentsize);
@@ -955,14 +951,14 @@ void print_section_header(GElf_Shdr shdr, const char* spacing)
       break;
   }
   printf(")\n");
-  printf("%ssh_flags : %d\n", spacing, shdr.sh_flags);
-  printf("%ssh_addr : %p\n", spacing, shdr.sh_addr);
-  printf("%ssh_offset : %p\n", spacing, (void*)shdr.sh_offset);
-  printf("%ssh_size : %d\n", spacing, shdr.sh_size);
+  printf("%ssh_flags : %" PRIu64 "\n", spacing, shdr.sh_flags);
+  printf("%ssh_addr : %" PRIxPTR "\n", spacing, shdr.sh_addr);
+  printf("%ssh_offset : %" PRIx64 "\n", spacing, shdr.sh_offset);
+  printf("%ssh_size : %" PRIu64 "\n", spacing, shdr.sh_size);
   printf("%ssh_link : %d\n", spacing, shdr.sh_link);
   printf("%ssh_info : %d\n", spacing, shdr.sh_info);
-  printf("%ssh_addralign : %d\n", spacing, shdr.sh_addralign);
-  printf("%ssh_entsize : %d\n", spacing, shdr.sh_entsize);
+  printf("%ssh_addralign : %" PRIu64 "\n", spacing, shdr.sh_addralign);
+  printf("%ssh_entsize : %" PRIu64 "\n", spacing, shdr.sh_entsize);
 }
 
 static void __ma_parse_elf(struct maps_file_list maps_file) {
@@ -1071,7 +1067,7 @@ static void __ma_parse_elf(struct maps_file_list maps_file) {
 	uintptr_t addr = value + addr_begin;
 	struct memory_info *mem_info = insert_memory_info(lib, size, (void*)addr, symbol);
 	if(settings.verbose)
-	  printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s, value=%p\n",
+	  printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s, value=%"PRIxPTR"\n",
 		 maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller, value);
 #endif
       }
@@ -1458,7 +1454,7 @@ static void __print_counters(FILE*f, struct mem_counters* counters) {
 #define PERCENT_WEIGHT(__c) (counters[i].total_weight?100.*counters[i].__c.sum_weight/counters[i].total_weight:0)
     
 #define PRINT_COUNTER(__c, str) \
-    if(counters[i].__c.count) fprintf(f, "# %s\t: %ld (%f %%) \tmin: %llu cycles\tmax: %llu cycles\t avg: %llu cycles\ttotal weight: % "PRIu64" (%f %%)\n", \
+    if(counters[i].__c.count) fprintf(f, "# %s\t: %ld (%f %%) \tmin: %"PRIu64" cycles\tmax: %"PRIu64" cycles\t avg: %"PRIu64" cycles\ttotal weight: %"PRIu64" (%f %%)\n", \
 				     str, counters[i].__c.count, PERCENT(__c), MIN_COUNT(__c), MAX_COUNT(__c), AVG_COUNT(__c), \
 				     WEIGHT(__c), PERCENT_WEIGHT(__c))
     
@@ -1617,13 +1613,13 @@ void print_call_site_summary() {
 	avg_read_weight = (double)site->cumulated_counters.counters[ACCESS_READ].total_weight / site->cumulated_counters.counters[ACCESS_READ].total_count;
       }
 
-      fprintf(callsite_file, "%d\t%s (size=%zu) - %d buffers. %d read access (total weight: %u, avg weight: %f). %d wr_access\n",
+      fprintf(callsite_file, "%d\t%s (size=%zu) - %d buffers. %zu read access (total weight: %"PRIu64", avg weight: %f). %"PRIu64" wr_access\n",
 	      site->id, site->caller, site->buffer_size, site->nb_mallocs,
 	      site->cumulated_counters.counters[ACCESS_READ].total_count,
 	      site->cumulated_counters.counters[ACCESS_READ].total_weight,
 	      avg_read_weight,
 	      site->cumulated_counters.counters[ACCESS_WRITE].total_count);
-      printf("%d\t%s (size=%zu) - %d buffers. %d read access (total weight: %u, avg weight: %f). %d wr_access\n",
+      printf("%d\t%s (size=%zu) - %d buffers. %zu read access (total weight: %"PRIu64", avg weight: %f). %"PRIu64" wr_access\n",
 	     site->id, site->caller, site->buffer_size, site->nb_mallocs,
 	     site->cumulated_counters.counters[ACCESS_READ].total_count,
 	     site->cumulated_counters.counters[ACCESS_READ].total_weight,
@@ -1688,13 +1684,8 @@ static void _print_object_summary(FILE* f, struct memory_info* mem_info) {
       // calculate offset to where shared library / executable has been loaded into memory
       ptrdiff_t offset = (uintptr_t)mem_info->callstack_rip[i] - (uintptr_t)info.dli_fbase;
 
-      if(i == 3) {
-        sprintf(cur_str_rip, "0x%"PRIx64"", mem_info->callstack_rip[i]);
-        sprintf(cur_str_offset, "%s:%td", info.dli_fname, offset);
-      } else {
-        sprintf(cur_str_rip, ",0x%"PRIx64"", mem_info->callstack_rip[i]);
-        sprintf(cur_str_offset, ",%s:%td", info.dli_fname, offset);
-      }        
+      sprintf(cur_str_rip, "%s0x%p", (i == 3 ? "" : ","), mem_info->callstack_rip[i]);
+      sprintf(cur_str_offset, "%s%s:%td", (i == 3 ? "" : ","), info.dli_fname, offset);
       strcat(callstack_rip_str, cur_str_rip);
       strcat(callstack_offset_str, cur_str_offset);
     }
@@ -1703,7 +1694,7 @@ static void _print_object_summary(FILE* f, struct memory_info* mem_info) {
     strcat(callstack_offset_str, "NULL");
   }
 
-  fprintf(f, "%d\t0x%"PRIx64"\t%ld\t%"PRIu64"\t%"PRIu64"\t%s\t%s\t0x%"PRIx64"\t%s\n",
+  fprintf(f, "%d\t0x%p\t%ld\t%"PRIu64"\t%"PRIu64"\t%s\t%s\t0x%p\t%s\n",
 	  mem_info->id, mem_info->buffer_addr, mem_info->buffer_size,
 	  mem_info->alloc_date, mem_info->free_date, callstack_rip_str, callstack_offset_str, mem_info->caller_rip, caller);
 }
