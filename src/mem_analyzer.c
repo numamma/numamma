@@ -758,7 +758,7 @@ struct maps_file_list* insert_new_maps_file_from_line(char *line, struct maps_fi
   uint64_t inode;
   char pathname[1024];
 
-  sscanf(line, "%"SCNuPTR"-%"SCNuPTR" %s %"SCNxPTR" %s %"SCNu64" %s\n", &addr_begin, &addr_end, permissions, &offset, device, &inode, pathname);
+  sscanf(line, "%"SCNxPTR"-%"SCNxPTR" %s %"SCNxPTR" %s %"SCNu64" %s\n", &addr_begin, &addr_end, permissions, &offset, device, &inode, pathname);
   if (pathname[0] == '\0') return current_list;
   struct maps_file_list* current_file = current_list;
   while (current_file != NULL) {
