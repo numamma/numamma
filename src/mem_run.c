@@ -522,16 +522,12 @@ static void get_thread_binding() {
 }
 
 static void load_custom_block(FILE*f) {
-  char block_identifier[4096];
-  size_t buffer_len=-1;
-  size_t nb_blocks=0;
-
   struct mbind_directive *dir=malloc(sizeof(struct mbind_directive));
-  
-  int nread=fscanf(f, "%s\t%zu\t%d", dir->block_identifier, &dir->buffer_len, &dir->nb_blocks);
+
+  int nread=fscanf(f, "%s\t%zu\t%zu", dir->block_identifier, &dir->buffer_len, &dir->nb_blocks);
   assert(nread==3);
   if(_verbose)
-    printf("New custom block(id=%s, len=%d, nblocks=%d)\n", dir->block_identifier, dir->buffer_len, dir->nb_blocks);
+    printf("New custom block(id=%s, len=%zu, nblocks=%zu)\n", dir->block_identifier, dir->buffer_len, dir->nb_blocks);
 
   if(strcmp(dir->block_identifier, "malloc") == 0) {
     dir->buffer_type=type_malloc;
@@ -704,7 +700,7 @@ static void bind_buffer_blocks(void*buffer, size_t len,
   uintptr_t base_addr=align_ptr((uintptr_t)buffer, page_size);
 
   if(_verbose)
-    printf("[Mem_run] Binding %d blocks. starting at %p\n", n_blocks, base_addr);
+    printf("[Mem_run] Binding %d blocks. starting at 0x%"PRIxPTR"\n", n_blocks, base_addr);
 
 
   for(int i=0; i<n_blocks; i++) {
@@ -856,7 +852,7 @@ static void bind_malloced_buffer(void* buffer, size_t len, char* buffer_id) {
 
       dir->base_addr = buffer;
       if(_verbose) {
-	printf("Binding malloced buffer(len=%d)\n", len);
+	printf("Binding malloced buffer(len=%zu)\n", len);
       }
       bind_buffer_blocks(buffer, len, dir->nb_blocks, dir->blocks);
       return;
@@ -880,6 +876,8 @@ static void bind_buffer(void* buffer, size_t len, char* buffer_id) {
       bind_custom(buffer, len, buffer_id);
       break;
       /* else: nothing to do */
+    default:
+      break;
     }
   }
 }
@@ -915,7 +913,7 @@ void bind_global_variables() {
 
   debug_printf("  The program file is %s\n", program_file);
   /* get the address at which the program is mapped in memory */
-  char cmd[4069];
+  char cmd[4132];
   char line[4096];
   void *base_addr = NULL;
   void *end_addr = NULL;
@@ -943,8 +941,8 @@ void bind_global_variables() {
   }
 
   /* get the list of global variables in the current binary */
-  char nm_cmd[1024];
-  sprintf(nm_cmd, "nm -fs --defined-only -l -S %s", program_file);
+  char nm_cmd[4126];
+  sprintf(nm_cmd, "nm -fs --defined-only -l -S \"%s\"", program_file);
   //sprintf(nm_cmd, "nm --defined-only -l -S %s", program_file);
   f = popen(nm_cmd, "r");
 
@@ -1022,7 +1020,7 @@ symbol_name |addr| section | type |symbol_size| [line]    |section    [file:line
 	continue;
       }
       size_t size;
-      sscanf(size_str, "%lx", &size);
+      sscanf(size_str, "%zx", &size);
       if(size) {
 
 	
@@ -1045,7 +1043,7 @@ symbol_name |addr| section | type |symbol_size| [line]    |section    [file:line
 	 *  addr+base_addr
 	 */
 	size_t offset;
-	sscanf(addr, "%lx", &offset);
+	sscanf(addr, "%zx", &offset);
 	void* buffer_addr = offset + (uint8_t*)base_addr;
 	size_t buffer_size = size;
 	char caller[1024];

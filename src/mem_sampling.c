@@ -199,9 +199,9 @@ void mem_sampling_init() {
   settings.buffer_size *= 1024;
   size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
   if(settings.buffer_size % page_size != 0) {
-    printf("[NumaMMA] buffer_size must be a multiple of %lu !\n", page_size);
+    printf("[NumaMMA] buffer_size must be a multiple of %zu !\n", page_size);
     settings.buffer_size -= settings.buffer_size % page_size;
-    printf("[NumaMMA]\tadjusting buffer_size to %lu !\n", settings.buffer_size);
+    printf("[NumaMMA]\tadjusting buffer_size to %zu !\n", settings.buffer_size);
   }
 
   numap_page_count = settings.buffer_size / page_size;
@@ -241,7 +241,7 @@ void numap_generic_handler(struct numap_sampling_measure *m,
       numap_sampling_resume(thread_ranks[i].sm_wr);
 
       write_size = copied_size;
-      debug_printf("\tThread %d: %llu bytes read, %llu bytes write\n", i, read_size, write_size);
+      debug_printf("\tThread %d: %zu bytes read, %zu bytes write\n", i, read_size, write_size);
     }
 #else
     /* collect samples from the buffer that was signaled */
@@ -326,7 +326,7 @@ void mem_sampling_finalize() {
       int found_samples = 0;
       if(nb_blocks % 10 == 0) {
         fflush(stdout);
-        printf("\rAnalyzing sample buffer %d/%d. Total samples so far: %d",
+        printf("\rAnalyzing sample buffer %d/%d. Total samples so far: %zu",
 	       nb_blocks, nb_sample_buffers,
 	       nb_samples_total);
       }
@@ -341,7 +341,7 @@ void mem_sampling_finalize() {
       mem_allocator_free(sample_mem, prev);
     }
     printf("\n");
-    printf("%llu bytes processed\n", total_buffer_size);
+    printf("%zu bytes processed\n", total_buffer_size);
   }
 }
 
@@ -640,7 +640,7 @@ static struct memory_info* __match_sample(struct mem_sample *sample,
       /* write the content of the sample to a file */
       fprintf(dump_unmatched_file,
 	      // thread_rank timestamp address mem_level access_weight access_type
-	      "%d %" PRIu64 " %p %s %" PRIu64 " %c\n",
+	      "%u %" PRIu64 " 0x%"PRIxPTR" %s %" PRIu64 " %c\n",
 		  samples->thread_rank,
 		  sample->timestamp,
 		  sample->addr,
@@ -760,7 +760,7 @@ static void _dump_mem_info(struct mem_sample *sample,
 
     /* write the content of the sample to a file */
     fprintf(dump_all_file,
-	    "%d %" PRIu64 " %d %" PRIu64 " %s %" PRIu64 " %c\n",
+	    "%u %" PRIu64 " %u %" PRIu64 " %s %" PRIu64 " %c\n",
 	    samples->thread_rank,
 	    sample->timestamp,
 	    mem_info->id,
@@ -795,7 +795,7 @@ static void _dump_call_site(struct mem_sample *sample,
 	  
     /* write the content of the sample to a file */
     fprintf(mem_info->call_site->dump_file,
-	    "%d %" PRIu64 " %" PRIu64 " %s %" PRIu64 " %c\n",
+	    "%u %" PRIu64 " %" PRIuPTR " %s %" PRIu64 " %c\n",
 	    samples->thread_rank,
 	    sample->timestamp,
 	    offset,
