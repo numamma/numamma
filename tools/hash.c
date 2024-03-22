@@ -110,6 +110,7 @@ static struct ht_entry* __ht_new_entry(struct ht_node* node, void *value) {
   e->value = value;
   e->next = node->entries;
   node->entries = e;
+  return e;
 }
 
 /* deallocate a node and its entries */

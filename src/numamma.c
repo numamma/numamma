@@ -167,17 +167,21 @@ int main(int argc, char **argv) {
   setenv("LD_PRELOAD", ld_preload, 1);
   setenv("LD_LIBRARY_PATH", ld_library_path, 1);
 
-#define setenv_int(var, value, overwrite) do {	\
+#define setenv_format(var, format, value, overwrite) do {	\
     char str[STRING_LEN];			\
-    snprintf(str, STRING_LEN, "%d", value);	\
+    snprintf(str, STRING_LEN, format, value);	\
     setenv(var, str, overwrite);		\
   }while(0)
-  
+#define setenv_int(var, value, overwrite) 	\
+  setenv_format(var, "%d", value, overwrite)
+#define setenv_size_t(var, value, overwrite) 	\
+  setenv_format(var, "%zu", value, overwrite)
+
   setenv_int("NUMAMMA_VERBOSE", settings.verbose, 1);
   setenv_int("NUMAMMA_SAMPLING_RATE", settings.sampling_rate, 1);
   setenv_int("NUMAMMA_ALARM", settings.alarm, 1);
   setenv_int("NUMAMMA_FLUSH", settings.flush, 1);
-  setenv_int("NUMAMMA_BUFFER_SIZE", settings.buffer_size, 1);
+  setenv_size_t("NUMAMMA_BUFFER_SIZE", settings.buffer_size, 1);
   setenv_int("NUMAMMA_CANARY_CHECK", settings.canary_check, 1);
 
   setenv("NUMAMMA_OUTPUT_DIR", settings.output_dir, 1);

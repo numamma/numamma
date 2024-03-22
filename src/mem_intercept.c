@@ -450,7 +450,7 @@ static void print_settings() {
   printf("sampling_rate  : %d\n", settings.sampling_rate);
   printf("alarm          : %d\n", settings.alarm);
   printf("flush          : %s\n", settings.flush? "yes":"no");
-  printf("buffer_size    : %d KB\n", settings.buffer_size);
+  printf("buffer_size    : %zu KB\n", settings.buffer_size);
   printf("output_dir     : %s\n", settings.output_dir);
   printf("canary_check   : %d\n", settings.canary_check);
   printf("match_samples  : %s\n", settings.match_samples? "yes":"no");
