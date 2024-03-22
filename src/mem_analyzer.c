@@ -165,15 +165,16 @@ void ma_print_mem_info(FILE*f, struct memory_info *mem) {
     if(mem->callstack_rip) {
         for(int i = 3; i < mem->callstack_size; i++) {
             char cur_str[16];
-            sprintf(cur_str, "%s0x%p", (i == 3 ? "" : ","), mem->callstack_rip[i]);
+            const char* prefix = (i == 3 ? "" : ",");
+            sprintf(cur_str, "%s0x%"PRIxPTR, prefix, (uintptr_t) mem->callstack_rip[i]);
             strcat(callstack_rip_str, cur_str);
         }
     } else {
         strcat(callstack_rip_str, "NULL");
     }
 
-    fprintf(f, "mem %p = {.addr=0x%p, .alloc_date=%" PRIu64 ", .free_date=%" PRIu64 ", size=%zu, callstack_rip=%s, alloc_site=%p / %s}\n", mem,
-	   mem->buffer_addr, mem->alloc_date?DATE(mem->alloc_date):0, mem->free_date?DATE(mem->free_date):0,
+    fprintf(f, "mem %p = {.addr=0x%" PRIxPTR ", .alloc_date=%" PRIu64 ", .free_date=%" PRIu64 ", size=%zu, callstack_rip=%s, alloc_site=%p / %s}\n", mem,
+	   (uintptr_t) mem->buffer_addr /* cast to avoid "(nil)" */, mem->alloc_date?DATE(mem->alloc_date):0, mem->free_date?DATE(mem->free_date):0,
 	   mem->buffer_size, callstack_rip_str, mem->caller_rip, mem->caller?mem->caller:"");
   }
 }
@@ -589,7 +590,7 @@ static void __ma_register_stack_range(uintptr_t stack_base_addr,
 				      uintptr_t stack_end_addr) {
   size_t stack_size = stack_end_addr - stack_base_addr;
 
-  debug_printf("Stack address range: %"PRIxPTR"-%"PRIxPTR" (stack size: %zu bytes)\n",
+  debug_printf("Stack address range: 0x%"PRIxPTR"-0x%"PRIxPTR" (stack size: %zu bytes)\n",
 	       stack_base_addr, stack_end_addr, stack_size);
 
   /* create a mem_info record */
@@ -650,8 +651,8 @@ void ma_register_stack() {
     // each line is in the form:
     // <start_addr>-<end_addr> <permission> <offset> <device> <inode> <file>
 
-    void *stack_base_addr = NULL;
-    void *stack_end_addr = NULL;
+    uintptr_t stack_base_addr = 0;
+    uintptr_t stack_end_addr = 0;
     char permission[10];
     size_t offset=0;
     int device1;
@@ -659,15 +660,15 @@ void ma_register_stack() {
     int inode;
     char file[4096];
       
-    int nfields = sscanf(line, "%p-%p %s %zx %x:%x %d %s",
+    int nfields = sscanf(line, "%"SCNxPTR"-%"SCNxPTR" %s %zx %x:%x %d %s",
 		     &stack_base_addr, &stack_end_addr, permission, &offset,
 		     &device1, &device2, &inode, file);
     if(nfields == 7 || (inode == 0 && strcmp(file, "[stack]")==0)) {
-      if((uintptr_t)stack_base_addr > (uintptr_t)0x7f0000000000) {
+      if(stack_base_addr > 0x7f0000000000) {
 	/* let's assume this is a stack region */
 	printf("While reading '%s', found %d fields. inode=%d, file='%s'\n", line, nfields, inode, file);
 
-	__ma_register_stack_range((uintptr_t)stack_base_addr, (uintptr_t)stack_end_addr);
+	__ma_register_stack_range(stack_base_addr, stack_end_addr);
       }
     }
   }
@@ -806,7 +807,7 @@ void fprint_maps_file(FILE *f, struct maps_file_list* list) {
   fprintf(f, "\tinode : %ld\n", list->inode);
   struct maps_addr_ranges* current_range = list->addr_ranges;
   do {
-    fprintf(f, "\t%" PRIxPTR "-%" PRIxPTR " (%" PRIxPTR ") : %" PRIxPTR " : %s\n",
+    fprintf(f, "\t0x%" PRIxPTR "-0x%" PRIxPTR " (0x%" PRIxPTR ") : 0x%" PRIxPTR " : %s\n",
 	    current_range->addr_begin,
 	    current_range->addr_end,
 	    current_range->addr_end - current_range->addr_begin,
@@ -829,7 +830,7 @@ void print_elf_header(GElf_Ehdr header) {
   printf("\te_version : %d\n", header.e_version);
   printf("\te_entry : %"PRIuPTR"\n", header.e_entry);
   printf("\te_phoff : %"PRIu64"\n", header.e_phoff);
-  printf("\te_shoff : %"PRIx64"\n", header.e_shoff);
+  printf("\te_shoff : 0x%"PRIx64"\n", header.e_shoff);
   printf("\te_flags : %d\n", header.e_flags);
   printf("\te_ehsize : %d\n", header.e_ehsize);
   printf("\te_phentsize : %d\n", header.e_phentsize);
@@ -952,8 +953,8 @@ void print_section_header(GElf_Shdr shdr, const char* spacing)
   }
   printf(")\n");
   printf("%ssh_flags : %" PRIu64 "\n", spacing, shdr.sh_flags);
-  printf("%ssh_addr : %" PRIxPTR "\n", spacing, shdr.sh_addr);
-  printf("%ssh_offset : %" PRIx64 "\n", spacing, shdr.sh_offset);
+  printf("%ssh_addr : 0x%" PRIxPTR "\n", spacing, shdr.sh_addr);
+  printf("%ssh_offset : 0x%" PRIx64 "\n", spacing, shdr.sh_offset);
   printf("%ssh_size : %" PRIu64 "\n", spacing, shdr.sh_size);
   printf("%ssh_link : %d\n", spacing, shdr.sh_link);
   printf("%ssh_info : %d\n", spacing, shdr.sh_info);
@@ -1067,7 +1068,7 @@ static void __ma_parse_elf(struct maps_file_list maps_file) {
 	uintptr_t addr = value + addr_begin;
 	struct memory_info *mem_info = insert_memory_info(lib, size, (void*)addr, symbol);
 	if(settings.verbose)
-	  printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s, value=%"PRIxPTR"\n",
+	  printf("Found a lib variable (defined at %s). addr=%p, size=%zu, symbol=%s, value=0x%"PRIxPTR"\n",
 		 maps_file.pathname, mem_info->buffer_addr, mem_info->buffer_size, mem_info->caller, value);
 #endif
       }
@@ -1684,8 +1685,9 @@ static void _print_object_summary(FILE* f, struct memory_info* mem_info) {
       // calculate offset to where shared library / executable has been loaded into memory
       ptrdiff_t offset = (uintptr_t)mem_info->callstack_rip[i] - (uintptr_t)info.dli_fbase;
 
-      sprintf(cur_str_rip, "%s0x%p", (i == 3 ? "" : ","), mem_info->callstack_rip[i]);
-      sprintf(cur_str_offset, "%s%s:%td", (i == 3 ? "" : ","), info.dli_fname, offset);
+      const char* prefix = (i == 3 ? "" : ",");
+      sprintf(cur_str_rip, "%s0x%"PRIxPTR, prefix, (uintptr_t) mem_info->callstack_rip[i]); // Cast to avoid "(nil)"
+      sprintf(cur_str_offset, "%s%s:%td", prefix, info.dli_fname, offset);
       strcat(callstack_rip_str, cur_str_rip);
       strcat(callstack_offset_str, cur_str_offset);
     }
@@ -1694,9 +1696,11 @@ static void _print_object_summary(FILE* f, struct memory_info* mem_info) {
     strcat(callstack_offset_str, "NULL");
   }
 
-  fprintf(f, "%d\t0x%p\t%ld\t%"PRIu64"\t%"PRIu64"\t%s\t%s\t0x%p\t%s\n",
-	  mem_info->id, mem_info->buffer_addr, mem_info->buffer_size,
-	  mem_info->alloc_date, mem_info->free_date, callstack_rip_str, callstack_offset_str, mem_info->caller_rip, caller);
+  fprintf(f, "%d\t0x%"PRIxPTR"\t%ld\t%"PRIu64"\t%"PRIu64"\t%s\t%s\t0x%"PRIxPTR"\t%s\n",
+	  mem_info->id, (uintptr_t) mem_info->buffer_addr, // Cast to avoid using %p which changes "0x0" for "(nil)"
+	  mem_info->buffer_size, mem_info->alloc_date, mem_info->free_date, callstack_rip_str,
+	  callstack_offset_str, (uintptr_t) mem_info->caller_rip, // Cast to avoid %p too
+	  caller);
 }
 
 static void print_object_summary_from_list(FILE* f, mem_info_node_t list) {
