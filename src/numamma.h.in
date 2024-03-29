@@ -20,7 +20,7 @@ struct numamma_settings {
   int flush;
 
   /* size (in KB per thread) of the buffer that contains the samples */
-  int buffer_size;
+  size_t buffer_size;
   int canary_check;
 
   char* output_dir;
