@@ -580,6 +580,9 @@ static void __memory_conclude(void) {
   if(settings.dump_unmatched) {
     fclose(dump_unmatched_file);
   }
+  if (settings.output_dir) {
+    free(settings.output_dir);
+  }
 
   printf("Output directory: %s\n", get_log_dir());
 }
