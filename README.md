@@ -243,4 +243,4 @@ The data produced by NumaMMA at runtime can be plotted using R scripts:
 
 The   file    `hash.c`   is    compiled   into   a    shared   library
 `libnumamma-tools.so`.  This file  provides  functions  to create  and
-manipulate a has map.
+manipulate a hash map.
