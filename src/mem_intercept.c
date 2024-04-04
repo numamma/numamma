@@ -441,23 +441,25 @@ static void read_settings() {
   getenv_int(settings.dump_all, "NUMAMMA_DUMP_ALL", SETTINGS_DUMP_ALL_DEFAULT);
   getenv_int(settings.dump, "NUMAMMA_DUMP", SETTINGS_DUMP_DEFAULT);
   getenv_int(settings.dump_unmatched, "NUMAMMA_DUMP_UNMATCHED", SETTINGS_DUMP_UNMATCHED_DEFAULT);
+  getenv_int(settings.dump_single_items, "NUMAMMA_DUMP_SINGLE_ITEMS", SETTINGS_DUMP_SINGLE_ITEMS);
 }
 
 static void print_settings() {
   printf("-----------------------------------\n");
   printf("NumaMMA settings\n");
-  printf("verbose        : %s\n", settings.verbose ? "yes":"no");
-  printf("sampling_rate  : %d\n", settings.sampling_rate);
-  printf("alarm          : %d\n", settings.alarm);
-  printf("flush          : %s\n", settings.flush? "yes":"no");
-  printf("buffer_size    : %zu KB\n", settings.buffer_size);
-  printf("output_dir     : %s\n", settings.output_dir);
-  printf("canary_check   : %d\n", settings.canary_check);
-  printf("match_samples  : %s\n", settings.match_samples? "yes":"no");
-  printf("online_analysis: %s\n", settings.online_analysis? "yes":"no");
-  printf("dump_all       : %s\n", settings.dump_all? "yes":"no");
-  printf("dump           : %s\n", settings.dump? "yes":"no");
-  printf("dump_unmatched : %s\n", settings.dump_unmatched? "yes":"no");
+  printf("verbose           : %s\n", settings.verbose ? "yes":"no");
+  printf("sampling_rate     : %d\n", settings.sampling_rate);
+  printf("alarm             : %d\n", settings.alarm);
+  printf("flush             : %s\n", settings.flush? "yes":"no");
+  printf("buffer_size       : %zu KB\n", settings.buffer_size);
+  printf("output_dir        : %s\n", settings.output_dir);
+  printf("canary_check      : %d\n", settings.canary_check);
+  printf("match_samples     : %s\n", settings.match_samples? "yes":"no");
+  printf("online_analysis   : %s\n", settings.online_analysis? "yes":"no");
+  printf("dump_all          : %s\n", settings.dump_all? "yes":"no");
+  printf("dump              : %s\n", settings.dump? "yes":"no");
+  printf("dump_unmatched    : %s\n", settings.dump_unmatched? "yes":"no");
+  printf("dump_single_items : %s\n", settings.dump_single_items? "yes":"no");
   printf("-----------------------------------\n");
 }
 

@@ -42,6 +42,7 @@ static struct argp_option options[] = {
 	{"dump-all", 'D', 0, 0, "dump all memory objects (default: disabled)"},
 	{"dump", 'd', 0, 0, "Dump the collected memory access (default: disabled)"},
 	{"dump-unmatched", 'u', 0, 0, "Dump the samples that did not match a memory object (default: disabled)"},
+	{"no-dump-single-items", 'n', 0, 0, "If dump is enable, disable the dumping of per callsite data (one file each) (default: disabled)"},
 	{0}
 };
 
@@ -96,6 +97,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
   case 'u':
     settings->dump_unmatched = 1;
     break;
+  case 'n':
+    settings->dump_single_items = 0;
+    break;
 
   case ARGP_KEY_NO_ARGS:
     argp_usage(state);
@@ -131,6 +135,7 @@ int main(int argc, char **argv) {
   settings.dump_all = SETTINGS_DUMP_ALL_DEFAULT;
   settings.dump = SETTINGS_DUMP_DEFAULT;
   settings.dump_unmatched = SETTINGS_DUMP_UNMATCHED_DEFAULT;
+  settings.dump_single_items = SETTINGS_DUMP_SINGLE_ITEMS;
 
   // first divide argv between numamma options and target file and options
   // optionnal todo : better target detection : it should be possible to specify both --option=value and --option value, but for now the latter is not interpreted as such
@@ -190,7 +195,8 @@ int main(int argc, char **argv) {
   setenv_int("NUMAMMA_DUMP_ALL", settings.dump_all, 1);
   setenv_int("NUMAMMA_DUMP", settings.dump, 1);
   setenv_int("NUMAMMA_DUMP_UNMATCHED", settings.dump_unmatched, 1);
-  
+  setenv_int("NUMAMMA_DUMP_SINGLE_ITEMS", settings.dump_single_items, 1);
+
   extern char** environ;
   int ret;
   if (target_argv != NULL) {

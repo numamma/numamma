@@ -1627,7 +1627,7 @@ void print_call_site_summary() {
 	     avg_read_weight,
 	     site->cumulated_counters.counters[ACCESS_WRITE].total_count);
 
-      if(site->mem_info.mem_type != stack) {
+      if(settings.dump_single_items && site->mem_info.mem_type != stack) {
 	char filename[1024];
 	sprintf(filename, "%s/callsite_counters_%d.dat", get_log_dir(), site->id);
 	__plot_counters(&site->mem_info, nb_threads, filename);

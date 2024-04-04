@@ -907,7 +907,9 @@ static void __analyze_buffer(struct sample_list* samples,
 
 	  /* if needed, write the sample into files */
 	  _dump_mem_info(sample, access_type, mem_info, offset);
-	  _dump_call_site(sample, access_type, mem_info, offset);
+	  if (settings.dump_single_items) {
+		_dump_call_site(sample, access_type, mem_info, offset);
+	  }
 	}
       }
     }

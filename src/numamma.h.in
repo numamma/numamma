@@ -29,6 +29,7 @@ struct numamma_settings {
   int dump_all; 		/* if set, numamma dumps all memory objects samples (not only callsites)  */
   int dump;
   int dump_unmatched;
+  int dump_single_items; /* if set, numamma dumps data for each item, each in its independant file */
 };
 extern struct numamma_settings settings;
 
@@ -43,6 +44,7 @@ extern struct numamma_settings settings;
 #define SETTINGS_DUMP_ALL_DEFAULT        0
 #define SETTINGS_DUMP_DEFAULT            0
 #define SETTINGS_DUMP_UNMATCHED_DEFAULT  0
+#define SETTINGS_DUMP_SINGLE_ITEMS       1
 
 extern FILE* dump_file;
 extern FILE* dump_unmatched_file;

@@ -191,6 +191,8 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
   + Dump the samples that did not match a memory object (default: disabled)
   + When this option is enabled, numamma writes the addresses that did not match any memory object in `unmatched_samples.log`.
 
+- `-n` or `--no-no-dump-single-items`
+  + When this option is enabled, do not dump the per callsite summary, per callsite dump, nor per callsite counter (default: disabled)
 
 ### Plotting data
 
