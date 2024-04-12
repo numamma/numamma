@@ -30,7 +30,7 @@ In case of a problem, don't hesitate to contact us !
 
 ## Dependencies
 
-NumaMMa relies on the folowing libraries:
+NumaMMa relies on the following libraries:
 
 - `numactl`
 - `numap`
@@ -129,7 +129,7 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
         58570   0       0       0
         27042   0       42828   0
 ```
-  + this file contains the number of memory accesses to an object. Each line contains the accesses to a page within the object (assuming 4KiB pages), and the columns corresponds to the differents threads.
+  + this file contains the number of memory accesses to an object. Each line contains the accesses to a page within the object (assuming 4KiB pages), and the columns corresponds to the different threads.
 
   
 
@@ -172,7 +172,6 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
 # Total count          :         12040
 # Total weigh          :         0
 # L1 Hit        : 12040 (100.000000 %)  min: 0 cycles   max: 0 cycles    avg: 0 cycles  total weight: 0 (0.000000 %)
-
 ```
 
 - `-m` or `--match-samples[=yes|no]`
@@ -180,7 +179,7 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
   + By default, numamma tried to find the memory object that corresponds to each collected sample. This option can be used in order to reduce the analysis cost.
 
 - `-o` or `--outputdir=dir`
-  + Specify the directory where files are written (default: /tmp/numamma_$USER)
+  + Specify the directory where files are written (default: `/tmp/numamma_$USER`)
 
 - `--online-analysis`
   + Analyze samples at runtime (default: disabled)
@@ -191,7 +190,7 @@ Additionally, `numamma` also generates files in the /tmp/numamma_$USER directory
   + Dump the samples that did not match a memory object (default: disabled)
   + When this option is enabled, numamma writes the addresses that did not match any memory object in `unmatched_samples.log`.
 
-- `-n` or `--no-no-dump-single-items`
+- `-n` or `--no-dump-single-items`
   + When this option is enabled, do not dump the per callsite summary, per callsite dump, nor per callsite counter (default: disabled)
 
 ### Plotting data
@@ -204,7 +203,7 @@ The data produced by NumaMMA at runtime can be plotted using R scripts:
 
 - `plot_timeline`
   + this script takes a `callsite_dump_X.dat` file as a parameter and generates a timeline plot.
-  Example of usage: `plot_timeline -i callsite_dump_1.dat -o callsite_dump_1.png
+  Example of usage: `plot_timeline -i callsite_dump_1.dat -o callsite_dump_1.png`
 
 - `plot_interactive_timeline.py`
   + this script takes a `callsite_dump_X.dat` file as a parameter and generates an interactive timeline plot.
@@ -225,7 +224,7 @@ The data produced by NumaMMA at runtime can be plotted using R scripts:
     and `ma_update_buffer_address` and `ma_record_free` functions;
 - `mem_tools.c`
   + This  file contains  function to do  something with  the backtrace
-    lib. To retreive some information.
+    lib. To retrieve some information.
 - `mem_sampling.c`
   + Provides functions to start / stop mem sampling.
 - `mem_analyzer.c`
@@ -236,7 +235,7 @@ The data produced by NumaMMA at runtime can be plotted using R scripts:
 #### libnuma_run
 
 - `mem_run.c`
-  + This file intercepts calls to pthread/memory functions and modifies their behavior. For instance, it can apply a binding policy on the memory (possibly different binding policies for several objects). [Experimental/buggous].
+  + This file intercepts calls to pthread/memory functions and modifies their behavior. For instance, it can apply a binding policy on the memory (possibly different binding policies for several objects). [Experimental/bogus].
   
   
 ### `tools` folder
